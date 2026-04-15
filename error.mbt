@@ -18,6 +18,7 @@ pub(all) suberror WeslCompileError {
   Parse(String)
   InvalidExpression(String)
   DuplicateSymbol(String)
+  CircularDecl(String)
   MissingDecl(ModulePath, String)
   Private(String, ModulePath)
 }
@@ -29,6 +30,7 @@ pub fn WeslCompileError::message(self : WeslCompileError) -> String {
     Parse(reason) => reason
     InvalidExpression(expr) => "invalid if attribute expression: `\{expr}`"
     DuplicateSymbol(symbol) => "duplicate declaration of `\{symbol}`"
+    CircularDecl(symbol) => "circular declaration of `\{symbol}`"
     MissingDecl(path, item) =>
       "module `\{path.to_string()}` has no declaration `\{item}`"
     Private(item, path) =>

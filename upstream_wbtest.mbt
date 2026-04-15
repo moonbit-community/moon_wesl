@@ -160,11 +160,14 @@ test "upstream: import context cases" {
 }
 
 ///|
-#skip
-test "upstream: circular context cases await cycle diagnostics" {
+test "upstream: circular context cases" {
   for case in upstream_circular_context_cases {
     if upstream_array_contains(upstream_pending_circular_case_names, case.name) {
-      ignore(case)
+      continue
+    }
+    match upstream_assert_context_case(case) {
+      Some(message) => fail(message)
+      None => ()
     }
   }
 }

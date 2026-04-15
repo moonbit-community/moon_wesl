@@ -139,10 +139,20 @@ priv struct ImportItem {
 ///|
 priv struct ModuleItem {
   name : String?
+  kind : ModuleItemKind
   source : String
+  span : SyntaxSpan
   entrypoint : Bool
   is_const_assert : Bool
   references : Array[ModuleItemRef]
+}
+
+///|
+priv enum ModuleItemKind {
+  Alias
+  Const
+  Var
+  Other
 }
 
 ///|
@@ -672,17 +682,53 @@ fn wesl_is_declaration_keyword(name : String) -> Bool {
 }
 
 ///|
+fn wesl_binding_keyword_before(
+  tokens : Array[ParserToken],
+  index : Int,
+) -> String? {
+  if index <= 0 {
+    return None
+  }
+  match tokens[index - 1] {
+    Ident(previous, _, _, _) if wesl_is_declaration_keyword(previous) =>
+      return Some(previous)
+    Gt(_, _, _) => {
+      let mut depth = 1
+      let mut i = index - 2
+      while i >= 0 {
+        match tokens[i] {
+          Gt(_, _, _) => depth += 1
+          Lt(_, _, _) => {
+            depth -= 1
+            if depth == 0 {
+              break
+            }
+          }
+          _ => ()
+        }
+        i -= 1
+      }
+      if i > 0 {
+        match tokens[i - 1] {
+          Ident(previous, _, _, _) if wesl_is_declaration_keyword(previous) =>
+            return Some(previous)
+          _ => ()
+        }
+      }
+    }
+    _ => ()
+  }
+  None
+}
+
+///|
 fn wesl_is_bound_identifier(
   source : String,
   tokens : Array[ParserToken],
   index : Int,
 ) -> Bool {
-  if index > 0 {
-    match tokens[index - 1] {
-      Ident(previous, _, _, _) if wesl_is_declaration_keyword(previous) =>
-        return true
-      _ => ()
-    }
+  if wesl_binding_keyword_before(tokens, index) is Some(_) {
+    return true
   }
   if index + 1 < tokens.length() {
     match tokens[index + 1] {
@@ -845,10 +891,6 @@ fn wesl_collect_item_references(
             }
           }
           index = next_index
-          continue
-        }
-        if item_name is Some(current_item_name) && name == current_item_name {
-          index += 1
           continue
         }
         if wesl_scopes_contain(scopes, scope_depth, name) {
@@ -1076,6 +1118,26 @@ fn wesl_is_used_decl(
 }
 
 ///|
+fn wesl_item_kind(header : GlobalDeclarationHeader) -> ModuleItemKind {
+  match header {
+    Alias(_) => ModuleItemKind::Alias
+    Const(_) => ModuleItemKind::Const
+    Var(_) => ModuleItemKind::Var
+    _ => ModuleItemKind::Other
+  }
+}
+
+///|
+fn wesl_item_has_cycle_semantics(item : ModuleItem) -> Bool {
+  match item.kind {
+    Alias => true
+    Const => true
+    Var => true
+    Other => false
+  }
+}
+
+///|
 fn wesl_module_export_target(
   parsed_module : ParsedModule,
   name : String,
@@ -1216,7 +1278,9 @@ fn[R : Resolver] wesl_load_module(
         }
         parsed_items.push(ModuleItem::{
           name: decl.ident(),
+          kind: wesl_item_kind(decl.header),
           source: decl.source,
+          span: decl.span,
           entrypoint: decl.is_entrypoint(),
           is_const_assert: decl.is_const_assert(),
           references: [],
@@ -1444,7 +1508,9 @@ fn wesl_lower_source(source : String) -> String raise WeslCompileError {
   for decl in parse_global_declarations(source) {
     let parsed = ModuleItem::{
       name: decl.ident(),
+      kind: wesl_item_kind(decl.header),
       source: decl.source,
+      span: decl.span,
       entrypoint: decl.is_entrypoint(),
       is_const_assert: decl.is_const_assert(),
       references: [],
@@ -1495,6 +1561,96 @@ fn wesl_lower_source(source : String) -> String raise WeslCompileError {
     }
   }
   lowered.join("\n\n")
+}
+
+///|
+fn wesl_cycle_reference_target(
+  current_path : ModulePath,
+  parsed_module : ParsedModule,
+  reference : ModuleItemRef,
+  modules : @hashmap.HashMap[ModulePath, ParsedModule],
+) -> (ModulePath, String)? {
+  match reference {
+    Local(name) => Some((current_path, name))
+    Import(_, import_index) =>
+      match wesl_import_named_target(parsed_module.imports[import_index]) {
+        Some((import_path, import_name)) => {
+          let target = wesl_resolve_export_target(
+            import_path, import_name, modules,
+          ) catch {
+            _ => return None
+          }
+          Some(target)
+        }
+        None => None
+      }
+    Qualified(_, target_path, target_name) => {
+      let target = wesl_resolve_export_target(target_path, target_name, modules) catch {
+        _ => return None
+      }
+      Some(target)
+    }
+  }
+}
+
+///|
+fn wesl_validate_decl_cycle(
+  path : ModulePath,
+  name : String,
+  modules : @hashmap.HashMap[ModulePath, ParsedModule],
+  states : @hashmap.HashMap[String, Int],
+) -> Unit raise WeslCompileError {
+  let key = wesl_decl_key(path, name)
+  match states.get(key) {
+    Some(state) =>
+      if state == 1 {
+        guard modules.get(path) is Some(parsed_module) else { return }
+        guard parsed_module.named_items.get(name) is Some(index) else { return }
+        let item = parsed_module.items[index]
+        raise WeslCompileError::CircularDecl(
+          item.span.symbol_context(path, name),
+        )
+      } else {
+        return
+      }
+    None => ()
+  }
+  guard modules.get(path) is Some(parsed_module) else { return }
+  guard parsed_module.named_items.get(name) is Some(index) else { return }
+  let item = parsed_module.items[index]
+  if !wesl_item_has_cycle_semantics(item) {
+    states.set(key, 2)
+    return
+  }
+  states.set(key, 1)
+  for reference in item.references {
+    match wesl_cycle_reference_target(path, parsed_module, reference, modules) {
+      Some((target_path, target_name)) =>
+        ignore(
+          wesl_validate_decl_cycle(target_path, target_name, modules, states),
+        )
+      None => ()
+    }
+  }
+  states.set(key, 2)
+}
+
+///|
+fn wesl_validate_loaded_cycles(
+  order : Array[ModulePath],
+  modules : @hashmap.HashMap[ModulePath, ParsedModule],
+) -> Unit raise WeslCompileError {
+  let states : @hashmap.HashMap[String, Int] = @hashmap.HashMap::new()
+  for path in order {
+    guard modules.get(path) is Some(parsed_module) else { continue }
+    for item in parsed_module.items {
+      guard item.name is Some(name) else { continue }
+      if !wesl_item_has_cycle_semantics(item) {
+        continue
+      }
+      ignore(wesl_validate_decl_cycle(path, name, modules, states))
+    }
+  }
 }
 
 ///|
@@ -1698,6 +1854,7 @@ pub fn[R : Resolver] compile(
   let root_module = wesl_mark_module_used(
     root, resolver, options, modules, order, used_modules, used_decls,
   )
+  wesl_validate_loaded_cycles(order, modules)
   for keep_name in wesl_root_keep_names(root_module, options) {
     ignore(
       wesl_mark_named_decl(

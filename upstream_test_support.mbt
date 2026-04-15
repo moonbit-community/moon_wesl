@@ -27,10 +27,7 @@ let upstream_pending_conditional_case_names : Array[String] = []
 let upstream_pending_import_syntax_case_names : Array[String] = []
 
 ///|
-let upstream_pending_circular_case_names : Array[String] = [
-  "circular-alias", "circular-alias-direct", "circular-alias-indirect", "circular-const",
-  "circular-const-indirect", "circular-alias-const", "circular-var",
-]
+let upstream_pending_circular_case_names : Array[String] = []
 
 ///|
 let upstream_pending_bevy_parse_case_paths : Array[String] = []
