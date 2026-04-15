@@ -105,6 +105,64 @@ fn parser_is_identifier_char(code : Int) -> Bool {
 }
 
 ///|
+fn parser_is_reserved_word(name : String) -> Bool {
+  match name {
+    "alias" => true
+    "await" => true
+    "break" => true
+    "case" => true
+    "common" => true
+    "const" => true
+    "const_assert" => true
+    "continue" => true
+    "continuing" => true
+    "default" => true
+    "diagnostic" => true
+    "discard" => true
+    "else" => true
+    "enable" => true
+    "export" => true
+    "false" => true
+    "fn" => true
+    "for" => true
+    "if" => true
+    "import" => true
+    "let" => true
+    "loop" => true
+    "NULL" => true
+    "of" => true
+    "override" => true
+    "package" => true
+    "requires" => true
+    "return" => true
+    "self" => true
+    "struct" => true
+    "super" => true
+    "switch" => true
+    "true" => true
+    "var" => true
+    "wgsl" => true
+    "while" => true
+    _ => false
+  }
+}
+
+///|
+fn parser_validate_declaration_ident(
+  name : String,
+) -> Unit raise WeslCompileError {
+  if name == "_" {
+    raise WeslCompileError::Parse("invalid declaration identifier `\{name}`")
+  }
+  if name.length() >= 2 && name[:2].to_string() == "__" {
+    raise WeslCompileError::Parse("invalid declaration identifier `\{name}`")
+  }
+  if parser_is_reserved_word(name) {
+    raise WeslCompileError::Parse("invalid declaration identifier `\{name}`")
+  }
+}
+
+///|
 fn parser_lex(source : String) -> Array[ParserToken] {
   let tokens : Array[ParserToken] = []
   let mut index = 0
@@ -674,7 +732,10 @@ fn parser_parse_var_declaration(
     _ => ()
   }
   let name = match current {
-    [Ident(ident_name, _, _, _), ..] => Some(ident_name)
+    [Ident(ident_name, _, _, _), ..] => {
+      parser_validate_declaration_ident(ident_name)
+      Some(ident_name)
+    }
     _ => None
   }
   VarDeclaration::{ name, template_arguments }
@@ -689,24 +750,36 @@ fn parse_global_declaration(
   let item_source = parser_item_source(source, tokens).trim().to_string()
   let (attrs, rest) = parser_parse_attributes(source, tokens)
   let header = match rest {
-    [Ident("fn", _, _, _), Ident(name, _, _, _), ..] =>
+    [Ident("fn", _, _, _), Ident(name, _, _, _), ..] => {
+      parser_validate_declaration_ident(name)
       GlobalDeclarationHeader::Function(FunctionDeclaration::{ name, })
-    [Ident("struct", _, _, _), Ident(name, _, _, _), ..] =>
+    }
+    [Ident("struct", _, _, _), Ident(name, _, _, _), ..] => {
+      parser_validate_declaration_ident(name)
       GlobalDeclarationHeader::Struct(StructDeclaration::{ name, })
-    [Ident("alias", _, _, _), Ident(name, _, _, _), ..] =>
+    }
+    [Ident("alias", _, _, _), Ident(name, _, _, _), ..] => {
+      parser_validate_declaration_ident(name)
       GlobalDeclarationHeader::Alias(AliasDeclaration::{
         name,
         target: parser_slice_after_top_level_eq(source, tokens),
       })
-    [Ident("const", _, _, _), Ident(name, _, _, _), ..] =>
+    }
+    [Ident("const", _, _, _), Ident(name, _, _, _), ..] => {
+      parser_validate_declaration_ident(name)
       GlobalDeclarationHeader::Const(ConstDeclaration::{
         name,
         initializer: parser_slice_after_top_level_eq(source, tokens),
       })
-    [Ident("override", _, _, _), Ident(name, _, _, _), ..] =>
+    }
+    [Ident("override", _, _, _), Ident(name, _, _, _), ..] => {
+      parser_validate_declaration_ident(name)
       GlobalDeclarationHeader::Override(OverrideDeclaration::{ name, })
-    [Ident("let", _, _, _), Ident(name, _, _, _), ..] =>
+    }
+    [Ident("let", _, _, _), Ident(name, _, _, _), ..] => {
+      parser_validate_declaration_ident(name)
       GlobalDeclarationHeader::Let(LetDeclaration::{ name, })
+    }
     [Ident("var", _, _, _), .. rest] =>
       GlobalDeclarationHeader::Var(parser_parse_var_declaration(source, rest))
     [Ident("const_assert", _, _, _), ..] => GlobalDeclarationHeader::ConstAssert

@@ -14,7 +14,6 @@
 
 ///|
 let upstream_pending_spec_declaration_case_names : Array[String] = [
-  "ident-disallow-reserved-words",
 ]
 
 ///|
