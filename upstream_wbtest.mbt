@@ -68,6 +68,77 @@ fn upstream_assert_eval_case(case : UpstreamEvalSpecCase) -> String? {
 }
 
 ///|
+fn upstream_assert_standalone_compile_result(
+  case_name : String,
+  path : String,
+  source : String,
+) -> String? {
+  let resolver = VirtualResolver::new()
+  let root_path = upstream_fixture_module_path(path)
+  resolver.add_module(root_path, source)
+  let result = try? compile(
+    root_path,
+    resolver,
+    EscapeMangler::default(),
+    CompileOptions::default().with_keep_root(true),
+  )
+  match result {
+    Ok(compiled) =>
+      if compiled.to_string().trim().to_string() == "" {
+        Some("\{case_name}: expected non-empty compiled output")
+      } else {
+        None
+      }
+    Err(err) => Some("\{case_name}: expected compile success, got \{err.message()}")
+  }
+}
+
+///|
+fn upstream_assert_bulk_case(case : UpstreamBulkCase) -> String? {
+  if case.name.trim().to_string() == "" {
+    return Some("bulk case metadata: expected non-empty case name")
+  }
+  if case.base_dir.trim().to_string() == "" {
+    return Some("\{case.name}: expected non-empty base_dir")
+  }
+  if case.include_paths.length() == 0 {
+    return Some("\{case.name}: expected at least one include path")
+  }
+  match (case.git_url, case.git_revision) {
+    (Some(url), Some(revision)) => {
+      if url.trim().to_string() == "" {
+        return Some("\{case.name}: expected non-empty git_url")
+      }
+      if revision.trim().to_string() == "" {
+        return Some("\{case.name}: expected non-empty git_revision")
+      }
+    }
+    (None, None) => ()
+    _ =>
+      return Some(
+        "\{case.name}: expected git_url and git_revision to be both present or both absent",
+      )
+  }
+  for path in case.include_paths {
+    if path.trim().to_string() == "" {
+      return Some("\{case.name}: include path must not be empty")
+    }
+    if !upstream_is_shader_path(path) {
+      return Some("\{case.name}: include path must point to a shader fixture: \{path}")
+    }
+  }
+  for path in case.exclude_paths {
+    if path.trim().to_string() == "" {
+      return Some("\{case.name}: exclude path must not be empty")
+    }
+    if !upstream_is_shader_path(path) {
+      return Some("\{case.name}: exclude path must point to a shader fixture: \{path}")
+    }
+  }
+  None
+}
+
+///|
 fn upstream_assert_context_case(case : UpstreamContextCase) -> String? {
   let resolver = VirtualResolver::new()
   let root_path = ModulePath::from_path("/main.wgsl")
@@ -272,18 +343,26 @@ test "upstream: dead code cases compile against vendored corpus" {
 }
 
 ///|
-#skip
-test "upstream: bulk validation metadata is vendored for future external corpus runs" {
+test "upstream: bulk validation metadata is internally consistent" {
   for case in upstream_bulk_cases {
-    ignore(case)
+    match upstream_assert_bulk_case(case) {
+      Some(message) => fail(message)
+      None => ()
+    }
   }
 }
 
 ///|
-#skip
-test "upstream: ctor coverage is vendored for future validator parity" {
+test "upstream: ctor coverage fixture compiles through current validator slice" {
   for case in upstream_ctor_coverage_cases {
-    ignore(case)
+    match upstream_assert_standalone_compile_result(
+      case.path,
+      case.path,
+      case.source,
+    ) {
+      Some(message) => fail(message)
+      None => ()
+    }
   }
 }
 
