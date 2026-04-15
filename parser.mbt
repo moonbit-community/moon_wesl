@@ -105,6 +105,11 @@ fn parser_is_identifier_char(code : Int) -> Bool {
 }
 
 ///|
+fn parser_is_digit(code : Int) -> Bool {
+  code >= 48 && code <= 57
+}
+
+///|
 fn parser_is_reserved_word(name : String) -> Bool {
   match name {
     "alias" => true
@@ -159,6 +164,71 @@ fn parser_validate_declaration_ident(
   }
   if parser_is_reserved_word(name) {
     raise WeslCompileError::Parse("invalid declaration identifier `\{name}`")
+  }
+}
+
+///|
+fn parse_expression(source : String) -> Unit raise WeslCompileError {
+  let expr = source.trim().to_string()
+  if expr == "" {
+    raise WeslCompileError::Parse("empty expression")
+  }
+  let mut index = 0
+  if expr.code_unit_at(index).to_int() == 45 {
+    index += 1
+  }
+  if index >= expr.length() ||
+    !parser_is_digit(expr.code_unit_at(index).to_int()) {
+    raise WeslCompileError::Parse("unsupported expression syntax: `\{expr}`")
+  }
+  let digit_start = index
+  while index < expr.length() &&
+        parser_is_digit(expr.code_unit_at(index).to_int()) {
+    index += 1
+  }
+  let has_leading_zero = index - digit_start > 1 &&
+    expr.code_unit_at(digit_start).to_int() == 48
+  if index == expr.length() {
+    if has_leading_zero {
+      raise WeslCompileError::Parse("invalid numeric literal: `\{expr}`")
+    }
+    return
+  }
+  match expr.code_unit_at(index).to_int() {
+    46 => { // '.'
+      index += 1
+      if index >= expr.length() ||
+        !parser_is_digit(expr.code_unit_at(index).to_int()) {
+        raise WeslCompileError::Parse(
+          "unsupported expression syntax: `\{expr}`",
+        )
+      }
+      while index < expr.length() &&
+            parser_is_digit(expr.code_unit_at(index).to_int()) {
+        index += 1
+      }
+      if index < expr.length() && expr.code_unit_at(index).to_int() == 102 {
+        index += 1
+      }
+      if index != expr.length() {
+        raise WeslCompileError::Parse(
+          "unsupported expression syntax: `\{expr}`",
+        )
+      }
+    }
+    117 => { // 'u'
+      if has_leading_zero {
+        raise WeslCompileError::Parse("invalid numeric literal: `\{expr}`")
+      }
+      index += 1
+      if index != expr.length() {
+        raise WeslCompileError::Parse(
+          "unsupported expression syntax: `\{expr}`",
+        )
+      }
+    }
+    _ =>
+      raise WeslCompileError::Parse("unsupported expression syntax: `\{expr}`")
   }
 }
 

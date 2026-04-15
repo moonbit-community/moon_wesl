@@ -30,6 +30,22 @@ fn upstream_assert_parse_result(
 }
 
 ///|
+fn upstream_assert_expression_parse_result(
+  case_name : String,
+  source : String,
+  expect_pass : Bool,
+) -> String? {
+  let result = try? parse_expression(source)
+  match (expect_pass, result) {
+    (true, Ok(_)) => None
+    (false, Err(_)) => None
+    (true, Err(err)) =>
+      Some("\{case_name}: expected parse success, got \{err.message()}")
+    (false, Ok(_)) => Some("\{case_name}: expected parse failure")
+  }
+}
+
+///|
 fn upstream_assert_context_case(case : UpstreamContextCase) -> String? {
   let resolver = VirtualResolver::new()
   let root_path = ModulePath::from_path("/main.wgsl")
@@ -116,11 +132,18 @@ test "upstream: spec declaration syntax cases parse at translation-unit level" {
 }
 
 ///|
-#skip
-test "upstream: spec expression syntax cases await expression parser parity" {
+test "upstream: spec expression syntax cases" {
   for case in upstream_spec_syntax_cases {
     if case.syntax_kind == "expression" {
-      ignore(case)
+      match
+        upstream_assert_expression_parse_result(
+          case.name,
+          case.code,
+          case.expect_pass,
+        ) {
+        Some(message) => fail(message)
+        None => ()
+      }
     }
   }
 }
