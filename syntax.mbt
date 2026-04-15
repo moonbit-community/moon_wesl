@@ -84,8 +84,9 @@ fn ImportNode::is_leaf(self : ImportNode) -> Bool {
 
 ///|
 priv struct ImportedName {
-  module_path : ModulePath
-  item_name : String
+  export_module_path : ModulePath?
+  export_name : String?
+  namespace_path : ModulePath
   local_name : String
 }
 
@@ -112,6 +113,11 @@ fn syntax_resolve_import_module_path(
   let raw_module_path = parse_module_path(module_path_text.trim().to_string()) catch {
     err => raise WeslCompileError::Parse(err.message())
   }
+  match raw_module_path.origin {
+    Package(name) if raw_module_path.components.is_empty() =>
+      return ModulePath::new(Absolute, [name])
+    _ => ()
+  }
   current_path.join_path(raw_module_path)
 }
 
@@ -125,13 +131,34 @@ fn syntax_flatten_import_node(
 ) -> Unit raise WeslCompileError {
   let full_path = syntax_concat_segments(prefix, node.path_segments)
   if node.is_leaf() {
-    if full_path.length() < 2 {
+    if full_path.length() == 0 {
       raise WeslCompileError::Parse(
-        "import path must include a module and item (\{context})",
+        "import path must include a module or item (\{context})",
       )
     }
+    let namespace_path = syntax_resolve_import_module_path(
+      current_path,
+      full_path.join("::"),
+    ) catch {
+      Parse(reason) => raise WeslCompileError::Parse("\{reason} (\{context})")
+      err => raise err
+    }
+    if namespace_path.components.length() == 0 {
+      raise WeslCompileError::Parse(
+        "import path must include a module name (\{context})",
+      )
+    }
+    if full_path.length() == 1 {
+      items.push(ImportedName::{
+        export_module_path: None,
+        export_name: None,
+        namespace_path,
+        local_name: node.rename.unwrap_or(full_path[0]),
+      })
+      return
+    }
     let item_name = full_path[full_path.length() - 1]
-    let module_path = syntax_resolve_import_module_path(
+    let export_module_path = syntax_resolve_import_module_path(
       current_path,
       full_path[:full_path.length() - 1].join("::"),
     ) catch {
@@ -139,8 +166,9 @@ fn syntax_flatten_import_node(
       err => raise err
     }
     items.push(ImportedName::{
-      module_path,
-      item_name,
+      export_module_path: Some(export_module_path),
+      export_name: Some(item_name),
+      namespace_path,
       local_name: node.rename.unwrap_or(item_name),
     })
     return

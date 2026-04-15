@@ -127,8 +127,9 @@ pub fn CompileResult::to_string(self : CompileResult) -> String {
 
 ///|
 priv struct ImportItem {
-  module_path : ModulePath
-  item_name : String
+  export_module_path : ModulePath?
+  export_name : String?
+  namespace_path : ModulePath
   local_name : String
   public : Bool
   start_line : Int
@@ -148,6 +149,7 @@ priv struct ModuleItem {
 enum ModuleItemRef {
   Local(String)
   Import(String, Int)
+  Qualified(String, ModulePath, String)
 } derive(Eq)
 
 ///|
@@ -453,59 +455,154 @@ fn wesl_push_unique_item_ref(
 }
 
 ///|
-fn wesl_is_identifier_start(code : Int) -> Bool {
-  (code >= 65 && code <= 90) || (code >= 97 && code <= 122) || code == 95
+fn wesl_resolve_module_path(
+  current_path : ModulePath,
+  module_path_text : String,
+) -> ModulePath raise WeslCompileError {
+  let raw_module_path = parse_module_path(module_path_text.trim().to_string()) catch {
+    err => raise WeslCompileError::Parse(err.message())
+  }
+  match raw_module_path.origin {
+    Package(name) if raw_module_path.components.is_empty() =>
+      return ModulePath::new(Absolute, [name])
+    _ => ()
+  }
+  current_path.join_path(raw_module_path)
 }
 
 ///|
-fn wesl_collect_identifiers(source : String) -> Array[String] {
-  let tokens : Array[String] = []
-  let mut index = 0
-  let mut in_line_comment = false
-  while index < source.length() {
-    let code = source.code_unit_at(index).to_int()
-    if in_line_comment {
-      if code == 10 {
-        in_line_comment = false
-      }
-      index = index + 1
-      continue
-    }
-    if code == 47 &&
-      index + 1 < source.length() &&
-      source.code_unit_at(index + 1).to_int() == 47 {
-      in_line_comment = true
-      index = index + 2
-      continue
-    }
-    if code == 64 { // '@'
-      index = index + 1
-      while index < source.length() &&
-            wesl_is_identifier_char(source.code_unit_at(index).to_int()) {
-        index = index + 1
-      }
-      continue
-    }
-    if wesl_is_identifier_start(code) {
-      let prev_code = if index == 0 {
-        -1
-      } else {
-        source.code_unit_at(index - 1).to_int()
-      }
-      let start = index
-      index = index + 1
-      while index < source.length() &&
-            wesl_is_identifier_char(source.code_unit_at(index).to_int()) {
-        index = index + 1
-      }
-      if prev_code != 46 { // '.'
-        wesl_push_unique(tokens, source[start:index].to_string())
-      }
-      continue
-    }
-    index = index + 1
+fn wesl_slice_segments(
+  segments : Array[String],
+  start : Int,
+  end_ : Int,
+) -> Array[String] {
+  let out : Array[String] = []
+  for i = start; i < end_; i = i + 1 {
+    out.push(segments[i])
   }
-  tokens
+  out
+}
+
+///|
+fn wesl_extend_module_path(
+  base_path : ModulePath,
+  extra_segments : Array[String],
+) -> ModulePath raise WeslCompileError {
+  if extra_segments.is_empty() {
+    return base_path
+  }
+  let suffix = extra_segments.join("::")
+  let full_path = "\{base_path.to_string()}::\{suffix}"
+  parse_module_path(full_path) catch {
+    err => raise WeslCompileError::Parse(err.message())
+  }
+}
+
+///|
+fn wesl_token_text(source : String, token : ParserToken) -> String {
+  source[token.start():token.end()].to_string()
+}
+
+///|
+fn wesl_is_declaration_keyword(name : String) -> Bool {
+  name == "fn" ||
+  name == "struct" ||
+  name == "alias" ||
+  name == "const" ||
+  name == "override" ||
+  name == "let" ||
+  name == "var"
+}
+
+///|
+fn wesl_is_bound_identifier(
+  source : String,
+  tokens : Array[ParserToken],
+  index : Int,
+) -> Bool {
+  if index > 0 {
+    match tokens[index - 1] {
+      Ident(previous, _, _, _) if wesl_is_declaration_keyword(previous) =>
+        return true
+      _ => ()
+    }
+  }
+  if index + 1 < tokens.length() {
+    match tokens[index + 1] {
+      Other(_, _, _) => wesl_token_text(source, tokens[index + 1]) == ":"
+      _ => false
+    }
+  } else {
+    false
+  }
+}
+
+///|
+fn wesl_collect_qualified_segments(
+  source : String,
+  tokens : Array[ParserToken],
+  start_index : Int,
+) -> (Array[String], String, Int) {
+  let segments : Array[String] = []
+  let start_offset = tokens[start_index].start()
+  let mut end_offset = tokens[start_index].end()
+  let mut index = start_index
+  while index < tokens.length() {
+    match tokens[index] {
+      Ident(segment, _, end_, _) => {
+        segments.push(segment)
+        end_offset = end_
+        index += 1
+      }
+      _ => break
+    }
+    if index + 1 < tokens.length() &&
+      tokens[index] is DoubleColon(_, _, _) &&
+      tokens[index + 1] is Ident(_, _, _, _) {
+      index += 1
+      continue
+    }
+    break
+  }
+  (segments, source[start_offset:end_offset].to_string(), index)
+}
+
+///|
+fn wesl_resolve_qualified_import_target(
+  import_item : ImportItem,
+  segments : Array[String],
+) -> (ModulePath, String) raise WeslCompileError {
+  let item_name = segments[segments.length() - 1]
+  let module_path = wesl_extend_module_path(
+    import_item.namespace_path,
+    wesl_slice_segments(segments, 1, segments.length() - 1),
+  )
+  (module_path, item_name)
+}
+
+///|
+fn wesl_resolve_direct_qualified_target(
+  current_path : ModulePath,
+  segments : Array[String],
+) -> (ModulePath, String) raise WeslCompileError {
+  let item_name = segments[segments.length() - 1]
+  let module_path = wesl_resolve_module_path(
+    current_path,
+    wesl_slice_segments(segments, 0, segments.length() - 1).join("::"),
+  )
+  (module_path, item_name)
+}
+
+///|
+fn wesl_import_named_target(import_item : ImportItem) -> (ModulePath, String)? {
+  match import_item.export_module_path {
+    Some(export_module_path) =>
+      match import_item.export_name {
+        Some(export_name) => Some((export_module_path, export_name))
+        None => None
+      }
+    None => None
+  }
 }
 
 ///|
@@ -514,24 +611,80 @@ fn wesl_collect_item_references(
   item_name : String?,
   named_items : @hashmap.HashMap[String, Int],
   import_by_local : @hashmap.HashMap[String, Int],
+  imports : Array[ImportItem],
+  current_path : ModulePath,
 ) -> Array[ModuleItemRef] {
   let references : Array[ModuleItemRef] = []
-  for token in wesl_collect_identifiers(source) {
-    if item_name is Some(name) && token == name {
-      continue
-    }
-    if named_items.contains(token) {
-      wesl_push_unique_item_ref(references, ModuleItemRef::Local(token))
-    } else {
-      match import_by_local.get(token) {
-        Some(import_index) =>
-          wesl_push_unique_item_ref(
-            references,
-            ModuleItemRef::Import(token, import_index),
+  let tokens = parser_lex(source)
+  let mut index = 0
+  while index < tokens.length() {
+    match tokens[index] {
+      Ident(name, _, _, _) => {
+        if index + 1 < tokens.length() &&
+          tokens[index + 1] is DoubleColon(_, _, _) {
+          let (segments, raw_text, next_index) = wesl_collect_qualified_segments(
+            source,
+            tokens,
+            index,
           )
-        None => ()
+          if segments.length() >= 2 {
+            match import_by_local.get(segments[0]) {
+              Some(import_index) => {
+                let (target_path, target_name) = wesl_resolve_qualified_import_target(
+                    imports[import_index],
+                    segments,
+                  ) catch {
+                    _ => (imports[import_index].namespace_path, segments[segments.length() - 1])
+                  }
+                wesl_push_unique_item_ref(
+                  references,
+                  ModuleItemRef::Qualified(raw_text, target_path, target_name),
+                )
+              }
+              None =>
+                if segments[0] == "package" ||
+                  segments[0] == "self" ||
+                  segments[0] == "super" {
+                  let (target_path, target_name) = wesl_resolve_direct_qualified_target(
+                      current_path,
+                      segments,
+                    ) catch {
+                      _ => (current_path, segments[segments.length() - 1])
+                    }
+                  wesl_push_unique_item_ref(
+                    references,
+                    ModuleItemRef::Qualified(raw_text, target_path, target_name),
+                  )
+                }
+            }
+          }
+          index = next_index
+          continue
+        }
+        if !wesl_is_bound_identifier(source, tokens, index) {
+          if item_name is Some(current_item_name) && name == current_item_name {
+            index += 1
+            continue
+          }
+          if named_items.contains(name) {
+            wesl_push_unique_item_ref(references, ModuleItemRef::Local(name))
+          } else {
+            match import_by_local.get(name) {
+              Some(import_index) =>
+                if wesl_import_named_target(imports[import_index]) is Some(_) {
+                  wesl_push_unique_item_ref(
+                    references,
+                    ModuleItemRef::Import(name, import_index),
+                  )
+                }
+              None => ()
+            }
+          }
+        }
       }
+      _ => ()
     }
+    index += 1
   }
   references
 }
@@ -576,6 +729,39 @@ fn wesl_replace_identifier(
 }
 
 ///|
+fn wesl_replace_reference_identifier(
+  source : String,
+  old_name : String,
+  new_name : String,
+) -> String {
+  if old_name == new_name || old_name == "" {
+    return source
+  }
+  let tokens = parser_lex(source)
+  let mut out = ""
+  let mut previous_end = 0
+  for i in 0..<tokens.length() {
+    let token = tokens[i]
+    let start = token.start()
+    let end_ = token.end()
+    if previous_end < start {
+      out = out + source[previous_end:start].to_string()
+    }
+    match token {
+      Ident(name, _, _, _) if name == old_name &&
+        !wesl_is_bound_identifier(source, tokens, i) =>
+        out = out + new_name
+      _ => out = out + source[start:end_].to_string()
+    }
+    previous_end = end_
+  }
+  if previous_end < source.length() {
+    out = out + source[previous_end:source.length()].to_string()
+  }
+  out
+}
+
+///|
 fn wesl_decl_key(path : ModulePath, name : String) -> String {
   "\{path.to_string()}::\{name}"
 }
@@ -599,7 +785,8 @@ fn wesl_module_export_target(
     None =>
       match parsed_module.import_by_local.get(name) {
         Some(index) =>
-          if parsed_module.imports[index].public {
+          if parsed_module.imports[index].public &&
+            wesl_import_named_target(parsed_module.imports[index]) is Some(_) {
             ExportTarget::ReExport(parsed_module.imports[index])
           } else {
             ExportTarget::Private
@@ -621,13 +808,48 @@ fn wesl_resolve_export_target(
   match wesl_module_export_target(parsed_module, name) {
     ExportTarget::Local(_) => (path, name)
     ExportTarget::ReExport(import_item) =>
-      wesl_resolve_export_target(
-        import_item.module_path,
-        import_item.item_name,
-        modules,
-      )
+      match wesl_import_named_target(import_item) {
+        Some((import_path, import_name)) =>
+          wesl_resolve_export_target(import_path, import_name, modules)
+        None => raise WeslCompileError::MissingDecl(path, name)
+      }
     ExportTarget::Private => raise WeslCompileError::Private(name, path)
     ExportTarget::Missing => raise WeslCompileError::MissingDecl(path, name)
+  }
+}
+
+///|
+fn[R : Resolver] wesl_preload_import_item(
+  import_item : ImportItem,
+  resolver : R,
+  options : CompileOptions,
+  modules : @hashmap.HashMap[ModulePath, ParsedModule],
+  order : Array[ModulePath],
+) -> Unit raise WeslCompileError {
+  let mut missing_named_target : (ModulePath, String)? = None
+  match wesl_import_named_target(import_item) {
+    Some((import_path, import_name)) =>
+      match (try? wesl_load_module(import_path, resolver, options, modules, order)) {
+        Ok(loaded) =>
+          match wesl_module_export_target(loaded, import_name) {
+            ExportTarget::Local(_) => return
+            ExportTarget::ReExport(_) => return
+            ExportTarget::Private =>
+              raise WeslCompileError::Private(import_name, loaded.path)
+            ExportTarget::Missing =>
+              missing_named_target = Some((loaded.path, import_name))
+          }
+        Err(_) => ()
+      }
+    None => ()
+  }
+  ignore(wesl_load_module(import_item.namespace_path, resolver, options, modules, order)) catch {
+    err =>
+      match missing_named_target {
+        Some((missing_path, missing_name)) =>
+          raise WeslCompileError::MissingDecl(missing_path, missing_name)
+        None => raise err
+      }
   }
 }
 
@@ -661,8 +883,9 @@ fn[R : Resolver] wesl_load_module(
       for statement in translation_unit.imports {
         for imported_name in statement.flatten_items(path) {
           imports.push(ImportItem::{
-            module_path: imported_name.module_path,
-            item_name: imported_name.item_name,
+            export_module_path: imported_name.export_module_path,
+            export_name: imported_name.export_name,
+            namespace_path: imported_name.namespace_path,
             local_name: imported_name.local_name,
             public: statement.is_public(),
             start_line: statement.span.start_line,
@@ -711,6 +934,8 @@ fn[R : Resolver] wesl_load_module(
           parsed.name,
           named_items,
           import_by_local,
+          imports,
+          path,
         )
         parsed_items[i] = ModuleItem::{ ..parsed, references, }
       }
@@ -725,27 +950,11 @@ fn[R : Resolver] wesl_load_module(
       order.push(path)
       if options.imports && (!options.strip || !options.lazy_resolution) {
         for import_item in parsed_module.imports {
-          let loaded = wesl_load_module(
-            import_item.module_path,
-            resolver,
-            options,
-            modules,
-            order,
+          ignore(
+            wesl_preload_import_item(
+              import_item, resolver, options, modules, order,
+            ),
           )
-          match wesl_module_export_target(loaded, import_item.item_name) {
-            ExportTarget::Local(_) => ()
-            ExportTarget::ReExport(_) => ()
-            ExportTarget::Private =>
-              raise WeslCompileError::Private(
-                import_item.item_name,
-                loaded.path,
-              )
-            ExportTarget::Missing =>
-              raise WeslCompileError::MissingDecl(
-                loaded.path,
-                import_item.item_name,
-              )
-          }
         }
       }
       parsed_module
@@ -813,18 +1022,22 @@ fn[R : Resolver] wesl_mark_named_decl(
     }
     ExportTarget::ReExport(import_item) => {
       used_decls.set(key, true)
-      ignore(
-        wesl_mark_named_decl(
-          import_item.module_path,
-          import_item.item_name,
-          resolver,
-          options,
-          modules,
-          order,
-          used_modules,
-          used_decls,
-        ),
-      )
+      match wesl_import_named_target(import_item) {
+        Some((import_path, import_name)) =>
+          ignore(
+            wesl_mark_named_decl(
+              import_path,
+              import_name,
+              resolver,
+              options,
+              modules,
+              order,
+              used_modules,
+              used_decls,
+            ),
+          )
+        None => ()
+      }
     }
     ExportTarget::Private => raise WeslCompileError::Private(name, path)
     ExportTarget::Missing => raise WeslCompileError::MissingDecl(path, name)
@@ -886,19 +1099,24 @@ fn[R : Resolver] wesl_mark_item_refs(
         )
       ModuleItemRef::Import(_, import_index) => {
         let import_item = parsed_module.imports[import_index]
+        match wesl_import_named_target(import_item) {
+          Some((import_path, import_name)) =>
+            ignore(
+              wesl_mark_named_decl(
+                import_path, import_name, resolver, options, modules, order, used_modules,
+                used_decls,
+              ),
+            )
+          None => ()
+        }
+      }
+      ModuleItemRef::Qualified(_, target_path, target_name) =>
         ignore(
           wesl_mark_named_decl(
-            import_item.module_path,
-            import_item.item_name,
-            resolver,
-            options,
-            modules,
-            order,
-            used_modules,
+            target_path, target_name, resolver, options, modules, order, used_modules,
             used_decls,
           ),
         )
-      }
     }
   }
 }
@@ -991,19 +1209,28 @@ fn wesl_emit_item_source(
     match reference {
       ModuleItemRef::Import(import_ref, import_index) => {
         let import_item = parsed_module.imports[import_index]
-        let (target_path, target_name) = wesl_resolve_export_target(
-          import_item.module_path,
-          import_item.item_name,
-          modules,
-        ) catch {
-          _ => (import_item.module_path, import_item.item_name)
+        match wesl_import_named_target(import_item) {
+          Some((import_path, import_name)) => {
+            let (target_path, target_name) = wesl_resolve_export_target(
+              import_path, import_name, modules,
+            ) catch {
+              _ => (import_path, import_name)
+            }
+            current = wesl_replace_reference_identifier(
+              current,
+              import_ref,
+              EscapeMangler::mangle(mangler, target_path, target_name),
+            )
+          }
+          None => ()
         }
+      }
+      ModuleItemRef::Qualified(qualified_ref, target_path, target_name) =>
         current = wesl_replace_identifier(
           current,
-          import_ref,
+          qualified_ref,
           EscapeMangler::mangle(mangler, target_path, target_name),
         )
-      }
       ModuleItemRef::Local(_) => ()
     }
   }
@@ -1042,8 +1269,27 @@ fn wesl_emit_module(
   guard modules.get(path) is Some(parsed_module) else { return }
   if !options.strip || !options.lazy_resolution {
     for import_item in parsed_module.imports {
+      match wesl_import_named_target(import_item) {
+        Some((import_path, import_name)) =>
+          match (try? wesl_resolve_export_target(import_path, import_name, modules)) {
+            Ok((target_path, _)) =>
+              wesl_emit_module(
+                target_path,
+                root,
+                modules,
+                used_modules,
+                used_decls,
+                emitted,
+                parts,
+                mangler,
+                options,
+              )
+            Err(_) => ()
+          }
+        None => ()
+      }
       wesl_emit_module(
-        import_item.module_path,
+        import_item.namespace_path,
         root,
         modules,
         used_modules,
@@ -1062,17 +1308,25 @@ fn wesl_emit_module(
           parsed_module.path,
           import_item.local_name,
         ) {
-        wesl_emit_module(
-          import_item.module_path,
-          root,
-          modules,
-          used_modules,
-          used_decls,
-          emitted,
-          parts,
-          mangler,
-          options,
-        )
+        match wesl_import_named_target(import_item) {
+          Some((import_path, import_name)) =>
+            match (try? wesl_resolve_export_target(import_path, import_name, modules)) {
+              Ok((target_path, _)) =>
+                wesl_emit_module(
+                  target_path,
+                  root,
+                  modules,
+                  used_modules,
+                  used_decls,
+                  emitted,
+                  parts,
+                  mangler,
+                  options,
+                )
+              Err(_) => ()
+            }
+          None => ()
+        }
       }
     }
     for item in parsed_module.items {
@@ -1086,8 +1340,28 @@ fn wesl_emit_module(
       for reference in item.references {
         match reference {
           ModuleItemRef::Import(_, import_index) =>
+            match wesl_import_named_target(parsed_module.imports[import_index]) {
+              Some((import_path, import_name)) =>
+                match (try? wesl_resolve_export_target(import_path, import_name, modules)) {
+                  Ok((target_path, _)) =>
+                    wesl_emit_module(
+                      target_path,
+                      root,
+                      modules,
+                      used_modules,
+                      used_decls,
+                      emitted,
+                      parts,
+                      mangler,
+                      options,
+                    )
+                  Err(_) => ()
+                }
+              None => ()
+            }
+          ModuleItemRef::Qualified(_, target_path, _) =>
             wesl_emit_module(
-              parsed_module.imports[import_index].module_path,
+              target_path,
               root,
               modules,
               used_modules,

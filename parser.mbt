@@ -405,31 +405,12 @@ fn parser_parse_import_segment(
   source : String,
   view : ArrayView[ParserToken],
 ) -> (String, ArrayView[ParserToken]) raise WeslCompileError {
-  let mut start_offset = -1
-  let mut end_offset = -1
-  let mut consumed_any = false
-  let rest = for current = view {
-    match current {
-      [DoubleColon(_, _, _), ..] => break current
-      [Comma(_, _, _), ..] => break current
-      [Semi(_, _, _), ..] => break current
-      [RBrace(_, _, _), ..] => break current
-      [Ident("as", _, _, _), ..] if consumed_any => break current
-      [token, .. rest] => {
-        if !consumed_any {
-          start_offset = token.start()
-        }
-        end_offset = token.end()
-        consumed_any = true
-        continue rest
-      }
-      [] => break []
-    }
+  match view {
+    [Ident("as", _, _, _), ..] =>
+      raise WeslCompileError::Parse("expected import path segment")
+    [Ident(segment, _, _, _), .. rest] => (segment, rest)
+    _ => raise WeslCompileError::Parse("expected import path segment")
   }
-  if !consumed_any {
-    raise WeslCompileError::Parse("expected import path segment")
-  }
-  (parser_trim_source_slice(source, start_offset, end_offset), rest)
 }
 
 ///|
@@ -439,7 +420,7 @@ fn parser_parse_import_group(
   entries : Array[ImportNode],
 ) -> ArrayView[ParserToken] raise WeslCompileError {
   if view is [RBrace(_, _, _), ..] {
-    return view
+    raise WeslCompileError::Parse("import group must not be empty")
   }
   let mut current = view
   while true {
@@ -550,6 +531,22 @@ fn parser_parse_import_statement(
   }
   let items : Array[ImportNode] = []
   let mut current = after_import
+  match current {
+    [LBrace(_, _, _), .. rest] => {
+      let inner_rest = parser_parse_import_group(source, rest, items) catch {
+        Parse(reason) => raise WeslCompileError::Parse("\{reason} (\{context})")
+        err => raise err
+      }
+      current = match inner_rest {
+        [RBrace(_, _, _), .. tail] => tail
+        _ =>
+          raise WeslCompileError::Parse(
+            "unsupported import statement (\{context}): \{item_source}",
+          )
+      }
+    }
+    _ => ()
+  }
   while true {
     match current {
       [Semi(_, _, _), ..] => break
@@ -576,7 +573,14 @@ fn parser_parse_import_statement(
         )
     }
   }
-  ImportStatement::{ span, attributes: attrs, entries: items }
+  if items.is_empty() {
+    raise WeslCompileError::Parse(
+      "unsupported import statement (\{context}): \{item_source}",
+    )
+  }
+  let statement = ImportStatement::{ span, attributes: attrs, entries: items }
+  ignore(statement.flatten_items(current_path))
+  statement
 }
 
 ///|

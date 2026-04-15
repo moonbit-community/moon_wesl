@@ -18,12 +18,7 @@ let upstream_pending_spec_declaration_case_names : Array[String] = [
 ]
 
 ///|
-let upstream_pending_import_case_names : Array[String] = [
-  "fn call with a separator", "inline package reference", "inline super:: reference",
-  "import super::file1", "declaration after subscope", "uninitialized override",
-  "import var with struct type", "import var<private> with struct type", "const_asserts in used modules are included",
-  "const_asserts in unused modules are not included",
-]
+let upstream_pending_import_case_names : Array[String] = []
 
 ///|
 let upstream_pending_conditional_case_names : Array[String] = [
@@ -47,13 +42,7 @@ let upstream_pending_conditional_case_names : Array[String] = [
 ]
 
 ///|
-let upstream_pending_import_syntax_case_names : Array[String] = [
-  "import", "import;", "import foo", "import super;", "import super::;", "import super::super;",
-  "import {};", "import { foo};", "import {foo, {bar}};", "import { foo } as bar;",
-  "import {a::b as c, d};", "import {a::b as c, d::{ e }, f};", "import foo::{};",
-  "import foo::a as b::b;", "import foo::as::b;", "import foo::super::bar::baz;",
-  "import foo::bee as boo::bar;",
-]
+let upstream_pending_import_syntax_case_names : Array[String] = []
 
 ///|
 let upstream_pending_circular_case_names : Array[String] = [
