@@ -21,25 +21,7 @@ let upstream_pending_spec_declaration_case_names : Array[String] = [
 let upstream_pending_import_case_names : Array[String] = []
 
 ///|
-let upstream_pending_conditional_case_names : Array[String] = [
-  "@if on diagnostic directive", "@if on enable directive", "@if on requires directive",
-  "@if on global const declaration", "@if on global override declaration", "@if on global variable declaration",
-  "@if on function const declaration", "@if on function variable declaration", "@if on type alias",
-  "@if on module-scope const_assert", "@if on function declaration", "@if on function formal parameter",
-  "@if on structure declaration", "@if on structure member", "@if on compound statement",
-  "@if on assignment statement", "@if on increment statement", "@if on decrement statement",
-  "@if on if statement", "@if on switch statement", "@if on switch clause", "@if on loop statement",
-  "@if on for statement", "@if on while statement", "@if on break statement", "@if on break-if statement",
-  "@if on continue statement", "@if on continuing statement", "@if on return statement",
-  "@if on discard statement", "@if on call statement", "@if on function-scope const_assert",
-  "@else basic test", "@else with functions", "@else with struct members", "@else with statements",
-  "@else with compound statements", "@else with conditional import", "@else declaration shadowing",
-  "@else with variable references", "@else with variable references false condition",
-  "@else with package function reference", "@if short-circuiting OR", "@if short-circuiting AND",
-  "@if logical NOT", "@if parentheses", "@if(true) @else", "nested @if/@else", "multiple @if/@else chains",
-  "declaration shadowing", "conditional import of const_assert", "double conditional import of const_assert",
-  "conditional transitive const", "conditional transitive fn",
-]
+let upstream_pending_conditional_case_names : Array[String] = []
 
 ///|
 let upstream_pending_import_syntax_case_names : Array[String] = []
@@ -67,24 +49,50 @@ fn upstream_is_digit(code : Int) -> Bool {
 }
 
 ///|
+fn upstream_is_ascii_letter(code : Int) -> Bool {
+  (code >= 65 && code <= 90) || (code >= 97 && code <= 122)
+}
+
+///|
+fn upstream_is_word_char(code : Int) -> Bool {
+  upstream_is_ascii_letter(code) ||
+  upstream_is_digit(code) ||
+  code == 95 ||
+  code >= 128
+}
+
+///|
 fn upstream_normalize_text(text : String) -> String {
   let parts : Array[String] = []
-  let mut start : Int? = None
+  let mut word_start : Int? = None
   for i = 0; i < text.length(); i = i + 1 {
     let code = text.code_unit_at(i).to_int()
     if upstream_is_whitespace(code) {
-      match start {
+      match word_start {
         Some(begin) => {
           parts.push(text[begin:i].to_string())
-          start = None
+          word_start = None
         }
         None => ()
       }
-    } else if start is None {
-      start = Some(i)
+      continue
     }
+    if upstream_is_word_char(code) {
+      if word_start is None {
+        word_start = Some(i)
+      }
+      continue
+    }
+    match word_start {
+      Some(begin) => {
+        parts.push(text[begin:i].to_string())
+        word_start = None
+      }
+      None => ()
+    }
+    parts.push(text[i:i + 1].to_string())
   }
-  match start {
+  match word_start {
     Some(begin) => parts.push(text[begin:text.length()].to_string())
     None => ()
   }

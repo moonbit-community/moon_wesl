@@ -129,6 +129,23 @@ fn parser_lex(source : String) -> Array[ParserToken] {
       }
       continue
     }
+    if code == 47 &&
+      index + 1 < source.length() &&
+      source.code_unit_at(index + 1).to_int() == 42 {
+      index += 2
+      while index + 1 < source.length() {
+        if source.code_unit_at(index).to_int() == 10 {
+          line += 1
+        }
+        if source.code_unit_at(index).to_int() == 42 &&
+          source.code_unit_at(index + 1).to_int() == 47 {
+          index += 2
+          break
+        }
+        index += 1
+      }
+      continue
+    }
     if code == 58 &&
       index + 1 < source.length() &&
       source.code_unit_at(index + 1).to_int() == 58 {

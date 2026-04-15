@@ -193,6 +193,25 @@ fn wesl_skip_whitespace(source : String, start : Int) -> Int {
 }
 
 ///|
+fn wesl_skip_layout(source : String, start : Int) -> Int {
+  let mut i = start
+  while i < source.length() {
+    i = wesl_skip_whitespace(source, i)
+    if i + 1 < source.length() &&
+      source.code_unit_at(i).to_int() == 47 &&
+      source.code_unit_at(i + 1).to_int() == 47 {
+      i += 2
+      while i < source.length() && source.code_unit_at(i).to_int() != 10 {
+        i += 1
+      }
+      continue
+    }
+    break
+  }
+  i
+}
+
+///|
 fn wesl_starts_with_at(source : String, index : Int, needle : String) -> Bool {
   if index < 0 || index + needle.length() > source.length() {
     return false
@@ -252,7 +271,14 @@ fn wesl_parse_if_primary(
     raise WeslCompileError::InvalidExpression(source)
   }
   let ident = source[i:end_index].to_string()
-  (features.get(ident).unwrap_or(false), end_index)
+  let value = if ident == "true" {
+    true
+  } else if ident == "false" {
+    false
+  } else {
+    features.get(ident).unwrap_or(false)
+  }
+  (value, end_index)
 }
 
 ///|
@@ -326,6 +352,124 @@ fn wesl_parse_if_value(
 }
 
 ///|
+fn wesl_find_condcomp_block(
+  source : String,
+  start : Int,
+) -> (Int, Int) raise WeslCompileError {
+  let mut paren_depth = 0
+  let mut bracket_depth = 0
+  let mut index = start
+  while index < source.length() {
+    if index + 1 < source.length() &&
+      source.code_unit_at(index).to_int() == 47 &&
+      source.code_unit_at(index + 1).to_int() == 47 {
+      index += 2
+      while index < source.length() && source.code_unit_at(index).to_int() != 10 {
+        index += 1
+      }
+      continue
+    }
+    let code = source.code_unit_at(index).to_int()
+    if code == 40 {
+      paren_depth += 1
+    } else if code == 41 {
+      paren_depth -= 1
+    } else if code == 91 {
+      bracket_depth += 1
+    } else if code == 93 {
+      bracket_depth -= 1
+    } else if code == 123 && paren_depth == 0 && bracket_depth == 0 {
+      let block_end = wesl_find_matching_delim(source, index, 123, 125)
+      return (index, block_end + 1)
+    }
+    index += 1
+  }
+  raise WeslCompileError::Parse("missing block after conditional attribute")
+}
+
+///|
+fn wesl_find_condcomp_region(
+  source : String,
+  start : Int,
+) -> (Int, Int) raise WeslCompileError {
+  let region_start = wesl_skip_layout(source, start)
+  if region_start >= source.length() {
+    raise WeslCompileError::Parse(
+      "missing declaration after conditional attribute",
+    )
+  }
+  let first_code = source.code_unit_at(region_start).to_int()
+  if first_code == 123 {
+    let block_end = wesl_find_matching_delim(source, region_start, 123, 125)
+    return (region_start, block_end + 1)
+  }
+  let tokens = parser_lex(source[region_start:source.length()].to_string())
+  let block_like = match tokens.get(0) {
+    Some(Ident(keyword, _, _, _)) =>
+      keyword == "fn" ||
+      keyword == "struct" ||
+      keyword == "if" ||
+      keyword == "switch" ||
+      keyword == "loop" ||
+      keyword == "for" ||
+      keyword == "while" ||
+      keyword == "continuing"
+    _ => false
+  }
+  if block_like {
+    let (_, region_end) = wesl_find_condcomp_block(source, region_start)
+    return (region_start, region_end)
+  }
+  let mut paren_depth = 0
+  let mut bracket_depth = 0
+  let mut brace_depth = 0
+  let mut index = region_start
+  while index < source.length() {
+    if index + 1 < source.length() &&
+      source.code_unit_at(index).to_int() == 47 &&
+      source.code_unit_at(index + 1).to_int() == 47 {
+      index += 2
+      while index < source.length() && source.code_unit_at(index).to_int() != 10 {
+        index += 1
+      }
+      continue
+    }
+    let code = source.code_unit_at(index).to_int()
+    if code == 40 {
+      paren_depth += 1
+    } else if code == 41 {
+      if paren_depth == 0 && bracket_depth == 0 && brace_depth == 0 {
+        return (region_start, index)
+      }
+      paren_depth -= 1
+    } else if code == 91 {
+      bracket_depth += 1
+    } else if code == 93 {
+      bracket_depth -= 1
+    } else if code == 123 {
+      brace_depth += 1
+    } else if code == 125 {
+      if paren_depth == 0 && bracket_depth == 0 && brace_depth == 0 {
+        return (region_start, index)
+      }
+      brace_depth -= 1
+    } else if code == 44 &&
+      paren_depth == 0 &&
+      bracket_depth == 0 &&
+      brace_depth == 0 {
+      return (region_start, index + 1)
+    } else if code == 59 &&
+      paren_depth == 0 &&
+      bracket_depth == 0 &&
+      brace_depth == 0 {
+      return (region_start, index + 1)
+    }
+    index += 1
+  }
+  (region_start, source.length())
+}
+
+///|
 fn wesl_apply_condcomp(
   source : String,
   features : @hashmap.HashMap[String, Bool],
@@ -334,7 +478,7 @@ fn wesl_apply_condcomp(
   let mut index = 0
   while index < source.length() {
     if wesl_starts_with_at(source, index, "@if") {
-      let expr_start = wesl_skip_whitespace(source, index + 3)
+      let expr_start = wesl_skip_layout(source, index + 3)
       if expr_start >= source.length() ||
         source.code_unit_at(expr_start).to_int() != 40 {
         raise WeslCompileError::InvalidExpression(
@@ -343,31 +487,28 @@ fn wesl_apply_condcomp(
       }
       let expr_end = wesl_find_matching_delim(source, expr_start, 40, 41)
       let expr = source[expr_start + 1:expr_end].to_string()
-      let block_start = wesl_skip_whitespace(source, expr_end + 1)
-      if block_start >= source.length() ||
-        source.code_unit_at(block_start).to_int() != 123 {
-        raise WeslCompileError::Parse("missing block after @if attribute")
-      }
-      let block_end = wesl_find_matching_delim(source, block_start, 123, 125)
+      let (region_start, region_end) = wesl_find_condcomp_region(
+        source,
+        expr_end + 1,
+      )
       let mut selected : String? = None
       if wesl_parse_if_value(expr, features) {
         selected = Some(
           wesl_apply_condcomp(
-            source[block_start + 1:block_end].to_string(),
+            source[region_start:region_end].to_string(),
             features,
           ),
         )
       }
-      let mut next_index = block_end + 1
+      let mut next_index = region_end
       while true {
-        let else_start = wesl_skip_whitespace(source, next_index)
+        let else_start = wesl_skip_layout(source, next_index)
         if !wesl_starts_with_at(source, else_start, "@else") {
-          next_index = else_start
           break
         }
-        let tail_start = wesl_skip_whitespace(source, else_start + 5)
+        let tail_start = wesl_skip_layout(source, else_start + 5)
         if wesl_starts_with_at(source, tail_start, "if") {
-          let elif_expr_start = wesl_skip_whitespace(source, tail_start + 2)
+          let elif_expr_start = wesl_skip_layout(source, tail_start + 2)
           if elif_expr_start >= source.length() ||
             source.code_unit_at(elif_expr_start).to_int() != 40 {
             raise WeslCompileError::InvalidExpression(
@@ -378,44 +519,33 @@ fn wesl_apply_condcomp(
             source, elif_expr_start, 40, 41,
           )
           let elif_expr = source[elif_expr_start + 1:elif_expr_end].to_string()
-          let elif_block_start = wesl_skip_whitespace(source, elif_expr_end + 1)
-          if elif_block_start >= source.length() ||
-            source.code_unit_at(elif_block_start).to_int() != 123 {
-            raise WeslCompileError::Parse(
-              "missing block after @else if attribute",
-            )
-          }
-          let elif_block_end = wesl_find_matching_delim(
-            source, elif_block_start, 123, 125,
+          let (elif_region_start, elif_region_end) = wesl_find_condcomp_region(
+            source,
+            elif_expr_end + 1,
           )
           if selected is None && wesl_parse_if_value(elif_expr, features) {
             selected = Some(
               wesl_apply_condcomp(
-                source[elif_block_start + 1:elif_block_end].to_string(),
+                source[elif_region_start:elif_region_end].to_string(),
                 features,
               ),
             )
           }
-          next_index = elif_block_end + 1
+          next_index = elif_region_end
           continue
         }
-        let else_block_start = wesl_skip_whitespace(source, tail_start)
-        if else_block_start >= source.length() ||
-          source.code_unit_at(else_block_start).to_int() != 123 {
-          raise WeslCompileError::Parse("missing block after @else attribute")
-        }
-        let else_block_end = wesl_find_matching_delim(
-          source, else_block_start, 123, 125,
+        let (else_region_start, else_region_end) = wesl_find_condcomp_region(
+          source, tail_start,
         )
         if selected is None {
           selected = Some(
             wesl_apply_condcomp(
-              source[else_block_start + 1:else_block_end].to_string(),
+              source[else_region_start:else_region_end].to_string(),
               features,
             ),
           )
         }
-        next_index = else_block_end + 1
+        next_index = else_region_end
         break
       }
       out = out + selected.unwrap_or("")
@@ -439,6 +569,33 @@ fn wesl_push_unique(items : Array[String], value : String) -> Unit {
     }
   }
   items.push(value)
+}
+
+///|
+fn wesl_scopes_contain(
+  scopes : Array[Array[String]],
+  scope_depth : Int,
+  name : String,
+) -> Bool {
+  let mut depth = scope_depth
+  while depth >= 0 {
+    for item in scopes[depth] {
+      if item == name {
+        return true
+      }
+    }
+    depth -= 1
+  }
+  false
+}
+
+///|
+fn wesl_bind_scope(
+  scopes : Array[Array[String]],
+  scope_depth : Int,
+  name : String,
+) -> Unit {
+  wesl_push_unique(scopes[scope_depth], name)
 }
 
 ///|
@@ -616,26 +773,56 @@ fn wesl_collect_item_references(
 ) -> Array[ModuleItemRef] {
   let references : Array[ModuleItemRef] = []
   let tokens = parser_lex(source)
+  let scopes : Array[Array[String]] = [[]]
+  let mut scope_depth = 0
+  let mut consumed_item_decl = item_name is None
   let mut index = 0
   while index < tokens.length() {
     match tokens[index] {
+      LBrace(_, _, _) => {
+        scope_depth += 1
+        if scope_depth < scopes.length() {
+          scopes[scope_depth] = []
+        } else {
+          scopes.push([])
+        }
+      }
+      RBrace(_, _, _) => if scope_depth > 0 { scope_depth -= 1 }
       Ident(name, _, _, _) => {
+        let is_binding = wesl_is_bound_identifier(source, tokens, index)
+        if is_binding {
+          let is_item_decl = match item_name {
+            Some(current_item_name) =>
+              !consumed_item_decl && name == current_item_name
+            None => false
+          }
+          if is_item_decl {
+            consumed_item_decl = true
+          } else {
+            wesl_bind_scope(scopes, scope_depth, name)
+          }
+          index += 1
+          continue
+        }
         if index + 1 < tokens.length() &&
           tokens[index + 1] is DoubleColon(_, _, _) {
           let (segments, raw_text, next_index) = wesl_collect_qualified_segments(
-            source,
-            tokens,
-            index,
+            source, tokens, index,
           )
-          if segments.length() >= 2 {
+          if segments.length() >= 2 &&
+            !wesl_scopes_contain(scopes, scope_depth, segments[0]) {
             match import_by_local.get(segments[0]) {
               Some(import_index) => {
                 let (target_path, target_name) = wesl_resolve_qualified_import_target(
-                    imports[import_index],
-                    segments,
-                  ) catch {
-                    _ => (imports[import_index].namespace_path, segments[segments.length() - 1])
-                  }
+                  imports[import_index],
+                  segments,
+                ) catch {
+                  _ =>
+                    (
+                      imports[import_index].namespace_path,
+                      segments[segments.length() - 1],
+                    )
+                }
                 wesl_push_unique_item_ref(
                   references,
                   ModuleItemRef::Qualified(raw_text, target_path, target_name),
@@ -646,11 +833,10 @@ fn wesl_collect_item_references(
                   segments[0] == "self" ||
                   segments[0] == "super" {
                   let (target_path, target_name) = wesl_resolve_direct_qualified_target(
-                      current_path,
-                      segments,
-                    ) catch {
-                      _ => (current_path, segments[segments.length() - 1])
-                    }
+                    current_path, segments,
+                  ) catch {
+                    _ => (current_path, segments[segments.length() - 1])
+                  }
                   wesl_push_unique_item_ref(
                     references,
                     ModuleItemRef::Qualified(raw_text, target_path, target_name),
@@ -661,24 +847,26 @@ fn wesl_collect_item_references(
           index = next_index
           continue
         }
-        if !wesl_is_bound_identifier(source, tokens, index) {
-          if item_name is Some(current_item_name) && name == current_item_name {
-            index += 1
-            continue
-          }
-          if named_items.contains(name) {
-            wesl_push_unique_item_ref(references, ModuleItemRef::Local(name))
-          } else {
-            match import_by_local.get(name) {
-              Some(import_index) =>
-                if wesl_import_named_target(imports[import_index]) is Some(_) {
-                  wesl_push_unique_item_ref(
-                    references,
-                    ModuleItemRef::Import(name, import_index),
-                  )
-                }
-              None => ()
-            }
+        if item_name is Some(current_item_name) && name == current_item_name {
+          index += 1
+          continue
+        }
+        if wesl_scopes_contain(scopes, scope_depth, name) {
+          index += 1
+          continue
+        }
+        if named_items.contains(name) {
+          wesl_push_unique_item_ref(references, ModuleItemRef::Local(name))
+        } else {
+          match import_by_local.get(name) {
+            Some(import_index) =>
+              if wesl_import_named_target(imports[import_index]) is Some(_) {
+                wesl_push_unique_item_ref(
+                  references,
+                  ModuleItemRef::Import(name, import_index),
+                )
+              }
+            None => ()
           }
         }
       }
@@ -733,11 +921,15 @@ fn wesl_replace_reference_identifier(
   source : String,
   old_name : String,
   new_name : String,
+  item_name : String?,
 ) -> String {
   if old_name == new_name || old_name == "" {
     return source
   }
   let tokens = parser_lex(source)
+  let scopes : Array[Array[String]] = [[]]
+  let mut scope_depth = 0
+  let mut consumed_item_decl = item_name is None
   let mut out = ""
   let mut previous_end = 0
   for i in 0..<tokens.length() {
@@ -748,9 +940,117 @@ fn wesl_replace_reference_identifier(
       out = out + source[previous_end:start].to_string()
     }
     match token {
-      Ident(name, _, _, _) if name == old_name &&
-        !wesl_is_bound_identifier(source, tokens, i) =>
-        out = out + new_name
+      LBrace(_, _, _) => {
+        scope_depth += 1
+        if scope_depth < scopes.length() {
+          scopes[scope_depth] = []
+        } else {
+          scopes.push([])
+        }
+        out = out + source[start:end_].to_string()
+      }
+      RBrace(_, _, _) => {
+        if scope_depth > 0 {
+          scope_depth -= 1
+        }
+        out = out + source[start:end_].to_string()
+      }
+      Ident(name, _, _, _) => {
+        let original = source[start:end_].to_string()
+        if wesl_is_bound_identifier(source, tokens, i) {
+          let is_item_decl = match item_name {
+            Some(current_item_name) =>
+              !consumed_item_decl && name == current_item_name
+            None => false
+          }
+          if is_item_decl {
+            consumed_item_decl = true
+          } else {
+            wesl_bind_scope(scopes, scope_depth, name)
+          }
+          out = out + original
+        } else if name == old_name &&
+          !wesl_scopes_contain(scopes, scope_depth, name) {
+          out = out + new_name
+        } else {
+          out = out + original
+        }
+      }
+      _ => out = out + source[start:end_].to_string()
+    }
+    previous_end = end_
+  }
+  if previous_end < source.length() {
+    out = out + source[previous_end:source.length()].to_string()
+  }
+  out
+}
+
+///|
+fn wesl_replace_global_identifier(
+  source : String,
+  old_name : String,
+  new_name : String,
+  item_name : String?,
+) -> String {
+  if old_name == new_name || old_name == "" {
+    return source
+  }
+  let tokens = parser_lex(source)
+  let scopes : Array[Array[String]] = [[]]
+  let mut scope_depth = 0
+  let mut consumed_item_decl = item_name is None
+  let mut out = ""
+  let mut previous_end = 0
+  for i in 0..<tokens.length() {
+    let token = tokens[i]
+    let start = token.start()
+    let end_ = token.end()
+    if previous_end < start {
+      out = out + source[previous_end:start].to_string()
+    }
+    match token {
+      LBrace(_, _, _) => {
+        scope_depth += 1
+        if scope_depth < scopes.length() {
+          scopes[scope_depth] = []
+        } else {
+          scopes.push([])
+        }
+        out = out + source[start:end_].to_string()
+      }
+      RBrace(_, _, _) => {
+        if scope_depth > 0 {
+          scope_depth -= 1
+        }
+        out = out + source[start:end_].to_string()
+      }
+      Ident(name, _, _, _) => {
+        let original = source[start:end_].to_string()
+        if wesl_is_bound_identifier(source, tokens, i) {
+          let is_item_decl = match item_name {
+            Some(current_item_name) =>
+              !consumed_item_decl && name == current_item_name
+            None => false
+          }
+          if is_item_decl {
+            consumed_item_decl = true
+            if name == old_name {
+              out = out + new_name
+            } else {
+              out = out + original
+            }
+          } else {
+            wesl_bind_scope(scopes, scope_depth, name)
+            out = out + original
+          }
+        } else if name == old_name &&
+          !wesl_scopes_contain(scopes, scope_depth, name) {
+          out = out + new_name
+        } else {
+          out = out + original
+        }
+      }
       _ => out = out + source[start:end_].to_string()
     }
     previous_end = end_
@@ -829,7 +1129,8 @@ fn[R : Resolver] wesl_preload_import_item(
   let mut missing_named_target : (ModulePath, String)? = None
   match wesl_import_named_target(import_item) {
     Some((import_path, import_name)) =>
-      match (try? wesl_load_module(import_path, resolver, options, modules, order)) {
+      match
+        (try? wesl_load_module(import_path, resolver, options, modules, order)) {
         Ok(loaded) =>
           match wesl_module_export_target(loaded, import_name) {
             ExportTarget::Local(_) => return
@@ -843,7 +1144,15 @@ fn[R : Resolver] wesl_preload_import_item(
       }
     None => ()
   }
-  ignore(wesl_load_module(import_item.namespace_path, resolver, options, modules, order)) catch {
+  ignore(
+    wesl_load_module(
+      import_item.namespace_path,
+      resolver,
+      options,
+      modules,
+      order,
+    ),
+  ) catch {
     err =>
       match missing_named_target {
         Some((missing_path, missing_name)) =>
@@ -1026,13 +1335,7 @@ fn[R : Resolver] wesl_mark_named_decl(
         Some((import_path, import_name)) =>
           ignore(
             wesl_mark_named_decl(
-              import_path,
-              import_name,
-              resolver,
-              options,
-              modules,
-              order,
-              used_modules,
+              import_path, import_name, resolver, options, modules, order, used_modules,
               used_decls,
             ),
           )
@@ -1220,6 +1523,7 @@ fn wesl_emit_item_source(
               current,
               import_ref,
               EscapeMangler::mangle(mangler, target_path, target_name),
+              item.name,
             )
           }
           None => ()
@@ -1239,10 +1543,11 @@ fn wesl_emit_item_source(
       let (name, _) = entry
       if !options.strip ||
         wesl_is_used_decl(used_decls, parsed_module.path, name) {
-        current = wesl_replace_identifier(
+        current = wesl_replace_global_identifier(
           current,
           name,
           EscapeMangler::mangle(mangler, parsed_module.path, name),
+          item.name,
         )
       }
     }
@@ -1271,18 +1576,12 @@ fn wesl_emit_module(
     for import_item in parsed_module.imports {
       match wesl_import_named_target(import_item) {
         Some((import_path, import_name)) =>
-          match (try? wesl_resolve_export_target(import_path, import_name, modules)) {
+          match
+            (try? wesl_resolve_export_target(import_path, import_name, modules)) {
             Ok((target_path, _)) =>
               wesl_emit_module(
-                target_path,
-                root,
-                modules,
-                used_modules,
-                used_decls,
-                emitted,
-                parts,
-                mangler,
-                options,
+                target_path, root, modules, used_modules, used_decls, emitted, parts,
+                mangler, options,
               )
             Err(_) => ()
           }
@@ -1310,18 +1609,14 @@ fn wesl_emit_module(
         ) {
         match wesl_import_named_target(import_item) {
           Some((import_path, import_name)) =>
-            match (try? wesl_resolve_export_target(import_path, import_name, modules)) {
+            match
+              (try? wesl_resolve_export_target(
+                import_path, import_name, modules,
+              )) {
               Ok((target_path, _)) =>
                 wesl_emit_module(
-                  target_path,
-                  root,
-                  modules,
-                  used_modules,
-                  used_decls,
-                  emitted,
-                  parts,
-                  mangler,
-                  options,
+                  target_path, root, modules, used_modules, used_decls, emitted,
+                  parts, mangler, options,
                 )
               Err(_) => ()
             }
@@ -1340,20 +1635,17 @@ fn wesl_emit_module(
       for reference in item.references {
         match reference {
           ModuleItemRef::Import(_, import_index) =>
-            match wesl_import_named_target(parsed_module.imports[import_index]) {
+            match
+              wesl_import_named_target(parsed_module.imports[import_index]) {
               Some((import_path, import_name)) =>
-                match (try? wesl_resolve_export_target(import_path, import_name, modules)) {
+                match
+                  (try? wesl_resolve_export_target(
+                    import_path, import_name, modules,
+                  )) {
                   Ok((target_path, _)) =>
                     wesl_emit_module(
-                      target_path,
-                      root,
-                      modules,
-                      used_modules,
-                      used_decls,
-                      emitted,
-                      parts,
-                      mangler,
-                      options,
+                      target_path, root, modules, used_modules, used_decls, emitted,
+                      parts, mangler, options,
                     )
                   Err(_) => ()
                 }
@@ -1361,15 +1653,8 @@ fn wesl_emit_module(
             }
           ModuleItemRef::Qualified(_, target_path, _) =>
             wesl_emit_module(
-              target_path,
-              root,
-              modules,
-              used_modules,
-              used_decls,
-              emitted,
-              parts,
-              mangler,
-              options,
+              target_path, root, modules, used_modules, used_decls, emitted, parts,
+              mangler, options,
             )
           ModuleItemRef::Local(_) => ()
         }
