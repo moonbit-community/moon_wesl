@@ -189,6 +189,15 @@ fn upstream_assert_module_case(case : UpstreamModuleCase) -> String? {
 }
 
 ///|
+let upstream_bevy_standalone_compile_paths : Array[String] = [
+  "bevy/custom_material_import.wgsl",
+  "bevy/custom_phase_item.wgsl",
+  "bevy/game_of_life.wgsl",
+  "bevy/gpu_readback.wgsl",
+  "bevy/util.wesl",
+]
+
+///|
 test "upstream: vendored corpus manifest is present" {
   debug_inspect(upstream_spec_syntax_cases.length(), content="11")
   debug_inspect(upstream_spec_eval_cases.length(), content="27")
@@ -386,10 +395,28 @@ test "upstream: bevy shader fixtures parse at translation-unit level" {
 }
 
 ///|
-#skip
-test "upstream: bevy package-integration e2e awaits resolver parity" {
+test "upstream: bevy standalone fixtures without package imports compile through current slice" {
   for case in upstream_bevy_e2e_cases {
-    if upstream_is_shader_path(case.path) {
+    if !upstream_array_contains(upstream_bevy_standalone_compile_paths, case.path) {
+      continue
+    }
+    match upstream_assert_standalone_compile_result(
+      case.path,
+      case.path,
+      case.source,
+    ) {
+      Some(message) => fail(message)
+      None => ()
+    }
+  }
+}
+
+///|
+#skip
+test "upstream: bevy package-import integration e2e awaits resolver parity" {
+  for case in upstream_bevy_e2e_cases {
+    if upstream_is_shader_path(case.path) &&
+       !upstream_array_contains(upstream_bevy_standalone_compile_paths, case.path) {
       ignore(case)
     }
   }
