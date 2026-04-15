@@ -241,6 +241,78 @@ test "wesl: duplicate declarations include module and line context" {
 }
 
 ///|
+test "wesl: lowering preserves non-lowered declaration kinds" {
+  let resolver = VirtualResolver::new()
+  let root_path = ModulePath::from_path("/shaders/root")
+  resolver.add_module(
+    root_path, "struct Payload {\n  value: f32,\n}\n\noverride SCALE: f32 = 2.0;\n\n@fragment\nfn fragment() -> f32 {\n  return 1.0;\n}\n",
+  )
+
+  let compiled = compile(
+    root_path,
+    resolver,
+    EscapeMangler::default(),
+    CompileOptions::default().with_lower(true).with_strip(false),
+  )
+  let compiled_text = compiled.to_string()
+
+  debug_inspect(compiled_text.contains("struct Payload"), content="true")
+  debug_inspect(compiled_text.contains("override SCALE"), content="true")
+}
+
+///|
+test "wesl: parser handles attribute arguments and generic var declarations" {
+  let resolver = VirtualResolver::new()
+  let root_path = ModulePath::from_path("/shaders/root")
+  resolver.add_module(
+    root_path, "@group(0)\n@binding(1)\nvar<uniform> DATA: f32;\n\n@fragment\nfn fragment() -> f32 {\n  return DATA;\n}\n",
+  )
+
+  let compiled = compile(
+    root_path,
+    resolver,
+    EscapeMangler::default(),
+    CompileOptions::default().with_strip(false),
+  )
+  let compiled_text = compiled.to_string()
+
+  debug_inspect(compiled_text.contains("@group(0)"), content="true")
+  debug_inspect(compiled_text.contains("var<uniform> DATA"), content="true")
+  debug_inspect(compiled_text.contains("return DATA;"), content="true")
+}
+
+///|
+test "wesl: nested grouped imports resolve through syntax tree flattening" {
+  let resolver = VirtualResolver::new()
+  let util_path = ModulePath::from_path("/shaders/util")
+  let bridge_path = ModulePath::from_path("/shaders/bridge")
+  let root_path = ModulePath::from_path("/shaders/root")
+  resolver.add_module(
+    util_path, "fn make_value() -> f32 {\n  return 3.0;\n}\n\nfn helper_unused() -> f32 {\n  return 5.0;\n}\n",
+  )
+  resolver.add_module(bridge_path, "fn helper() -> f32 {\n  return 7.0;\n}\n")
+  resolver.add_module(
+    root_path, "import super::{util::{make_value as renamed_value, helper_unused}, bridge::helper};\n@fragment\nfn fragment() -> f32 {\n  return renamed_value() + helper();\n}\n",
+  )
+
+  let compiled = compile(
+    root_path,
+    resolver,
+    EscapeMangler::default(),
+    CompileOptions::default().with_lower(true),
+  )
+  let compiled_text = compiled.to_string()
+
+  debug_inspect(
+    compiled_text.contains(
+      "return package_shaders_util__1make_value() + package_shaders_bridge_helper();",
+    ),
+    content="true",
+  )
+  debug_inspect(compiled_text.contains("helper_unused"), content="false")
+}
+
+///|
 test "wesl: published imports can be re-exported across modules" {
   let resolver = VirtualResolver::new()
   let util_path = ModulePath::from_path("/shaders/util")

@@ -1,0 +1,286 @@
+// Copyright 2026 International Digital Economy Academy
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+///|
+fn upstream_assert_parse_result(
+  case_name : String,
+  source : String,
+  expect_pass : Bool,
+) -> String? {
+  let root_path = ModulePath::from_path("/main.wgsl")
+  let result = try? parse_translation_unit(root_path, source, true)
+  match (expect_pass, result) {
+    (true, Ok(_)) => None
+    (false, Err(_)) => None
+    (true, Err(err)) =>
+      Some("\{case_name}: expected parse success, got \{err.message()}")
+    (false, Ok(_)) => Some("\{case_name}: expected parse failure")
+  }
+}
+
+///|
+fn upstream_assert_context_case(case : UpstreamContextCase) -> String? {
+  let resolver = VirtualResolver::new()
+  let root_path = ModulePath::from_path("/main.wgsl")
+  resolver.add_module(root_path, case.source)
+  let result = try? compile(
+    root_path,
+    resolver,
+    EscapeMangler::default(),
+    CompileOptions::default(),
+  )
+  match (case.expect_pass, result) {
+    (true, Ok(_)) => None
+    (false, Err(_)) => None
+    (true, Err(err)) =>
+      Some("\{case.name}: expected pass, got \{err.message()}")
+    (false, Ok(compiled)) =>
+      Some("\{case.name}: expected failure, got \{compiled.to_string()}")
+  }
+}
+
+///|
+fn upstream_assert_module_case(case : UpstreamModuleCase) -> String? {
+  let actual_result = try? upstream_compile_module_case(case)
+  let actual = match actual_result {
+    Ok(actual) => actual
+    Err(err) =>
+      return Some("\{case.name}: compile failed with \{err.message()}")
+  }
+  let normalized_actual = upstream_canonicalize_decl_order(actual)
+  match upstream_expected_output(case) {
+    Some(expected) => {
+      let normalized_expected = upstream_canonicalize_decl_order(expected)
+      if normalized_actual != normalized_expected {
+        Some(
+          "\{case.name}: expected `\{normalized_expected}`, got `\{normalized_actual}`",
+        )
+      } else {
+        None
+      }
+    }
+    None =>
+      if normalized_actual == "" {
+        Some("\{case.name}: expected non-empty compiled output")
+      } else {
+        None
+      }
+  }
+}
+
+///|
+test "upstream: vendored corpus manifest is present" {
+  debug_inspect(upstream_spec_syntax_cases.length(), content="11")
+  debug_inspect(upstream_spec_eval_cases.length(), content="27")
+  debug_inspect(upstream_import_syntax_cases.length(), content="33")
+  debug_inspect(upstream_import_cases.length(), content="40")
+  debug_inspect(upstream_conditional_cases.length(), content="54")
+  debug_inspect(upstream_dead_code_cases.length(), content="3")
+  debug_inspect(upstream_import_context_cases.length(), content="4")
+  debug_inspect(upstream_circular_context_cases.length(), content="7")
+  debug_inspect(upstream_type_context_cases.length(), content="4")
+  debug_inspect(upstream_bulk_cases.length(), content="3")
+  debug_inspect(upstream_ctor_coverage_cases.length(), content="1")
+  debug_inspect(upstream_bevy_e2e_cases.length(), content="33")
+  debug_inspect(upstream_wgpu_e2e_cases.length(), content="248")
+}
+
+///|
+test "upstream: spec declaration syntax cases parse at translation-unit level" {
+  for case in upstream_spec_syntax_cases {
+    if case.syntax_kind != "declaration" {
+      continue
+    }
+    if upstream_array_contains(
+        upstream_pending_spec_declaration_case_names,
+        case.name,
+      ) {
+      continue
+    }
+    match upstream_assert_parse_result(case.name, case.code, case.expect_pass) {
+      Some(message) => fail(message)
+      None => ()
+    }
+  }
+}
+
+///|
+#skip
+test "upstream: spec expression syntax cases await expression parser parity" {
+  for case in upstream_spec_syntax_cases {
+    if case.syntax_kind == "expression" {
+      ignore(case)
+    }
+  }
+}
+
+///|
+#skip
+test "upstream: spec eval cases await const-eval parity" {
+  for case in upstream_spec_eval_cases {
+    ignore(case)
+  }
+}
+
+///|
+test "upstream: import syntax cases parse at syntax-tree level" {
+  for case in upstream_import_syntax_cases {
+    if upstream_array_contains(
+        upstream_pending_import_syntax_case_names,
+        case.name,
+      ) {
+      continue
+    }
+    match upstream_assert_parse_result(case.name, case.source, !case.fails) {
+      Some(message) => fail(message)
+      None => ()
+    }
+  }
+}
+
+///|
+test "upstream: import context cases" {
+  for case in upstream_import_context_cases {
+    match upstream_assert_context_case(case) {
+      Some(message) => fail(message)
+      None => ()
+    }
+  }
+}
+
+///|
+#skip
+test "upstream: circular context cases await cycle diagnostics" {
+  for case in upstream_circular_context_cases {
+    if upstream_array_contains(upstream_pending_circular_case_names, case.name) {
+      ignore(case)
+    }
+  }
+}
+
+///|
+#skip
+test "upstream: type context cases await validator parity" {
+  for case in upstream_type_context_cases {
+    ignore(case)
+  }
+}
+
+///|
+test "upstream: import cases compile against vendored corpus" {
+  for case in upstream_import_cases {
+    if upstream_array_contains(upstream_pending_import_case_names, case.name) {
+      continue
+    }
+    match upstream_assert_module_case(case) {
+      Some(message) => fail(message)
+      None => ()
+    }
+  }
+}
+
+///|
+test "upstream: conditional translation cases compile against vendored corpus" {
+  for case in upstream_conditional_cases {
+    if upstream_array_contains(
+        upstream_pending_conditional_case_names,
+        case.name,
+      ) {
+      continue
+    }
+    match upstream_assert_module_case(case) {
+      Some(message) => fail(message)
+      None => ()
+    }
+  }
+}
+
+///|
+test "upstream: dead code cases compile against vendored corpus" {
+  for case in upstream_dead_code_cases {
+    match upstream_assert_module_case(case) {
+      Some(message) => fail(message)
+      None => ()
+    }
+  }
+}
+
+///|
+#skip
+test "upstream: bulk validation metadata is vendored for future external corpus runs" {
+  for case in upstream_bulk_cases {
+    ignore(case)
+  }
+}
+
+///|
+#skip
+test "upstream: ctor coverage is vendored for future validator parity" {
+  for case in upstream_ctor_coverage_cases {
+    ignore(case)
+  }
+}
+
+///|
+test "upstream: bevy shader fixtures parse at translation-unit level" {
+  for case in upstream_bevy_e2e_cases {
+    if !upstream_is_shader_path(case.path) {
+      continue
+    }
+    if upstream_array_contains(
+        upstream_pending_bevy_parse_case_paths,
+        case.path,
+      ) {
+      continue
+    }
+    match upstream_assert_parse_result(case.path, case.source, true) {
+      Some(message) => fail(message)
+      None => ()
+    }
+  }
+}
+
+///|
+#skip
+test "upstream: bevy package-integration e2e awaits resolver parity" {
+  for case in upstream_bevy_e2e_cases {
+    if upstream_is_shader_path(case.path) {
+      ignore(case)
+    }
+  }
+}
+
+///|
+test "upstream: wgpu fixtures parse at translation-unit level" {
+  for case in upstream_wgpu_e2e_cases {
+    if upstream_array_contains(
+        upstream_pending_wgpu_parse_case_paths,
+        case.path,
+      ) {
+      continue
+    }
+    match upstream_assert_parse_result(case.path, case.source, true) {
+      Some(message) => fail(message)
+      None => ()
+    }
+  }
+}
+
+///|
+#skip
+test "upstream: wgpu validation e2e awaits validate and lower parity" {
+  for case in upstream_wgpu_e2e_cases {
+    ignore(case)
+  }
+}

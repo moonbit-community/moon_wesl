@@ -1,0 +1,299 @@
+// Copyright 2026 International Digital Economy Academy
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+///|
+let upstream_pending_spec_declaration_case_names : Array[String] = [
+  "ident-disallow-reserved-words",
+]
+
+///|
+let upstream_pending_import_case_names : Array[String] = [
+  "fn call with a separator", "inline package reference", "inline super:: reference",
+  "import super::file1", "declaration after subscope", "uninitialized override",
+  "import var with struct type", "import var<private> with struct type", "const_asserts in used modules are included",
+  "const_asserts in unused modules are not included",
+]
+
+///|
+let upstream_pending_conditional_case_names : Array[String] = [
+  "@if on diagnostic directive", "@if on enable directive", "@if on requires directive",
+  "@if on global const declaration", "@if on global override declaration", "@if on global variable declaration",
+  "@if on function const declaration", "@if on function variable declaration", "@if on type alias",
+  "@if on module-scope const_assert", "@if on function declaration", "@if on function formal parameter",
+  "@if on structure declaration", "@if on structure member", "@if on compound statement",
+  "@if on assignment statement", "@if on increment statement", "@if on decrement statement",
+  "@if on if statement", "@if on switch statement", "@if on switch clause", "@if on loop statement",
+  "@if on for statement", "@if on while statement", "@if on break statement", "@if on break-if statement",
+  "@if on continue statement", "@if on continuing statement", "@if on return statement",
+  "@if on discard statement", "@if on call statement", "@if on function-scope const_assert",
+  "@else basic test", "@else with functions", "@else with struct members", "@else with statements",
+  "@else with compound statements", "@else with conditional import", "@else declaration shadowing",
+  "@else with variable references", "@else with variable references false condition",
+  "@else with package function reference", "@if short-circuiting OR", "@if short-circuiting AND",
+  "@if logical NOT", "@if parentheses", "@if(true) @else", "nested @if/@else", "multiple @if/@else chains",
+  "declaration shadowing", "conditional import of const_assert", "double conditional import of const_assert",
+  "conditional transitive const", "conditional transitive fn",
+]
+
+///|
+let upstream_pending_import_syntax_case_names : Array[String] = [
+  "import", "import;", "import foo", "import super;", "import super::;", "import super::super;",
+  "import {};", "import { foo};", "import {foo, {bar}};", "import { foo } as bar;",
+  "import {a::b as c, d};", "import {a::b as c, d::{ e }, f};", "import foo::{};",
+  "import foo::a as b::b;", "import foo::as::b;", "import foo::super::bar::baz;",
+  "import foo::bee as boo::bar;",
+]
+
+///|
+let upstream_pending_circular_case_names : Array[String] = [
+  "circular-alias", "circular-alias-direct", "circular-alias-indirect", "circular-const",
+  "circular-const-indirect", "circular-alias-const", "circular-var",
+]
+
+///|
+let upstream_pending_bevy_parse_case_paths : Array[String] = []
+
+///|
+let upstream_pending_wgpu_parse_case_paths : Array[String] = []
+
+///|
+fn upstream_is_whitespace(code : Int) -> Bool {
+  code == 32 || code == 9 || code == 10 || code == 13
+}
+
+///|
+fn upstream_is_digit(code : Int) -> Bool {
+  code >= 48 && code <= 57
+}
+
+///|
+fn upstream_normalize_text(text : String) -> String {
+  let parts : Array[String] = []
+  let mut start : Int? = None
+  for i = 0; i < text.length(); i = i + 1 {
+    let code = text.code_unit_at(i).to_int()
+    if upstream_is_whitespace(code) {
+      match start {
+        Some(begin) => {
+          parts.push(text[begin:i].to_string())
+          start = None
+        }
+        None => ()
+      }
+    } else if start is None {
+      start = Some(i)
+    }
+  }
+  match start {
+    Some(begin) => parts.push(text[begin:text.length()].to_string())
+    None => ()
+  }
+  parts.join(" ")
+}
+
+///|
+fn upstream_canonicalize_mangle(text : String) -> String {
+  let parts : Array[String] = []
+  let mut start = 0
+  let mut i = 0
+  while i < text.length() {
+    let current = text.code_unit_at(i).to_int()
+    let next = if i + 1 < text.length() {
+      text.code_unit_at(i + 1).to_int()
+    } else {
+      -1
+    }
+    let after = if i + 2 < text.length() {
+      text.code_unit_at(i + 2).to_int()
+    } else {
+      -1
+    }
+    if current == 95 && next == 95 && upstream_is_digit(after) {
+      if start < i {
+        parts.push(text[start:i].to_string())
+      }
+      parts.push("_")
+      i = i + 2
+      while i < text.length() &&
+            upstream_is_digit(text.code_unit_at(i).to_int()) {
+        i = i + 1
+      }
+      start = i
+      continue
+    }
+    i = i + 1
+  }
+  if start < text.length() {
+    parts.push(text[start:text.length()].to_string())
+  }
+  parts.join("")
+}
+
+///|
+fn upstream_normalize_compiled_text(text : String) -> String {
+  upstream_normalize_text(upstream_canonicalize_mangle(text))
+}
+
+///|
+fn upstream_strip_trailing_commas(text : String) -> String {
+  let parts : Array[String] = []
+  let mut index = 0
+  while index < text.length() {
+    let code = text.code_unit_at(index).to_int()
+    let mut skip_comma = false
+    if code == 44 {
+      let mut lookahead = index + 1
+      while lookahead < text.length() {
+        let next_code = text.code_unit_at(lookahead).to_int()
+        if !upstream_is_whitespace(next_code) {
+          if next_code == 125 || next_code == 41 || next_code == 93 {
+            skip_comma = true
+          }
+          break
+        }
+        lookahead += 1
+      }
+    }
+    if skip_comma {
+      index += 1
+      continue
+    }
+    parts.push(text[index:index + 1].to_string())
+    index += 1
+  }
+  parts.join("")
+}
+
+///|
+fn upstream_sort_strings(values : Array[String]) -> Array[String] {
+  let sorted : Array[String] = []
+  for value in values {
+    sorted.push(value)
+  }
+  for i = 0; i < sorted.length(); i = i + 1 {
+    let mut min_index = i
+    for j = i + 1; j < sorted.length(); j = j + 1 {
+      if sorted[j] < sorted[min_index] {
+        min_index = j
+      }
+    }
+    if min_index != i {
+      let current = sorted[i]
+      sorted[i] = sorted[min_index]
+      sorted[min_index] = current
+    }
+  }
+  sorted
+}
+
+///|
+fn upstream_canonicalize_decl_order(text : String) -> String {
+  let path = ModulePath::from_path("/main.wgsl")
+  let stripped = upstream_strip_trailing_commas(text)
+  let parsed = try? parse_translation_unit(path, stripped, true)
+  match parsed {
+    Ok(unit) => {
+      let parts : Array[String] = []
+      for declaration in unit.declarations() {
+        parts.push(upstream_normalize_compiled_text(declaration.source_text()))
+      }
+      upstream_sort_strings(parts).join("\n")
+    }
+    Err(_) => upstream_normalize_compiled_text(text)
+  }
+}
+
+///|
+fn upstream_has_suffix(text : String, suffix : String) -> Bool {
+  let text_len = text.length()
+  let suffix_len = suffix.length()
+  if suffix_len > text_len {
+    return false
+  }
+  text[text_len - suffix_len:text_len].to_string() == suffix
+}
+
+///|
+fn upstream_is_shader_path(path : String) -> Bool {
+  upstream_has_suffix(path, ".wgsl") || upstream_has_suffix(path, ".wesl")
+}
+
+///|
+fn upstream_fixture_module_path(path : String) -> ModulePath {
+  let normalized = if path.length() >= 2 && path[0:2].to_string() == "./" {
+    "/\{path[2:path.length()].to_string()}"
+  } else if path.length() > 0 && path[0:1].to_string() == "/" {
+    path
+  } else {
+    "/\{path}"
+  }
+  ModulePath::from_path(normalized)
+}
+
+///|
+fn upstream_root_module_path(case : UpstreamModuleCase) -> ModulePath {
+  for source in case.wesl_sources {
+    if source.0 == "./main.wgsl" || source.0 == "./main.wesl" {
+      return upstream_fixture_module_path(source.0)
+    }
+  }
+  ModulePath::from_path("/main.wgsl")
+}
+
+///|
+fn upstream_resolver_for_case(
+  case : UpstreamModuleCase,
+) -> (VirtualResolver, ModulePath) {
+  let resolver = VirtualResolver::new()
+  for source in case.wesl_sources {
+    resolver.add_module(upstream_fixture_module_path(source.0), source.1)
+  }
+  (resolver, upstream_root_module_path(case))
+}
+
+///|
+fn upstream_compile_options(case : UpstreamModuleCase) -> CompileOptions {
+  CompileOptions::default().with_keep_root(true).with_lazy(!case.requires_eager)
+}
+
+///|
+fn upstream_compile_module_case(
+  case : UpstreamModuleCase,
+) -> String raise WeslCompileError {
+  let (resolver, root_path) = upstream_resolver_for_case(case)
+  compile(
+    root_path,
+    resolver,
+    EscapeMangler::default(),
+    upstream_compile_options(case),
+  ).to_string()
+}
+
+///|
+fn upstream_expected_output(case : UpstreamModuleCase) -> String? {
+  match case.expected_underscore_wgsl {
+    Some(expected) => Some(expected)
+    None => case.expected_wgsl
+  }
+}
+
+///|
+fn upstream_array_contains(items : Array[String], target : String) -> Bool {
+  for item in items {
+    if item == target {
+      return true
+    }
+  }
+  false
+}

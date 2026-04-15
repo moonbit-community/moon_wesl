@@ -126,30 +126,6 @@ pub fn CompileResult::to_string(self : CompileResult) -> String {
 }
 
 ///|
-pub(all) suberror WeslCompileError {
-  Resolve(ResolveError)
-  Parse(String)
-  InvalidExpression(String)
-  DuplicateSymbol(String)
-  MissingDecl(ModulePath, String)
-  Private(String, ModulePath)
-}
-
-///|
-pub fn WeslCompileError::message(self : WeslCompileError) -> String {
-  match self {
-    Resolve(err) => err.message()
-    Parse(reason) => reason
-    InvalidExpression(expr) => "invalid if attribute expression: `\{expr}`"
-    DuplicateSymbol(symbol) => "duplicate declaration of `\{symbol}`"
-    MissingDecl(path, item) =>
-      "module `\{path.to_string()}` has no declaration `\{item}`"
-    Private(item, path) =>
-      "import of `\{item}` in module `\{path.to_string()}` is not `@publish`, but another module tried to import it"
-  }
-}
-
-///|
 priv struct ImportItem {
   module_path : ModulePath
   item_name : String
@@ -160,44 +136,19 @@ priv struct ImportItem {
 }
 
 ///|
-priv enum ModuleItemKind {
-  Function
-  Alias(String)
-  Const(String)
-  ConstAssert
-  Other
-}
-
-///|
 priv struct ModuleItem {
   name : String?
-  kind : ModuleItemKind
   source : String
-  start_line : Int
-  end_line : Int
   entrypoint : Bool
   is_const_assert : Bool
   references : Array[ModuleItemRef]
 }
 
 ///|
-priv enum TopLevelItem {
-  Import(ImportItem)
-  Decl(ModuleItem)
-}
-
-///|
-priv enum ModuleItemRef {
+enum ModuleItemRef {
   Local(String)
   Import(String, Int)
 } derive(Eq)
-
-///|
-priv struct TopLevelSource {
-  source : String
-  start_line : Int
-  end_line : Int
-}
 
 ///|
 priv struct ParsedModule {
@@ -245,21 +196,6 @@ fn wesl_starts_with_at(source : String, index : Int, needle : String) -> Bool {
     return false
   }
   source[index:index + needle.length()].to_string() == needle
-}
-
-///|
-fn wesl_find_first(source : String, needle : String, start : Int) -> Int? {
-  if needle == "" {
-    return Some(start)
-  }
-  let mut index = start
-  while index + needle.length() <= source.length() {
-    if wesl_starts_with_at(source, index, needle) {
-      return Some(index)
-    }
-    index = index + 1
-  }
-  None
 }
 
 ///|
@@ -522,570 +458,6 @@ fn wesl_is_identifier_start(code : Int) -> Bool {
 }
 
 ///|
-fn wesl_strip_line_comment(text : String) -> String {
-  match wesl_find_first(text, "//", 0) {
-    Some(index) => text[:index].to_string()
-    None => text
-  }
-}
-
-///|
-fn wesl_split_top_level_sources(source : String) -> Array[TopLevelSource] {
-  let items : Array[TopLevelSource] = []
-  let current_lines : Array[String] = []
-  let mut brace_depth = 0
-  let mut seen_brace = false
-  let mut line_number = 1
-  let mut chunk_start_line = 1
-  for raw_line in source.split("\n") {
-    let current_line = line_number
-    let line = raw_line.to_string()
-    if current_lines.length() == 0 {
-      chunk_start_line = current_line
-    }
-    current_lines.push(line)
-    let scan = wesl_strip_line_comment(line)
-    for i in 0..<scan.length() {
-      let code = scan.code_unit_at(i).to_int()
-      if code == 123 { // '{'
-        brace_depth = brace_depth + 1
-        seen_brace = true
-      } else if code == 125 { // '}'
-        brace_depth = brace_depth - 1
-      }
-    }
-    let current = current_lines.join("\n")
-    let trimmed = current.trim().to_string()
-    if trimmed == "" {
-      current_lines.clear()
-      line_number += 1
-      continue
-    }
-    if brace_depth == 0 && (trimmed.has_suffix(";") || seen_brace) {
-      items.push(TopLevelSource::{
-        source: current,
-        start_line: chunk_start_line,
-        end_line: current_line,
-      })
-      current_lines.clear()
-      seen_brace = false
-    }
-    line_number += 1
-  }
-  let tail = current_lines.join("\n")
-  if tail.trim().to_string() != "" {
-    items.push(TopLevelSource::{
-      source: tail,
-      start_line: chunk_start_line,
-      end_line: line_number - 1,
-    })
-  }
-  items
-}
-
-///|
-fn wesl_split_top_level_items(source : String) -> Array[String] {
-  let items : Array[String] = []
-  for item in wesl_split_top_level_sources(source) {
-    items.push(item.source)
-  }
-  items
-}
-
-///|
-fn wesl_collect_leading_attr_names(source : String) -> Array[String] {
-  let attrs : Array[String] = []
-  let mut index = 0
-  while true {
-    index = wesl_skip_whitespace(source, index)
-    if index >= source.length() || source.code_unit_at(index).to_int() != 64 {
-      break
-    }
-    let name_start = index + 1
-    let mut name_end = name_start
-    while name_end < source.length() &&
-          wesl_is_identifier_char(source.code_unit_at(name_end).to_int()) {
-      name_end = name_end + 1
-    }
-    if name_end == name_start {
-      break
-    }
-    attrs.push(source[name_start:name_end].to_string())
-    index = wesl_skip_whitespace(source, name_end)
-    if index < source.length() && source.code_unit_at(index).to_int() == 40 {
-      index = (wesl_find_matching_delim(source, index, 40, 41) catch {
-          _ => return attrs
-        }) +
-        1
-    }
-  }
-  attrs
-}
-
-///|
-fn wesl_strip_leading_attrs(source : String) -> String {
-  let mut index = 0
-  while index <= source.length() {
-    index = wesl_skip_whitespace(source, index)
-    if index >= source.length() || source.code_unit_at(index).to_int() != 64 {
-      return source[index:source.length()].to_string()
-    }
-    let mut name_end = index + 1
-    while name_end < source.length() &&
-          wesl_is_identifier_char(source.code_unit_at(name_end).to_int()) {
-      name_end = name_end + 1
-    }
-    index = wesl_skip_whitespace(source, name_end)
-    if index < source.length() && source.code_unit_at(index).to_int() == 40 {
-      index = (wesl_find_matching_delim(source, index, 40, 41) catch {
-          _ => return source[index:source.length()].to_string()
-        }) +
-        1
-    }
-  }
-  source[index:source.length()].to_string()
-}
-
-///|
-fn wesl_attrs_contain(attrs : Array[String], target : String) -> Bool {
-  for attr in attrs {
-    if attr == target {
-      return true
-    }
-  }
-  false
-}
-
-///|
-fn wesl_item_is_import(source : String) -> Bool {
-  wesl_strip_leading_attrs(source).trim().to_string().has_prefix("import ")
-}
-
-///|
-fn wesl_split_top_level_commas(source : String) -> Array[String] {
-  let parts : Array[String] = []
-  let mut brace_depth = 0
-  let mut paren_depth = 0
-  let mut bracket_depth = 0
-  let mut start = 0
-  for i in 0..<source.length() {
-    let code = source.code_unit_at(i).to_int()
-    if code == 123 { // '{'
-      brace_depth = brace_depth + 1
-    } else if code == 125 { // '}'
-      brace_depth = brace_depth - 1
-    } else if code == 40 { // '('
-      paren_depth = paren_depth + 1
-    } else if code == 41 { // ')'
-      paren_depth = paren_depth - 1
-    } else if code == 91 { // '['
-      bracket_depth = bracket_depth + 1
-    } else if code == 93 { // ']'
-      bracket_depth = bracket_depth - 1
-    } else if code == 44 && // ','
-      brace_depth == 0 &&
-      paren_depth == 0 &&
-      bracket_depth == 0 {
-      parts.push(source[start:i].to_string())
-      start = i + 1
-    }
-  }
-  parts.push(source[start:source.length()].to_string())
-  parts
-}
-
-///|
-fn wesl_find_top_level_pattern(source : String, pattern : String) -> Int? {
-  if pattern == "" {
-    return Some(0)
-  }
-  let mut brace_depth = 0
-  let mut paren_depth = 0
-  let mut bracket_depth = 0
-  let mut index = 0
-  while index + pattern.length() <= source.length() {
-    let code = source.code_unit_at(index).to_int()
-    if brace_depth == 0 &&
-      paren_depth == 0 &&
-      bracket_depth == 0 &&
-      wesl_starts_with_at(source, index, pattern) {
-      return Some(index)
-    }
-    if code == 123 {
-      brace_depth = brace_depth + 1
-    } else if code == 125 {
-      brace_depth = brace_depth - 1
-    } else if code == 40 {
-      paren_depth = paren_depth + 1
-    } else if code == 41 {
-      paren_depth = paren_depth - 1
-    } else if code == 91 {
-      bracket_depth = bracket_depth + 1
-    } else if code == 93 {
-      bracket_depth = bracket_depth - 1
-    }
-    index = index + 1
-  }
-  None
-}
-
-///|
-fn wesl_find_top_level_last_double_colon(source : String) -> Int? {
-  let mut brace_depth = 0
-  let mut paren_depth = 0
-  let mut bracket_depth = 0
-  let mut found : Int? = None
-  let mut index = 0
-  while index + 2 <= source.length() {
-    let code = source.code_unit_at(index).to_int()
-    if brace_depth == 0 &&
-      paren_depth == 0 &&
-      bracket_depth == 0 &&
-      wesl_starts_with_at(source, index, "::") {
-      found = Some(index)
-    }
-    if code == 123 {
-      brace_depth = brace_depth + 1
-    } else if code == 125 {
-      brace_depth = brace_depth - 1
-    } else if code == 40 {
-      paren_depth = paren_depth + 1
-    } else if code == 41 {
-      paren_depth = paren_depth - 1
-    } else if code == 91 {
-      bracket_depth = bracket_depth + 1
-    } else if code == 93 {
-      bracket_depth = bracket_depth - 1
-    }
-    index = index + 1
-  }
-  found
-}
-
-///|
-fn wesl_find_top_level_as(source : String) -> Int? {
-  wesl_find_top_level_pattern(source, " as ")
-}
-
-///|
-fn wesl_join_import_path_text(
-  base_path_text : String?,
-  suffix : String,
-) -> String {
-  let trimmed_suffix = suffix.trim().to_string()
-  match base_path_text {
-    Some(base) =>
-      if trimmed_suffix == "" {
-        base
-      } else {
-        "\{base}::\{trimmed_suffix}"
-      }
-    None => trimmed_suffix
-  }
-}
-
-///|
-fn wesl_resolve_import_module_path(
-  current_path : ModulePath,
-  module_path_text : String,
-) -> ModulePath raise WeslCompileError {
-  let raw_module_path = parse_module_path(module_path_text.trim().to_string()) catch {
-    err => raise WeslCompileError::Parse(err.message())
-  }
-  current_path.join_path(raw_module_path)
-}
-
-///|
-fn wesl_symbol_context(
-  path : ModulePath,
-  start_line : Int,
-  end_line : Int,
-) -> String {
-  if start_line == end_line {
-    "\{path.to_string()}:\{start_line}"
-  } else {
-    "\{path.to_string()}:\{start_line}-\{end_line}"
-  }
-}
-
-///|
-fn wesl_symbol_with_context(
-  name : String,
-  path : ModulePath,
-  start_line : Int,
-  end_line : Int,
-) -> String {
-  "\{name} (\{wesl_symbol_context(path, start_line, end_line)})"
-}
-
-///|
-fn wesl_parse_simple_import(
-  current_path : ModulePath,
-  base_path_text : String?,
-  text : String,
-  public : Bool,
-  imports : Array[ImportItem],
-) -> Unit raise WeslCompileError {
-  let trimmed = text.trim().to_string()
-  if trimmed == "" {
-    return
-  }
-  let (item_source, local_name) = match wesl_find_top_level_as(trimmed) {
-    Some(index) =>
-      (
-        trimmed[:index].to_string().trim().to_string(),
-        trimmed[index + 4:trimmed.length()].to_string().trim().to_string(),
-      )
-    None => (trimmed, "")
-  }
-  let (module_path_text, item_name) = match base_path_text {
-    Some(base) =>
-      match wesl_find_top_level_last_double_colon(item_source) {
-        Some(index) =>
-          (
-            wesl_join_import_path_text(
-              Some(base),
-              item_source[:index].to_string(),
-            ),
-            item_source[index + 2:item_source.length()]
-            .to_string()
-            .trim()
-            .to_string(),
-          )
-        None => (base, item_source.trim().to_string())
-      }
-    None =>
-      match wesl_find_top_level_last_double_colon(item_source) {
-        Some(index) =>
-          (
-            item_source[:index].to_string(),
-            item_source[index + 2:item_source.length()]
-            .to_string()
-            .trim()
-            .to_string(),
-          )
-        None => return
-      }
-  }
-  let resolved_module_path = wesl_resolve_import_module_path(
-    current_path, module_path_text,
-  )
-  imports.push(ImportItem::{
-    module_path: resolved_module_path,
-    item_name,
-    local_name: if local_name == "" {
-      item_name
-    } else {
-      local_name
-    },
-    public,
-    start_line: 1,
-    end_line: 1,
-  })
-}
-
-///|
-fn wesl_parse_import_content(
-  current_path : ModulePath,
-  base_path_text : String?,
-  text : String,
-  public : Bool,
-  imports : Array[ImportItem],
-) -> Unit raise WeslCompileError {
-  let trimmed = text.trim().to_string()
-  if trimmed == "" {
-    return
-  }
-  if trimmed.has_prefix("{") {
-    let end_index = wesl_find_matching_delim(trimmed, 0, 123, 125)
-    if end_index + 1 != trimmed.length() {
-      raise WeslCompileError::Parse("unsupported import statement: \{trimmed}")
-    }
-    let inner = trimmed[1:end_index].to_string()
-    for part in wesl_split_top_level_commas(inner) {
-      wesl_parse_import_content(
-        current_path, base_path_text, part, public, imports,
-      )
-    }
-    return
-  }
-  match wesl_find_top_level_pattern(trimmed, "::{") {
-    Some(index) => {
-      let prefix = trimmed[:index].to_string().trim().to_string()
-      let nested_base = wesl_join_import_path_text(base_path_text, prefix)
-      let nested = trimmed[index + 2:trimmed.length()].to_string()
-      wesl_parse_import_content(
-        current_path,
-        Some(nested_base),
-        nested,
-        public,
-        imports,
-      )
-    }
-    None =>
-      wesl_parse_simple_import(
-        current_path, base_path_text, trimmed, public, imports,
-      )
-  }
-}
-
-///|
-fn wesl_parse_import_statement(
-  current_path : ModulePath,
-  item : TopLevelSource,
-) -> Array[ImportItem] raise WeslCompileError {
-  let imports : Array[ImportItem] = []
-  let statement = item.source
-  let context = if item.start_line == item.end_line {
-    "\{current_path.to_string()}:\{item.start_line}"
-  } else {
-    "\{current_path.to_string()}:\{item.start_line}-\{item.end_line}"
-  }
-  let attrs = wesl_collect_leading_attr_names(statement)
-  let public = wesl_attrs_contain(attrs, "publish")
-  let stripped = wesl_strip_leading_attrs(statement).trim().to_string()
-  if !stripped.has_prefix("import ") || !stripped.has_suffix(";") {
-    raise WeslCompileError::Parse(
-      "unsupported import statement (\{context}): \{statement.trim().to_string()}",
-    )
-  }
-  let content = stripped[7:stripped.length() - 1].to_string()
-  wesl_parse_import_content(current_path, None, content, public, imports) catch {
-    Parse(reason) => raise WeslCompileError::Parse("\{reason} (\{context})")
-    err => raise err
-  }
-  for i in 0..<imports.length() {
-    let import_item = imports[i]
-    imports[i] = ImportItem::{
-      ..import_item,
-      start_line: item.start_line,
-      end_line: item.end_line,
-    }
-  }
-  imports
-}
-
-///|
-fn wesl_try_decl_name(trimmed : String) -> String? {
-  if trimmed.has_prefix("fn ") {
-    let rest = trimmed[3:trimmed.length()].to_string()
-    match wesl_find_first(rest, "(", 0) {
-      Some(end_index) => Some(rest[:end_index].trim().to_string())
-      None => None
-    }
-  } else if trimmed.has_prefix("struct ") {
-    let rest = trimmed[7:trimmed.length()].to_string().trim().to_string()
-    let name = rest.split(" ").next().unwrap_or("").to_string()
-    if name == "" {
-      None
-    } else {
-      Some(name)
-    }
-  } else if trimmed.has_prefix("alias ") {
-    let rest = trimmed[6:trimmed.length()].to_string().trim().to_string()
-    match wesl_find_first(rest, "=", 0) {
-      Some(end_index) => Some(rest[:end_index].trim().to_string())
-      None => None
-    }
-  } else if trimmed.has_prefix("const ") ||
-    trimmed.has_prefix("override ") ||
-    trimmed.has_prefix("let ") {
-    let head = if trimmed.has_prefix("const ") {
-      trimmed[6:trimmed.length()].to_string()
-    } else if trimmed.has_prefix("override ") {
-      trimmed[9:trimmed.length()].to_string()
-    } else {
-      trimmed[4:trimmed.length()].to_string()
-    }
-    let name = head.split(" ").next().unwrap_or("").to_string()
-    if name == "" {
-      None
-    } else {
-      Some(name)
-    }
-  } else if trimmed.has_prefix("var") {
-    let mut rest = trimmed[3:trimmed.length()].to_string().trim().to_string()
-    if rest.has_prefix("<") {
-      let end_index = wesl_find_matching_delim(rest, 0, 60, 62) catch {
-        _ => return None
-      }
-      rest = rest[end_index + 1:rest.length()].to_string().trim().to_string()
-    }
-    let mut name_end = 0
-    while name_end < rest.length() &&
-          wesl_is_identifier_char(rest.code_unit_at(name_end).to_int()) {
-      name_end = name_end + 1
-    }
-    if name_end == 0 {
-      None
-    } else {
-      Some(rest[:name_end].to_string())
-    }
-  } else {
-    None
-  }
-}
-
-///|
-fn trim_trailing_semicolons(text : String) -> String {
-  let mut out = text.trim().to_string()
-  while out.length() > 0 && out.code_unit_at(out.length() - 1).to_int() == 59 { // ';'
-    out = out[:out.length() - 1].to_string().trim().to_string()
-  }
-  out
-}
-
-///|
-fn wesl_parse_alias_target(trimmed : String) -> String? {
-  if !trimmed.has_prefix("alias ") {
-    return None
-  }
-  match wesl_find_first(trimmed, "=", 0) {
-    Some(index) =>
-      Some(
-        trim_trailing_semicolons(
-          trimmed[index + 1:trimmed.length()].to_string().trim().to_string(),
-        ),
-      )
-    None => None
-  }
-}
-
-///|
-fn wesl_parse_const_initializer(trimmed : String) -> String? {
-  if !trimmed.has_prefix("const ") {
-    return None
-  }
-  match wesl_find_first(trimmed, "=", 0) {
-    Some(index) =>
-      Some(
-        trim_trailing_semicolons(
-          trimmed[index + 1:trimmed.length()].to_string().trim().to_string(),
-        ),
-      )
-    None => None
-  }
-}
-
-///|
-fn wesl_parse_module_item_kind(trimmed : String) -> ModuleItemKind {
-  if trimmed.has_prefix("fn ") {
-    ModuleItemKind::Function
-  } else if trimmed.has_prefix("const_assert") {
-    ModuleItemKind::ConstAssert
-  } else {
-    match wesl_parse_alias_target(trimmed) {
-      Some(target) => ModuleItemKind::Alias(target)
-      None =>
-        match wesl_parse_const_initializer(trimmed) {
-          Some(initializer) => ModuleItemKind::Const(initializer)
-          None => ModuleItemKind::Other
-        }
-    }
-  }
-}
-
-///|
 fn wesl_collect_identifiers(source : String) -> Array[String] {
   let tokens : Array[String] = []
   let mut index = 0
@@ -1162,91 +534,6 @@ fn wesl_collect_item_references(
     }
   }
   references
-}
-
-///|
-fn wesl_parse_module_item(source : String) -> ModuleItem {
-  wesl_parse_module_item_with_lines(source.trim().to_string(), 1, 1)
-}
-
-///|
-fn wesl_parse_module_item_with_lines(
-  source : String,
-  _start_line : Int,
-  _end_line : Int,
-) -> ModuleItem {
-  let trimmed_source = source.trim().to_string()
-  let stripped = wesl_strip_leading_attrs(trimmed_source).trim().to_string()
-  let attrs = wesl_collect_leading_attr_names(trimmed_source)
-  let kind = wesl_parse_module_item_kind(stripped)
-  ModuleItem::{
-    name: wesl_try_decl_name(stripped),
-    kind,
-    source: trimmed_source,
-    start_line: _start_line,
-    end_line: _end_line,
-    entrypoint: stripped.has_prefix("fn ") &&
-    (match kind {
-      ModuleItemKind::Function =>
-        wesl_attrs_contain(attrs, "fragment") ||
-        wesl_attrs_contain(attrs, "vertex") ||
-        wesl_attrs_contain(attrs, "compute")
-      _ => false
-    }),
-    is_const_assert: kind is ModuleItemKind::ConstAssert,
-    references: [],
-  }
-}
-
-///|
-fn wesl_parse_top_level_item(
-  current_path : ModulePath,
-  source : TopLevelSource,
-  parse_imports : Bool,
-) -> Array[TopLevelItem] raise WeslCompileError {
-  let trimmed_source = source.source.trim().to_string()
-  if trimmed_source == "" {
-    return []
-  }
-  if wesl_item_is_import(trimmed_source) {
-    if !parse_imports {
-      return []
-    }
-    let items : Array[TopLevelItem] = []
-    for import_item in wesl_parse_import_statement(current_path, source) {
-      items.push(TopLevelItem::Import(import_item))
-    }
-    return items
-  }
-  let items : Array[TopLevelItem] = []
-  items.push(
-    TopLevelItem::Decl(
-      wesl_parse_module_item_with_lines(
-        trimmed_source,
-        source.start_line,
-        source.end_line,
-      ),
-    ),
-  )
-  items
-}
-
-///|
-fn wesl_parse_top_level_items(
-  current_path : ModulePath,
-  source : String,
-  parse_imports : Bool,
-) -> Array[TopLevelItem] raise WeslCompileError {
-  let items : Array[TopLevelItem] = []
-  for item_source in wesl_split_top_level_sources(source) {
-    for
-      item in wesl_parse_top_level_item(
-        current_path, item_source, parse_imports,
-      ) {
-      items.push(item)
-    }
-  }
-  items
 }
 
 ///|
@@ -1363,7 +650,7 @@ fn[R : Resolver] wesl_load_module(
       } else {
         raw_source
       }
-      let top_level_items = wesl_parse_top_level_items(
+      let translation_unit = parse_translation_unit(
         path,
         source,
         options.imports,
@@ -1371,29 +658,37 @@ fn[R : Resolver] wesl_load_module(
       let imports : Array[ImportItem] = []
       let parsed_items : Array[ModuleItem] = []
       let named_items : @hashmap.HashMap[String, Int] = @hashmap.HashMap::new()
-      for item in top_level_items {
-        match item {
-          TopLevelItem::Import(import_item) => imports.push(import_item)
-          TopLevelItem::Decl(parsed) => {
-            match parsed.name {
-              Some(name) =>
-                if named_items.contains(name) {
-                  raise WeslCompileError::DuplicateSymbol(
-                    wesl_symbol_with_context(
-                      name,
-                      path,
-                      parsed.start_line,
-                      parsed.end_line,
-                    ),
-                  )
-                } else {
-                  named_items.set(name, parsed_items.length())
-                }
-              None => ()
-            }
-            parsed_items.push(parsed)
-          }
+      for statement in translation_unit.imports {
+        for imported_name in statement.flatten_items(path) {
+          imports.push(ImportItem::{
+            module_path: imported_name.module_path,
+            item_name: imported_name.item_name,
+            local_name: imported_name.local_name,
+            public: statement.is_public(),
+            start_line: statement.span.start_line,
+            end_line: statement.span.end_line,
+          })
         }
+      }
+      for decl in translation_unit.global_declarations {
+        match decl.ident() {
+          Some(name) =>
+            if named_items.contains(name) {
+              raise WeslCompileError::DuplicateSymbol(
+                decl.span.symbol_context(path, name),
+              )
+            } else {
+              named_items.set(name, parsed_items.length())
+            }
+          None => ()
+        }
+        parsed_items.push(ModuleItem::{
+          name: decl.ident(),
+          source: decl.source,
+          entrypoint: decl.is_entrypoint(),
+          is_const_assert: decl.is_const_assert(),
+          references: [],
+        })
       }
       let import_by_local : @hashmap.HashMap[String, Int] = @hashmap.HashMap::new()
       for i in 0..<imports.length() {
@@ -1401,12 +696,10 @@ fn[R : Resolver] wesl_load_module(
         if named_items.contains(import_item.local_name) ||
           import_by_local.contains(import_item.local_name) {
           raise WeslCompileError::DuplicateSymbol(
-            wesl_symbol_with_context(
-              import_item.local_name,
-              path,
-              import_item.start_line,
-              import_item.end_line,
-            ),
+            SyntaxSpan::{
+              start_line: import_item.start_line,
+              end_line: import_item.end_line,
+            }.symbol_context(path, import_item.local_name),
           )
         }
         import_by_local.set(import_item.local_name, i)
@@ -1623,19 +916,25 @@ fn wesl_apply_replacements(
 }
 
 ///|
-fn wesl_lower_source(source : String) -> String {
+fn wesl_lower_source(source : String) -> String raise WeslCompileError {
   let alias_replacements : Array[(String, String)] = []
   let const_replacements : Array[(String, String)] = []
   let kept_items : Array[ModuleItem] = []
-  for item_source in wesl_split_top_level_items(source) {
-    let parsed = wesl_parse_module_item(item_source)
-    match parsed.kind {
-      ModuleItemKind::Alias(target) =>
-        match parsed.name {
-          Some(name) => {
+  for decl in parse_global_declarations(source) {
+    let parsed = ModuleItem::{
+      name: decl.ident(),
+      source: decl.source,
+      entrypoint: decl.is_entrypoint(),
+      is_const_assert: decl.is_const_assert(),
+      references: [],
+    }
+    match decl.header {
+      Alias(alias_decl) =>
+        match alias_decl.target {
+          Some(target) => {
             alias_replacements.push(
               (
-                name,
+                alias_decl.name,
                 wesl_apply_replacements(
                   wesl_apply_replacements(target, alias_replacements),
                   const_replacements,
@@ -1646,12 +945,12 @@ fn wesl_lower_source(source : String) -> String {
           }
           None => kept_items.push(parsed)
         }
-      ModuleItemKind::Const(initializer) =>
-        match parsed.name {
-          Some(name) => {
+      Const(const_decl) =>
+        match const_decl.initializer {
+          Some(initializer) => {
             const_replacements.push(
               (
-                name,
+                const_decl.name,
                 "(\{wesl_apply_replacements(wesl_apply_replacements(initializer, alias_replacements), const_replacements)})",
               ),
             )
@@ -1659,9 +958,7 @@ fn wesl_lower_source(source : String) -> String {
           }
           None => kept_items.push(parsed)
         }
-      ModuleItemKind::Function => kept_items.push(parsed)
-      ModuleItemKind::ConstAssert => kept_items.push(parsed)
-      ModuleItemKind::Other => kept_items.push(parsed)
+      _ => kept_items.push(parsed)
     }
   }
   let lowered : Array[String] = []
