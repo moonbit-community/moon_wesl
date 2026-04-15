@@ -16,6 +16,9 @@
 let upstream_pending_spec_declaration_case_names : Array[String] = []
 
 ///|
+let upstream_pending_spec_eval_case_names : Array[String] = []
+
+///|
 let upstream_pending_import_case_names : Array[String] = []
 
 ///|

@@ -46,6 +46,28 @@ fn upstream_assert_expression_parse_result(
 }
 
 ///|
+fn upstream_assert_eval_case(case : UpstreamEvalSpecCase) -> String? {
+  let result = try? eval_const_function(case.code, case.eval)
+  match (case.expect_pass, result) {
+    (true, Ok(actual)) =>
+      match case.expected_result {
+        Some(expected) =>
+          if actual == expected {
+            None
+          } else {
+            Some("\{case.name}: expected `\{expected}`, got `\{actual}`")
+          }
+        None => Some("\{case.name}: expected eval failure, got `\{actual}`")
+      }
+    (false, Err(_)) => None
+    (true, Err(err)) =>
+      Some("\{case.name}: expected eval success, got \{err.message()}")
+    (false, Ok(actual)) =>
+      Some("\{case.name}: expected eval failure, got `\{actual}`")
+  }
+}
+
+///|
 fn upstream_assert_context_case(case : UpstreamContextCase) -> String? {
   let resolver = VirtualResolver::new()
   let root_path = ModulePath::from_path("/main.wgsl")
@@ -149,10 +171,15 @@ test "upstream: spec expression syntax cases" {
 }
 
 ///|
-#skip
-test "upstream: spec eval cases await const-eval parity" {
+test "upstream: spec eval cases" {
   for case in upstream_spec_eval_cases {
-    ignore(case)
+    if upstream_array_contains(upstream_pending_spec_eval_case_names, case.name) {
+      continue
+    }
+    match upstream_assert_eval_case(case) {
+      Some(message) => fail(message)
+      None => ()
+    }
   }
 }
 
