@@ -190,6 +190,57 @@ test "wesl: grouped imports expand and local aliases resolve correctly" {
 }
 
 ///|
+test "wesl: parse errors include module and line context" {
+  let resolver = VirtualResolver::new()
+  let root_path = ModulePath::from_path("/shaders/root")
+  resolver.add_module(
+    root_path, "import super::util::make_value\n@fragment\nfn fragment() -> f32 {\n  return 1.0;\n}\n",
+  )
+
+  let result = try? compile(
+    root_path,
+    resolver,
+    EscapeMangler::default(),
+    CompileOptions::default().with_lower(true),
+  )
+
+  match result {
+    Err(WeslCompileError::Parse(reason)) => {
+      debug_inspect(
+        reason.contains("unsupported import statement"),
+        content="true",
+      )
+      debug_inspect(reason.contains("package::shaders::root:1"), content="true")
+    }
+    _ => fail("expected parse error with source context")
+  }
+}
+
+///|
+test "wesl: duplicate declarations include module and line context" {
+  let resolver = VirtualResolver::new()
+  let root_path = ModulePath::from_path("/shaders/root")
+  resolver.add_module(
+    root_path, "fn helper() -> f32 {\n  return 1.0;\n}\n\nfn helper() -> f32 {\n  return 2.0;\n}\n",
+  )
+
+  let result = try? compile(
+    root_path,
+    resolver,
+    EscapeMangler::default(),
+    CompileOptions::default(),
+  )
+
+  match result {
+    Err(WeslCompileError::DuplicateSymbol(symbol)) => {
+      debug_inspect(symbol.contains("helper"), content="true")
+      debug_inspect(symbol.contains("package::shaders::root:5"), content="true")
+    }
+    _ => fail("expected duplicate symbol with source context")
+  }
+}
+
+///|
 test "wesl: published imports can be re-exported across modules" {
   let resolver = VirtualResolver::new()
   let util_path = ModulePath::from_path("/shaders/util")
