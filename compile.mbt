@@ -188,6 +188,11 @@ fn wesl_is_identifier_char(code : Int) -> Bool {
 }
 
 ///|
+fn wesl_is_digit(code : Int) -> Bool {
+  code >= 48 && code <= 57
+}
+
+///|
 fn wesl_is_whitespace(code : Int) -> Bool {
   code == 32 || code == 9 || code == 10 || code == 13
 }
@@ -1654,6 +1659,410 @@ fn wesl_validate_loaded_cycles(
 }
 
 ///|
+fn wesl_item_context(path : ModulePath, item : ModuleItem) -> String {
+  match item.name {
+    Some(name) => item.span.symbol_context(path, name)
+    None => item.span.context(path)
+  }
+}
+
+///|
+fn wesl_is_matrix_type_name(name : String) -> Bool {
+  if name.length() < 6 || name[:3].to_string() != "mat" {
+    return false
+  }
+  let mut index = 3
+  let mut saw_rows = false
+  while index < name.length() &&
+        wesl_is_digit(name.code_unit_at(index).to_int()) {
+    saw_rows = true
+    index += 1
+  }
+  if !saw_rows ||
+    index >= name.length() ||
+    name.code_unit_at(index).to_int() != 120 {
+    return false
+  }
+  index += 1
+  let mut saw_cols = false
+  while index < name.length() &&
+        wesl_is_digit(name.code_unit_at(index).to_int()) {
+    saw_cols = true
+    index += 1
+  }
+  if !saw_cols {
+    return false
+  }
+  if index == name.length() {
+    return true
+  }
+  if index + 1 == name.length() {
+    let suffix = name.code_unit_at(index).to_int()
+    return suffix == 102 || suffix == 104
+  }
+  false
+}
+
+///|
+fn wesl_is_float_scalar_name(name : String) -> Bool {
+  name == "f16" || name == "f32"
+}
+
+///|
+fn wesl_skip_angle_tokens(
+  tokens : Array[ParserToken],
+  start_index : Int,
+) -> Int {
+  let mut depth = 0
+  let mut index = start_index
+  while index < tokens.length() {
+    match tokens[index] {
+      Lt(_, _, _) => depth += 1
+      Gt(_, _, _) => {
+        depth -= 1
+        if depth == 0 {
+          return index + 1
+        }
+      }
+      _ => ()
+    }
+    index += 1
+  }
+  tokens.length()
+}
+
+///|
+fn wesl_find_binding_name_index(
+  tokens : Array[ParserToken],
+  keyword_index : Int,
+) -> Int? {
+  let mut index = keyword_index + 1
+  if index < tokens.length() && tokens[index] is Lt(_, _, _) {
+    index = wesl_skip_angle_tokens(tokens, index)
+  }
+  if index < tokens.length() {
+    match tokens[index] {
+      Ident(_, _, _, _) => Some(index)
+      _ => None
+    }
+  } else {
+    None
+  }
+}
+
+///|
+fn wesl_source_has_explicit_int_literal(source : String) -> Bool {
+  let mut index = 0
+  while index < source.length() {
+    let code = source.code_unit_at(index).to_int()
+    if code == 47 &&
+      index + 1 < source.length() &&
+      source.code_unit_at(index + 1).to_int() == 47 {
+      index += 2
+      while index < source.length() && source.code_unit_at(index).to_int() != 10 {
+        index += 1
+      }
+      continue
+    }
+    if code == 47 &&
+      index + 1 < source.length() &&
+      source.code_unit_at(index + 1).to_int() == 42 {
+      index += 2
+      while index + 1 < source.length() {
+        if source.code_unit_at(index).to_int() == 42 &&
+          source.code_unit_at(index + 1).to_int() == 47 {
+          index += 2
+          break
+        }
+        index += 1
+      }
+      continue
+    }
+    let digit_start = if code == 45 &&
+      index + 1 < source.length() &&
+      wesl_is_digit(source.code_unit_at(index + 1).to_int()) {
+      index + 1
+    } else if wesl_is_digit(code) {
+      index
+    } else {
+      index += 1
+      continue
+    }
+    let mut end_index = digit_start
+    while end_index < source.length() &&
+          wesl_is_digit(source.code_unit_at(end_index).to_int()) {
+      end_index += 1
+    }
+    if end_index < source.length() &&
+      source.code_unit_at(end_index).to_int() == 105 {
+      let after = if end_index + 1 < source.length() {
+        source.code_unit_at(end_index + 1).to_int()
+      } else {
+        -1
+      }
+      if after < 0 || !wesl_is_identifier_char(after) {
+        return true
+      }
+    }
+    index = end_index
+  }
+  false
+}
+
+///|
+fn wesl_find_statement_end(
+  tokens : Array[ParserToken],
+  start_index : Int,
+) -> Int {
+  let mut paren_depth = 0
+  let mut bracket_depth = 0
+  let mut brace_depth = 0
+  let mut index = start_index
+  while index < tokens.length() {
+    match tokens[index] {
+      LParen(_, _, _) => paren_depth += 1
+      RParen(_, _, _) => if paren_depth > 0 { paren_depth -= 1 }
+      LBracket(_, _, _) => bracket_depth += 1
+      RBracket(_, _, _) => if bracket_depth > 0 { bracket_depth -= 1 }
+      LBrace(_, _, _) => brace_depth += 1
+      RBrace(_, _, _) =>
+        if brace_depth == 0 {
+          return index
+        } else {
+          brace_depth -= 1
+        }
+      Semi(_, _, _) if paren_depth == 0 &&
+        bracket_depth == 0 &&
+        brace_depth == 0 => return index
+      _ => ()
+    }
+    index += 1
+  }
+  tokens.length()
+}
+
+///|
+fn wesl_binding_is_matrix_type(
+  source : String,
+  tokens : Array[ParserToken],
+  name_index : Int,
+) -> Bool {
+  let mut index = name_index + 1
+  while index < tokens.length() {
+    match tokens[index] {
+      Other(_, _, _) if wesl_token_text(source, tokens[index]) == ":" => {
+        let mut type_index = index + 1
+        while type_index < tokens.length() {
+          match tokens[type_index] {
+            Ident(type_name, _, _, _) =>
+              return wesl_is_matrix_type_name(type_name)
+            Eq(_, _, _) => break
+            Semi(_, _, _) => break
+            _ => type_index += 1
+          }
+        }
+      }
+      Eq(_, _, _) => {
+        let mut value_index = index + 1
+        while value_index < tokens.length() {
+          match tokens[value_index] {
+            Ident(type_name, _, _, _) =>
+              return wesl_is_matrix_type_name(type_name) &&
+                value_index + 1 < tokens.length() &&
+                tokens[value_index + 1] is LParen(_, _, _)
+            Semi(_, _, _) => break
+            _ => value_index += 1
+          }
+        }
+      }
+      Semi(_, _, _) => break
+      _ => ()
+    }
+    index += 1
+  }
+  false
+}
+
+///|
+fn wesl_validate_matrix_type_templates(
+  path : ModulePath,
+  item : ModuleItem,
+) -> Unit raise WeslCompileError {
+  let tokens = parser_lex(item.source)
+  let context = wesl_item_context(path, item)
+  for index in 0..<tokens.length() {
+    match tokens[index] {
+      Ident(type_name, _, _, _) =>
+        if wesl_is_matrix_type_name(type_name) &&
+          index + 1 < tokens.length() &&
+          tokens[index + 1] is Lt(start_offset, end_offset, _) {
+          let close_offset = wesl_find_matching_delim(
+            item.source,
+            start_offset,
+            60,
+            62,
+          )
+          let scalar = item.source[end_offset:close_offset]
+            .to_string()
+            .trim()
+            .to_string()
+          if scalar != "" && !wesl_is_float_scalar_name(scalar) {
+            raise WeslCompileError::Validation(
+              "matrix types must use floating scalar types (\{context})",
+            )
+          }
+        }
+      _ => ()
+    }
+  }
+}
+
+///|
+fn wesl_validate_matrix_constructors(
+  path : ModulePath,
+  item : ModuleItem,
+) -> Unit raise WeslCompileError {
+  let tokens = parser_lex(item.source)
+  let context = wesl_item_context(path, item)
+  for index in 0..<tokens.length() {
+    match tokens[index] {
+      Ident(type_name, _, _, _) =>
+        if wesl_is_matrix_type_name(type_name) &&
+          index + 1 < tokens.length() &&
+          tokens[index + 1] is LParen(start_offset, end_offset, _) {
+          let close_offset = wesl_find_matching_delim(
+            item.source,
+            start_offset,
+            40,
+            41,
+          )
+          let arguments = item.source[end_offset:close_offset].to_string()
+          if wesl_source_has_explicit_int_literal(arguments) {
+            raise WeslCompileError::Validation(
+              "matrix constructors must not use explicit integer literals (\{context})",
+            )
+          }
+        }
+      _ => ()
+    }
+  }
+}
+
+///|
+fn wesl_validate_matrix_assignments(
+  path : ModulePath,
+  item : ModuleItem,
+) -> Unit raise WeslCompileError {
+  let tokens = parser_lex(item.source)
+  let matrix_scopes : Array[Array[String]] = [[]]
+  let mut scope_depth = 0
+  let context = wesl_item_context(path, item)
+  let mut index = 0
+  while index < tokens.length() {
+    match tokens[index] {
+      LBrace(_, _, _) => {
+        scope_depth += 1
+        if scope_depth < matrix_scopes.length() {
+          matrix_scopes[scope_depth] = []
+        } else {
+          matrix_scopes.push([])
+        }
+      }
+      RBrace(_, _, _) => if scope_depth > 0 { scope_depth -= 1 }
+      Ident(keyword, _, _, _) =>
+        if keyword == "const" || keyword == "let" || keyword == "var" {
+          match wesl_find_binding_name_index(tokens, index) {
+            Some(name_index) =>
+              match tokens[name_index] {
+                Ident(name, _, _, _) =>
+                  if wesl_binding_is_matrix_type(
+                      item.source,
+                      tokens,
+                      name_index,
+                    ) {
+                    wesl_bind_scope(matrix_scopes, scope_depth, name)
+                  }
+                _ => ()
+              }
+            None => ()
+          }
+        } else if wesl_scopes_contain(matrix_scopes, scope_depth, keyword) {
+          let mut lookahead = index + 1
+          let mut saw_index_access = false
+          while lookahead < tokens.length() {
+            match tokens[lookahead] {
+              LBracket(_, _, _) => {
+                saw_index_access = true
+                let mut bracket_depth = 1
+                lookahead += 1
+                while lookahead < tokens.length() {
+                  match tokens[lookahead] {
+                    LBracket(_, _, _) => bracket_depth += 1
+                    RBracket(_, _, _) => {
+                      bracket_depth -= 1
+                      if bracket_depth == 0 {
+                        lookahead += 1
+                        break
+                      }
+                    }
+                    _ => ()
+                  }
+                  lookahead += 1
+                }
+                continue
+              }
+              Eq(_, end_offset, _) if saw_index_access => {
+                let rhs_end_index = wesl_find_statement_end(
+                  tokens,
+                  lookahead + 1,
+                )
+                let rhs_end_offset = if rhs_end_index < tokens.length() {
+                  tokens[rhs_end_index].start()
+                } else {
+                  item.source.length()
+                }
+                let rhs = item.source[end_offset:rhs_end_offset].to_string()
+                if wesl_source_has_explicit_int_literal(rhs) {
+                  raise WeslCompileError::Validation(
+                    "matrix assignments must not use explicit integer literals (\{context})",
+                  )
+                }
+                break
+              }
+              _ => break
+            }
+          }
+        }
+      _ => ()
+    }
+    index += 1
+  }
+}
+
+///|
+fn wesl_validate_item_types(
+  path : ModulePath,
+  item : ModuleItem,
+) -> Unit raise WeslCompileError {
+  wesl_validate_matrix_type_templates(path, item)
+  wesl_validate_matrix_constructors(path, item)
+  wesl_validate_matrix_assignments(path, item)
+}
+
+///|
+fn wesl_validate_loaded_types(
+  order : Array[ModulePath],
+  modules : @hashmap.HashMap[ModulePath, ParsedModule],
+) -> Unit raise WeslCompileError {
+  for path in order {
+    guard modules.get(path) is Some(parsed_module) else { continue }
+    for item in parsed_module.items {
+      ignore(wesl_validate_item_types(path, item))
+    }
+  }
+}
+
+///|
 fn wesl_emit_item_source(
   parsed_module : ParsedModule,
   item : ModuleItem,
@@ -1855,6 +2264,7 @@ pub fn[R : Resolver] compile(
     root, resolver, options, modules, order, used_modules, used_decls,
   )
   wesl_validate_loaded_cycles(order, modules)
+  wesl_validate_loaded_types(order, modules)
   for keep_name in wesl_root_keep_names(root_module, options) {
     ignore(
       wesl_mark_named_decl(

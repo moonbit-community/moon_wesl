@@ -16,6 +16,7 @@
 pub(all) suberror WeslCompileError {
   Resolve(ResolveError)
   Parse(String)
+  Validation(String)
   InvalidExpression(String)
   DuplicateSymbol(String)
   CircularDecl(String)
@@ -28,6 +29,7 @@ pub fn WeslCompileError::message(self : WeslCompileError) -> String {
   match self {
     Resolve(err) => err.message()
     Parse(reason) => reason
+    Validation(reason) => reason
     InvalidExpression(expr) => "invalid if attribute expression: `\{expr}`"
     DuplicateSymbol(symbol) => "duplicate declaration of `\{symbol}`"
     CircularDecl(symbol) => "circular declaration of `\{symbol}`"

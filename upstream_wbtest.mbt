@@ -38,7 +38,7 @@ fn upstream_assert_context_case(case : UpstreamContextCase) -> String? {
     root_path,
     resolver,
     EscapeMangler::default(),
-    CompileOptions::default(),
+    CompileOptions::default().with_lower(case.lower),
   )
   match (case.expect_pass, result) {
     (true, Ok(_)) => None
@@ -173,10 +173,12 @@ test "upstream: circular context cases" {
 }
 
 ///|
-#skip
-test "upstream: type context cases await validator parity" {
+test "upstream: type context cases" {
   for case in upstream_type_context_cases {
-    ignore(case)
+    match upstream_assert_context_case(case) {
+      Some(message) => fail(message)
+      None => ()
+    }
   }
 }
 
