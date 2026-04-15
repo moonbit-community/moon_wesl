@@ -306,20 +306,7 @@ fn GlobalDeclaration::is_const_assert(self : GlobalDeclaration) -> Bool {
   self.header is GlobalDeclarationHeader::ConstAssert
 }
 
-///|
-fn GlobalDeclaration::source_text(self : GlobalDeclaration) -> String {
-  self.source
-}
-
-///|
 priv struct TranslationUnit {
   imports : Array[ImportStatement]
   global_declarations : Array[GlobalDeclaration]
-}
-
-///|
-fn TranslationUnit::declarations(
-  self : TranslationUnit,
-) -> Array[GlobalDeclaration] {
-  self.global_declarations
 }

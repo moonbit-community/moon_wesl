@@ -104,12 +104,6 @@ fn parser_is_identifier_char(code : Int) -> Bool {
   parser_is_identifier_start(code) || (code >= 48 && code <= 57)
 }
 
-///|
-fn parser_is_digit(code : Int) -> Bool {
-  code >= 48 && code <= 57
-}
-
-///|
 fn parser_is_reserved_word(name : String) -> Bool {
   match name {
     "alias" => true
@@ -167,72 +161,6 @@ fn parser_validate_declaration_ident(
   }
 }
 
-///|
-fn parse_expression(source : String) -> Unit raise WeslCompileError {
-  let expr = source.trim().to_string()
-  if expr == "" {
-    raise WeslCompileError::Parse("empty expression")
-  }
-  let mut index = 0
-  if expr.code_unit_at(index).to_int() == 45 {
-    index += 1
-  }
-  if index >= expr.length() ||
-    !parser_is_digit(expr.code_unit_at(index).to_int()) {
-    raise WeslCompileError::Parse("unsupported expression syntax: `\{expr}`")
-  }
-  let digit_start = index
-  while index < expr.length() &&
-        parser_is_digit(expr.code_unit_at(index).to_int()) {
-    index += 1
-  }
-  let has_leading_zero = index - digit_start > 1 &&
-    expr.code_unit_at(digit_start).to_int() == 48
-  if index == expr.length() {
-    if has_leading_zero {
-      raise WeslCompileError::Parse("invalid numeric literal: `\{expr}`")
-    }
-    return
-  }
-  match expr.code_unit_at(index).to_int() {
-    46 => { // '.'
-      index += 1
-      if index >= expr.length() ||
-        !parser_is_digit(expr.code_unit_at(index).to_int()) {
-        raise WeslCompileError::Parse(
-          "unsupported expression syntax: `\{expr}`",
-        )
-      }
-      while index < expr.length() &&
-            parser_is_digit(expr.code_unit_at(index).to_int()) {
-        index += 1
-      }
-      if index < expr.length() && expr.code_unit_at(index).to_int() == 102 {
-        index += 1
-      }
-      if index != expr.length() {
-        raise WeslCompileError::Parse(
-          "unsupported expression syntax: `\{expr}`",
-        )
-      }
-    }
-    117 => { // 'u'
-      if has_leading_zero {
-        raise WeslCompileError::Parse("invalid numeric literal: `\{expr}`")
-      }
-      index += 1
-      if index != expr.length() {
-        raise WeslCompileError::Parse(
-          "unsupported expression syntax: `\{expr}`",
-        )
-      }
-    }
-    _ =>
-      raise WeslCompileError::Parse("unsupported expression syntax: `\{expr}`")
-  }
-}
-
-///|
 fn parser_lex(source : String) -> Array[ParserToken] {
   let tokens : Array[ParserToken] = []
   let mut index = 0
@@ -547,7 +475,6 @@ fn parser_consume_top_level_item(
 
 ///|
 fn parser_parse_import_segment(
-  source : String,
   view : ArrayView[ParserToken],
 ) -> (String, ArrayView[ParserToken]) raise WeslCompileError {
   match view {
@@ -597,9 +524,7 @@ fn parser_parse_import_node(
     _ => {
       let segments : Array[String] = []
       let mut current = view
-      let (first_segment, first_rest) = parser_parse_import_segment(
-        source, current,
-      )
+      let (first_segment, first_rest) = parser_parse_import_segment(current)
       segments.push(first_segment)
       current = first_rest
       while true {
@@ -622,7 +547,7 @@ fn parser_parse_import_node(
             }
           }
           [DoubleColon(_, _, _), .. rest] => {
-            let (segment, tail) = parser_parse_import_segment(source, rest)
+            let (segment, tail) = parser_parse_import_segment(rest)
             segments.push(segment)
             current = tail
           }

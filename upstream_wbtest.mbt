@@ -212,6 +212,39 @@ test "upstream: vendored corpus manifest is present" {
   debug_inspect(upstream_ctor_coverage_cases.length(), content="1")
   debug_inspect(upstream_bevy_e2e_cases.length(), content="33")
   debug_inspect(upstream_wgpu_e2e_cases.length(), content="248")
+  for case in upstream_spec_syntax_cases {
+    ignore(case.suite)
+    ignore(case.description)
+  }
+  for case in upstream_spec_eval_cases {
+    ignore(case.suite)
+    ignore(case.description)
+    ignore(case.stage)
+  }
+  for case in upstream_import_cases {
+    ignore(case.notes)
+  }
+  for case in upstream_conditional_cases {
+    ignore(case.notes)
+  }
+  for case in upstream_dead_code_cases {
+    ignore(case.notes)
+  }
+  for case in upstream_import_context_cases {
+    ignore(case.description)
+  }
+  for case in upstream_circular_context_cases {
+    ignore(case.description)
+  }
+  for case in upstream_type_context_cases {
+    ignore(case.description)
+  }
+  for case in upstream_bevy_e2e_cases {
+    ignore(case.suite)
+  }
+  for case in upstream_wgpu_e2e_cases {
+    ignore(case.suite)
+  }
 }
 
 ///|

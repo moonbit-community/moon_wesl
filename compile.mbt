@@ -1196,9 +1196,10 @@ fn[R : Resolver] wesl_preload_import_item(
   let mut missing_named_target : (ModulePath, String)? = None
   match wesl_import_named_target(import_item) {
     Some((import_path, import_name)) =>
-      match
-        (try? wesl_load_module(import_path, resolver, options, modules, order)) {
-        Ok(loaded) =>
+      try wesl_load_module(import_path, resolver, options, modules, order) catch {
+        _ => ()
+      } noraise {
+        loaded =>
           match wesl_module_export_target(loaded, import_name) {
             ExportTarget::Local(_) => return
             ExportTarget::ReExport(_) => return
@@ -1207,7 +1208,6 @@ fn[R : Resolver] wesl_preload_import_item(
             ExportTarget::Missing =>
               missing_named_target = Some((loaded.path, import_name))
           }
-        Err(_) => ()
       }
     None => ()
   }
@@ -2141,14 +2141,14 @@ fn wesl_emit_module(
     for import_item in parsed_module.imports {
       match wesl_import_named_target(import_item) {
         Some((import_path, import_name)) =>
-          match
-            (try? wesl_resolve_export_target(import_path, import_name, modules)) {
-            Ok((target_path, _)) =>
+          try wesl_resolve_export_target(import_path, import_name, modules) catch {
+            _ => ()
+          } noraise {
+            (target_path, _) =>
               wesl_emit_module(
                 target_path, root, modules, used_modules, used_decls, emitted, parts,
                 mangler, options,
               )
-            Err(_) => ()
           }
         None => ()
       }
@@ -2174,16 +2174,18 @@ fn wesl_emit_module(
         ) {
         match wesl_import_named_target(import_item) {
           Some((import_path, import_name)) =>
-            match
-              (try? wesl_resolve_export_target(
-                import_path, import_name, modules,
-              )) {
-              Ok((target_path, _)) =>
+            try wesl_resolve_export_target(
+              import_path,
+              import_name,
+              modules,
+            ) catch {
+              _ => ()
+            } noraise {
+              (target_path, _) =>
                 wesl_emit_module(
                   target_path, root, modules, used_modules, used_decls, emitted,
                   parts, mangler, options,
                 )
-              Err(_) => ()
             }
           None => ()
         }
@@ -2200,19 +2202,20 @@ fn wesl_emit_module(
       for reference in item.references {
         match reference {
           ModuleItemRef::Import(_, import_index) =>
-            match
-              wesl_import_named_target(parsed_module.imports[import_index]) {
+            match wesl_import_named_target(parsed_module.imports[import_index]) {
               Some((import_path, import_name)) =>
-                match
-                  (try? wesl_resolve_export_target(
-                    import_path, import_name, modules,
-                  )) {
-                  Ok((target_path, _)) =>
+                try wesl_resolve_export_target(
+                  import_path,
+                  import_name,
+                  modules,
+                ) catch {
+                  _ => ()
+                } noraise {
+                  (target_path, _) =>
                     wesl_emit_module(
                       target_path, root, modules, used_modules, used_decls, emitted,
                       parts, mangler, options,
                     )
-                  Err(_) => ()
                 }
               None => ()
             }

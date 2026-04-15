@@ -339,19 +339,23 @@ fn ConstEvalParser::parse_division(
   self : ConstEvalParser,
 ) -> ConstEvalExpr raise WeslCompileError {
   let mut expr = self.parse_unary()
-  let next_view = loop self.view() {
-    [Slash, .. rest] => {
-      self.update_view(rest)
-      expr = ConstEvalExpr::Binary(
-        ConstEvalBinaryOp::Div,
-        expr,
-        self.parse_unary(),
-      )
-      continue self.view()
+  for rest = self.view() {
+    match rest {
+      [Slash, .. next] => {
+        self.update_view(next)
+        expr = ConstEvalExpr::Binary(
+          ConstEvalBinaryOp::Div,
+          expr,
+          self.parse_unary(),
+        )
+        continue self.view()
+      }
+      rest => {
+        self.update_view(rest)
+        break
+      }
     }
-    rest => rest
   }
-  self.update_view(next_view)
   expr
 }
 
@@ -360,28 +364,32 @@ fn ConstEvalParser::parse_additive(
   self : ConstEvalParser,
 ) -> ConstEvalExpr raise WeslCompileError {
   let mut expr = self.parse_division()
-  let next_view = loop self.view() {
-    [Plus, .. rest] => {
-      self.update_view(rest)
-      expr = ConstEvalExpr::Binary(
-        ConstEvalBinaryOp::Add,
-        expr,
-        self.parse_division(),
-      )
-      continue self.view()
+  for rest = self.view() {
+    match rest {
+      [Plus, .. next] => {
+        self.update_view(next)
+        expr = ConstEvalExpr::Binary(
+          ConstEvalBinaryOp::Add,
+          expr,
+          self.parse_division(),
+        )
+        continue self.view()
+      }
+      [Minus, .. next] => {
+        self.update_view(next)
+        expr = ConstEvalExpr::Binary(
+          ConstEvalBinaryOp::Sub,
+          expr,
+          self.parse_division(),
+        )
+        continue self.view()
+      }
+      rest => {
+        self.update_view(rest)
+        break
+      }
     }
-    [Minus, .. rest] => {
-      self.update_view(rest)
-      expr = ConstEvalExpr::Binary(
-        ConstEvalBinaryOp::Sub,
-        expr,
-        self.parse_division(),
-      )
-      continue self.view()
-    }
-    rest => rest
   }
-  self.update_view(next_view)
   expr
 }
 
@@ -453,16 +461,20 @@ fn ConstEvalParser::parse_function(
   self : ConstEvalParser,
 ) -> ConstEvalFunction raise WeslCompileError {
   let mut has_const = false
-  let next_view = loop self.view() {
-    [At, Ident(name), .. rest] => {
-      if name == "const" {
-        has_const = true
+  for rest = self.view() {
+    match rest {
+      [At, Ident(name), .. next] => {
+        if name == "const" {
+          has_const = true
+        }
+        continue next
       }
-      continue rest
+      rest => {
+        self.update_view(rest)
+        break
+      }
     }
-    rest => rest
   }
-  self.update_view(next_view)
   if !has_const {
     raise WeslCompileError::Validation("expected `@const` function")
   }
@@ -1148,13 +1160,3 @@ fn const_eval_validate_target(
 }
 
 ///|
-fn eval_const_function(
-  source : String,
-  target_expr : String,
-) -> String raise WeslCompileError {
-  let tokens = const_eval_lex(source)
-  let parser = ConstEvalParser::new(tokens)
-  let function = parser.parse_function()
-  const_eval_validate_target(target_expr.trim().to_string(), function.name)
-  const_eval_execute_function(function)
-}

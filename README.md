@@ -204,6 +204,20 @@ modules:
 The implementation is intentionally lightweight and text-oriented. It is not a
 full WGSL/WESL semantic validator or formatter.
 
+## Design Constraints
+
+`moon_wesl` is intended to remain a pure computation library:
+
+- no runtime dependency on graphics backends or platform SDKs
+- no requirement to embed or link `wgpu`, GPU drivers, window systems, or
+  engine-specific runtimes
+- no platform-coupled execution model in the core package
+
+Vendored Bevy and WGPU fixtures in the test suite are treated as compatibility
+corpora only. They are used to improve parser, compiler, and validation
+behavior, not as a signal that this package should depend on Bevy, WGPU, or
+any other platform/runtime integration layer.
+
 ## Repository Layout
 
 - [compile.mbt](./compile.mbt): main compiler pipeline
