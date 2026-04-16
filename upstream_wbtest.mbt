@@ -89,7 +89,8 @@ fn upstream_assert_standalone_compile_result(
       } else {
         None
       }
-    Err(err) => Some("\{case_name}: expected compile success, got \{err.message()}")
+    Err(err) =>
+      Some("\{case_name}: expected compile success, got \{err.message()}")
   }
 }
 
@@ -124,7 +125,9 @@ fn upstream_assert_bulk_case(case : UpstreamBulkCase) -> String? {
       return Some("\{case.name}: include path must not be empty")
     }
     if !upstream_is_shader_path(path) {
-      return Some("\{case.name}: include path must point to a shader fixture: \{path}")
+      return Some(
+        "\{case.name}: include path must point to a shader fixture: \{path}",
+      )
     }
   }
   for path in case.exclude_paths {
@@ -132,7 +135,9 @@ fn upstream_assert_bulk_case(case : UpstreamBulkCase) -> String? {
       return Some("\{case.name}: exclude path must not be empty")
     }
     if !upstream_is_shader_path(path) {
-      return Some("\{case.name}: exclude path must point to a shader fixture: \{path}")
+      return Some(
+        "\{case.name}: exclude path must point to a shader fixture: \{path}",
+      )
     }
   }
   None
@@ -190,11 +195,8 @@ fn upstream_assert_module_case(case : UpstreamModuleCase) -> String? {
 
 ///|
 let upstream_bevy_standalone_compile_paths : Array[String] = [
-  "bevy/custom_material_import.wgsl",
-  "bevy/custom_phase_item.wgsl",
-  "bevy/game_of_life.wgsl",
-  "bevy/gpu_readback.wgsl",
-  "bevy/util.wesl",
+  "bevy/custom_material_import.wgsl", "bevy/custom_phase_item.wgsl", "bevy/game_of_life.wgsl",
+  "bevy/gpu_readback.wgsl", "bevy/util.wesl",
 ]
 
 ///|
@@ -397,11 +399,12 @@ test "upstream: bulk validation metadata is internally consistent" {
 ///|
 test "upstream: ctor coverage fixture compiles through current validator slice" {
   for case in upstream_ctor_coverage_cases {
-    match upstream_assert_standalone_compile_result(
-      case.path,
-      case.path,
-      case.source,
-    ) {
+    match
+      upstream_assert_standalone_compile_result(
+        case.path,
+        case.path,
+        case.source,
+      ) {
       Some(message) => fail(message)
       None => ()
     }
@@ -430,14 +433,18 @@ test "upstream: bevy shader fixtures parse at translation-unit level" {
 ///|
 test "upstream: bevy standalone fixtures without package imports compile through current slice" {
   for case in upstream_bevy_e2e_cases {
-    if !upstream_array_contains(upstream_bevy_standalone_compile_paths, case.path) {
+    if !upstream_array_contains(
+        upstream_bevy_standalone_compile_paths,
+        case.path,
+      ) {
       continue
     }
-    match upstream_assert_standalone_compile_result(
-      case.path,
-      case.path,
-      case.source,
-    ) {
+    match
+      upstream_assert_standalone_compile_result(
+        case.path,
+        case.path,
+        case.source,
+      ) {
       Some(message) => fail(message)
       None => ()
     }
@@ -449,7 +456,10 @@ test "upstream: bevy standalone fixtures without package imports compile through
 test "upstream: bevy package-import integration e2e awaits resolver parity" {
   for case in upstream_bevy_e2e_cases {
     if upstream_is_shader_path(case.path) &&
-       !upstream_array_contains(upstream_bevy_standalone_compile_paths, case.path) {
+      !upstream_array_contains(
+        upstream_bevy_standalone_compile_paths,
+        case.path,
+      ) {
       ignore(case)
     }
   }

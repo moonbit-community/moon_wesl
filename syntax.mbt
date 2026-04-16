@@ -306,6 +306,7 @@ fn GlobalDeclaration::is_const_assert(self : GlobalDeclaration) -> Bool {
   self.header is GlobalDeclarationHeader::ConstAssert
 }
 
+///|
 priv struct TranslationUnit {
   imports : Array[ImportStatement]
   global_declarations : Array[GlobalDeclaration]

@@ -6589,6 +6589,7 @@ fn upstream_debug_symbol_large_source() -> String {
   ]
   parts.join("")
 }
+
 ///|
 let upstream_spec_syntax_cases : Array[UpstreamSyntaxSpecCase] = [
   UpstreamSyntaxSpecCase::{
@@ -9041,7 +9042,7 @@ let upstream_wgpu_e2e_cases : Array[UpstreamE2ECase] = [
   UpstreamE2ECase::{
     suite: "wgpu",
     path: "wgpu/in/debug-symbol-large-source.wgsl",
-    source: upstream_debug_symbol_large_source()
+    source: upstream_debug_symbol_large_source(),
   },
   UpstreamE2ECase::{
     suite: "wgpu",

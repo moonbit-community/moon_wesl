@@ -12,8 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+///|
 const CONST_EVAL_I32_MIN : Int64 = -2147483648L
+
+///|
 const CONST_EVAL_I32_MAX : Int64 = 2147483647L
+
+///|
 const CONST_EVAL_U32_MAX : Int64 = 4294967295L
 
 ///|
@@ -61,7 +66,9 @@ fn const_eval_is_number_char(code : Int) -> Bool {
 }
 
 ///|
-fn const_eval_lex(source : String) -> Array[ConstEvalToken] raise WeslCompileError {
+fn const_eval_lex(
+  source : String,
+) -> Array[ConstEvalToken] raise WeslCompileError {
   let tokens : Array[ConstEvalToken] = []
   let mut index = 0
   while index < source.length() {
@@ -143,9 +150,7 @@ fn const_eval_lex(source : String) -> Array[ConstEvalToken] raise WeslCompileErr
                 ) {
             index += 1
           }
-          tokens.push(
-            ConstEvalToken::Ident(source[start:index].to_string()),
-          )
+          tokens.push(ConstEvalToken::Ident(source[start:index].to_string()))
         } else if const_eval_is_digit(code) {
           let start = index
           index += 1
@@ -153,9 +158,7 @@ fn const_eval_lex(source : String) -> Array[ConstEvalToken] raise WeslCompileErr
                 const_eval_is_number_char(source.code_unit_at(index).to_int()) {
             index += 1
           }
-          tokens.push(
-            ConstEvalToken::Number(source[start:index].to_string()),
-          )
+          tokens.push(ConstEvalToken::Number(source[start:index].to_string()))
         } else {
           raise WeslCompileError::Parse(
             "unsupported const-eval token `\{source[index:index + 1].to_string()}`",
@@ -255,7 +258,9 @@ priv struct ConstEvalFunction {
 }
 
 ///|
-fn ConstEvalParser::parse_type(self : ConstEvalParser) -> ConstEvalType raise WeslCompileError {
+fn ConstEvalParser::parse_type(
+  self : ConstEvalParser,
+) -> ConstEvalType raise WeslCompileError {
   match self.view() {
     [Ident("i32"), .. rest] => {
       self.update_view(rest)
@@ -569,13 +574,16 @@ fn const_eval_hex_digit_value(code : Int) -> Int raise WeslCompileError {
 }
 
 ///|
-fn const_eval_parse_integer_literal(text : String) -> Int64 raise WeslCompileError {
+fn const_eval_parse_integer_literal(
+  text : String,
+) -> Int64 raise WeslCompileError {
   let normalized = const_eval_remove_underscores(text)
   if normalized.length() >= 2 &&
     (normalized[:2].to_string() == "0x" || normalized[:2].to_string() == "0X") {
     let digits = normalized[2:normalized.length()].to_string()
     return @string.parse_int64(digits[:], base=16) catch {
-      _ => raise WeslCompileError::Validation("invalid integer literal `\{text}`")
+      _ =>
+        raise WeslCompileError::Validation("invalid integer literal `\{text}`")
     }
   }
   @string.parse_int64(normalized[:], base=10) catch {
@@ -589,19 +597,24 @@ fn const_eval_parse_hex_float_literal(
 ) -> Double raise WeslCompileError {
   let normalized = const_eval_remove_underscores(text)
   guard normalized.length() >= 3 &&
-        (normalized[:2].to_string() == "0x" || normalized[:2].to_string() == "0X") else {
+    (normalized[:2].to_string() == "0x" || normalized[:2].to_string() == "0X") else {
     raise WeslCompileError::Validation("invalid float literal `\{text}`")
   }
   let body = normalized[2:normalized.length()].to_string()
   let exponent_index = match body.find("p") {
     Some(index) => index
-    None => match body.find("P") {
-      Some(index) => index
-      None => raise WeslCompileError::Validation("invalid float literal `\{text}`")
-    }
+    None =>
+      match body.find("P") {
+        Some(index) => index
+        None =>
+          raise WeslCompileError::Validation("invalid float literal `\{text}`")
+      }
   }
   let mantissa = body[:exponent_index].to_string()
-  let exponent = @string.parse_int(body[exponent_index + 1:body.length()], base=10) catch {
+  let exponent = @string.parse_int(
+    body[exponent_index + 1:body.length()],
+    base=10,
+  ) catch {
     _ => raise WeslCompileError::Validation("invalid float literal `\{text}`")
   }
   let dot_index = mantissa.find(".")
@@ -632,7 +645,7 @@ fn const_eval_parse_hex_float_literal(
       value = value * 2.0
     }
   } else {
-    for _ in 0..<(-exponent) {
+    for _ in 0..<-exponent {
       value = value / 2.0
     }
   }
@@ -640,14 +653,19 @@ fn const_eval_parse_hex_float_literal(
 }
 
 ///|
-fn const_eval_parse_double_literal(text : String) -> Double raise WeslCompileError {
+fn const_eval_parse_double_literal(
+  text : String,
+) -> Double raise WeslCompileError {
   let normalized = const_eval_remove_underscores(text)
-  let parsed = try? (@string.parse_double(normalized[:]))
+  let parsed = try? @string.parse_double(normalized[:])
   match parsed {
     Ok(value) => value
     Err(_) =>
       if normalized.length() >= 2 &&
-        (normalized[:2].to_string() == "0x" || normalized[:2].to_string() == "0X") {
+        (
+          normalized[:2].to_string() == "0x" ||
+          normalized[:2].to_string() == "0X"
+        ) {
         const_eval_parse_hex_float_literal(normalized)
       } else {
         raise WeslCompileError::Validation("invalid float literal `\{text}`")
@@ -665,15 +683,15 @@ fn const_eval_exact_f32_from_double(
     raise WeslCompileError::Validation("f32 literal out of range `\{text}`")
   }
   if narrowed.to_double() != value {
-    raise WeslCompileError::Validation(
-      "f32 literal loses precision `\{text}`",
-    )
+    raise WeslCompileError::Validation("f32 literal loses precision `\{text}`")
   }
   narrowed
 }
 
 ///|
-fn const_eval_parse_literal(text : String) -> ConstEvalValue raise WeslCompileError {
+fn const_eval_parse_literal(
+  text : String,
+) -> ConstEvalValue raise WeslCompileError {
   if text.length() == 0 {
     raise WeslCompileError::Validation("empty literal")
   }
@@ -695,22 +713,28 @@ fn const_eval_parse_literal(text : String) -> ConstEvalValue raise WeslCompileEr
   }
   let suffix = text[text.length() - 1:text.length()].to_string()
   match suffix {
-    "u" => ConstEvalValue::U32(
-      const_eval_require_u32(
-        ConstEvalValue::AbstractInt(
-          const_eval_parse_integer_literal(text[:text.length() - 1].to_string()),
+    "u" =>
+      ConstEvalValue::U32(
+        const_eval_require_u32(
+          ConstEvalValue::AbstractInt(
+            const_eval_parse_integer_literal(
+              text[:text.length() - 1].to_string(),
+            ),
+          ),
+          text,
         ),
-        text,
-      ),
-    )
-    "i" => ConstEvalValue::I32(
-      const_eval_require_i32(
-        ConstEvalValue::AbstractInt(
-          const_eval_parse_integer_literal(text[:text.length() - 1].to_string()),
+      )
+    "i" =>
+      ConstEvalValue::I32(
+        const_eval_require_i32(
+          ConstEvalValue::AbstractInt(
+            const_eval_parse_integer_literal(
+              text[:text.length() - 1].to_string(),
+            ),
+          ),
+          text,
         ),
-        text,
-      ),
-    )
+      )
     "f" => {
       let value = const_eval_parse_double_literal(
         text[:text.length() - 1].to_string(),
@@ -749,7 +773,9 @@ fn const_eval_require_i32(
         "cannot convert abstract float to i32 in \{context}",
       )
     F32(_) =>
-      raise WeslCompileError::Validation("cannot convert f32 to i32 in \{context}")
+      raise WeslCompileError::Validation(
+        "cannot convert f32 to i32 in \{context}",
+      )
   }
 }
 
@@ -781,7 +807,9 @@ fn const_eval_require_u32(
         "cannot convert abstract float to u32 in \{context}",
       )
     F32(_) =>
-      raise WeslCompileError::Validation("cannot convert f32 to u32 in \{context}")
+      raise WeslCompileError::Validation(
+        "cannot convert f32 to u32 in \{context}",
+      )
   }
 }
 
@@ -796,9 +824,13 @@ fn const_eval_require_f32(
     AbstractFloat(number) => const_eval_exact_f32_from_double(context, number)
     F32(number) => number
     I32(_) =>
-      raise WeslCompileError::Validation("cannot convert i32 to f32 in \{context}")
+      raise WeslCompileError::Validation(
+        "cannot convert i32 to f32 in \{context}",
+      )
     U32(_) =>
-      raise WeslCompileError::Validation("cannot convert u32 to f32 in \{context}")
+      raise WeslCompileError::Validation(
+        "cannot convert u32 to f32 in \{context}",
+      )
   }
 }
 
@@ -825,8 +857,7 @@ fn const_eval_unary_neg(
     AbstractInt(number) => ConstEvalValue::AbstractInt(-number)
     AbstractFloat(number) => ConstEvalValue::AbstractFloat(-number)
     I32(number) => ConstEvalValue::I32(-number)
-    U32(_) =>
-      raise WeslCompileError::Validation("cannot negate u32 literal")
+    U32(_) => raise WeslCompileError::Validation("cannot negate u32 literal")
     F32(number) => ConstEvalValue::F32(-number)
   }
 }
@@ -929,8 +960,10 @@ fn const_eval_apply_binary(
           right,
         ),
       )
-    (U32(_), I32(_)) => raise WeslCompileError::Validation("cannot mix i32 and u32")
-    (I32(_), U32(_)) => raise WeslCompileError::Validation("cannot mix i32 and u32")
+    (U32(_), I32(_)) =>
+      raise WeslCompileError::Validation("cannot mix i32 and u32")
+    (I32(_), U32(_)) =>
+      raise WeslCompileError::Validation("cannot mix i32 and u32")
     (U32(left), right) => {
       let value = const_eval_binary_int(
         op,
@@ -989,7 +1022,9 @@ fn const_eval_apply_binary(
 }
 
 ///|
-fn const_eval_clamp_type(values : Array[ConstEvalValue]) -> ConstEvalType raise WeslCompileError {
+fn const_eval_clamp_type(
+  values : Array[ConstEvalValue],
+) -> ConstEvalType raise WeslCompileError {
   let mut has_f32 = false
   let mut has_abstract_float = false
   let mut has_i32 = false
@@ -1058,9 +1093,10 @@ fn const_eval_eval_expr(
     Binding(name) =>
       match env.get(name) {
         Some(value) => value
-        None => raise WeslCompileError::Validation(
-          "unknown const-eval binding `\{name}`",
-        )
+        None =>
+          raise WeslCompileError::Validation(
+            "unknown const-eval binding `\{name}`",
+          )
       }
     UnaryNeg(inner) => const_eval_unary_neg(const_eval_eval_expr(inner, env))
     Binary(op, lhs, rhs) =>
@@ -1096,14 +1132,17 @@ fn const_eval_format_f32(value : Float) -> String {
 }
 
 ///|
-fn const_eval_render_value(value : ConstEvalValue) -> String raise WeslCompileError {
+fn const_eval_render_value(
+  value : ConstEvalValue,
+) -> String raise WeslCompileError {
   match value {
     I32(number) => "\{number}i"
     U32(number) => "\{number}u"
     F32(number) => const_eval_format_f32(number)
-    _ => raise WeslCompileError::Validation(
-      "cannot render value of type \{value.value_type().label()}",
-    )
+    _ =>
+      raise WeslCompileError::Validation(
+        "cannot render value of type \{value.value_type().label()}",
+      )
   }
 }
 
@@ -1117,11 +1156,8 @@ fn const_eval_execute_function(
       Binding(binding) => {
         let value = const_eval_eval_expr(binding.expr, env)
         let stored = match binding.declared_type {
-          Some(target) => const_eval_convert_to_type(
-            value,
-            target,
-            binding.name,
-          )
+          Some(target) =>
+            const_eval_convert_to_type(value, target, binding.name)
           None => value
         }
         env.set(binding.name, stored)
@@ -1156,7 +1192,9 @@ fn const_eval_validate_target(
     }
     _ => ()
   }
-  raise WeslCompileError::Validation("unsupported const-eval target `\{source}`")
+  raise WeslCompileError::Validation(
+    "unsupported const-eval target `\{source}`",
+  )
 }
 
 ///|

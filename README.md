@@ -27,35 +27,48 @@ intentionally small and centered on:
 
 ## Import
 
-```moonbit
-import "Milky2018/moon_wesl"
+Add the package to your `moon.pkg` or `moon.pkg.json` imports:
+
+```json
+{
+  "import": ["Milky2018/moon_wesl"]
+}
 ```
 
 ## Quick Start
 
-```moonbit
-import "Milky2018/moon_wesl"
-
+```mbt check
+///|
 fn build_shader() -> String raise {
-  let resolver = VirtualResolver::new()
-  let util_path = ModulePath::from_path("/shaders/util.wesl")
-  let root_path = ModulePath::from_path("/shaders/custom_material.wesl")
-
-  resolver.add_module(
-    util_path,
-    "fn make_polka_dots(v: f32) -> f32 {\n  @if(PARTY_MODE) {\n    return v * 2.0;\n  } @else {\n    return v;\n  }\n}\n",
-  )
-  resolver.add_module(
-    root_path,
-    "import super::util::make_polka_dots;\n@fragment\nfn fragment(v: f32) -> f32 {\n  return make_polka_dots(v);\n}\n",
+  let resolver = @moon_wesl.VirtualResolver::new()
+  let util_path = @moon_wesl.ModulePath::from_path("/shaders/util.wesl")
+  let root_path = @moon_wesl.ModulePath::from_path(
+    "/shaders/custom_material.wesl",
   )
 
-  let options = CompileOptions::default()
+  resolver.add_module(
+    util_path, "fn make_polka_dots(v: f32) -> f32 {\n  @if(PARTY_MODE) {\n    return v * 2.0;\n  } @else {\n    return v;\n  }\n}\n",
+  )
+  resolver.add_module(
+    root_path, "import super::util::make_polka_dots;\n@fragment\nfn fragment(v: f32) -> f32 {\n  return make_polka_dots(v);\n}\n",
+  )
+
+  let options = @moon_wesl.CompileOptions::default()
     .with_lower(true)
     .with_feature("PARTY_MODE", true)
 
-  let result = compile(root_path, resolver, EscapeMangler::default(), options)
+  let result = @moon_wesl.compile(
+    root_path,
+    resolver,
+    @moon_wesl.EscapeMangler::default(),
+    options,
+  )
   result.to_string()
+}
+
+///|
+test {
+  ignore(try! build_shader())
 }
 ```
 
@@ -88,9 +101,10 @@ that logic in callers.
 The compiler itself is storage-agnostic. It only requires a type that can map a
 `ModulePath` to source text:
 
-```moonbit
+```mbt check
+///|
 pub(open) trait Resolver {
-  resolve_source(Self, ModulePath) -> String raise ResolveError
+  resolve_source(Self, @moon_wesl.ModulePath) -> String raise @moon_wesl.ResolveError
 }
 ```
 

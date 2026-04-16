@@ -1196,7 +1196,9 @@ fn[R : Resolver] wesl_preload_import_item(
   let mut missing_named_target : (ModulePath, String)? = None
   match wesl_import_named_target(import_item) {
     Some((import_path, import_name)) =>
-      try wesl_load_module(import_path, resolver, options, modules, order) catch {
+      try
+        wesl_load_module(import_path, resolver, options, modules, order)
+      catch {
         _ => ()
       } noraise {
         loaded =>
@@ -2141,7 +2143,9 @@ fn wesl_emit_module(
     for import_item in parsed_module.imports {
       match wesl_import_named_target(import_item) {
         Some((import_path, import_name)) =>
-          try wesl_resolve_export_target(import_path, import_name, modules) catch {
+          try
+            wesl_resolve_export_target(import_path, import_name, modules)
+          catch {
             _ => ()
           } noraise {
             (target_path, _) =>
@@ -2174,11 +2178,9 @@ fn wesl_emit_module(
         ) {
         match wesl_import_named_target(import_item) {
           Some((import_path, import_name)) =>
-            try wesl_resolve_export_target(
-              import_path,
-              import_name,
-              modules,
-            ) catch {
+            try
+              wesl_resolve_export_target(import_path, import_name, modules)
+            catch {
               _ => ()
             } noraise {
               (target_path, _) =>
@@ -2202,13 +2204,12 @@ fn wesl_emit_module(
       for reference in item.references {
         match reference {
           ModuleItemRef::Import(_, import_index) =>
-            match wesl_import_named_target(parsed_module.imports[import_index]) {
+            match
+              wesl_import_named_target(parsed_module.imports[import_index]) {
               Some((import_path, import_name)) =>
-                try wesl_resolve_export_target(
-                  import_path,
-                  import_name,
-                  modules,
-                ) catch {
+                try
+                  wesl_resolve_export_target(import_path, import_name, modules)
+                catch {
                   _ => ()
                 } noraise {
                   (target_path, _) =>

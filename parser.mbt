@@ -104,6 +104,7 @@ fn parser_is_identifier_char(code : Int) -> Bool {
   parser_is_identifier_start(code) || (code >= 48 && code <= 57)
 }
 
+///|
 fn parser_is_reserved_word(name : String) -> Bool {
   match name {
     "alias" => true
@@ -161,6 +162,7 @@ fn parser_validate_declaration_ident(
   }
 }
 
+///|
 fn parser_lex(source : String) -> Array[ParserToken] {
   let tokens : Array[ParserToken] = []
   let mut index = 0

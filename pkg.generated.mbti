@@ -29,8 +29,10 @@ pub fn ResolveError::message(Self) -> String
 pub(all) suberror WeslCompileError {
   Resolve(ResolveError)
   Parse(String)
+  Validation(String)
   InvalidExpression(String)
   DuplicateSymbol(String)
+  CircularDecl(String)
   MissingDecl(ModulePath, String)
   Private(String, ModulePath)
 }
@@ -69,6 +71,8 @@ pub struct EscapeMangler {
 }
 pub fn EscapeMangler::default() -> Self
 pub fn EscapeMangler::mangle(Self, ModulePath, String) -> String
+
+type ModuleItemRef derive(Eq)
 
 pub(all) struct ModulePath {
   origin : PathOrigin
