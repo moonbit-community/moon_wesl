@@ -44,6 +44,7 @@ import {
 ## Quick Start
 
 ```mbt check
+///|
 test {
   let resolver = @moon_wesl.VirtualResolver::new()
   let util_path = @moon_wesl.ModulePath::from_path("/shaders/util.wesl")
