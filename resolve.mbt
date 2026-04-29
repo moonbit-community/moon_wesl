@@ -65,7 +65,9 @@ pub fn NoResolver::new() -> NoResolver {
 
 ///|
 pub impl Resolver for NoResolver with resolve_source(_self, path) {
-  raise ResolveError::ModuleNotFound(path, "no resolver")
+  raise ResolveError::ModuleNotFound(
+    path, "no module resolver, imports are effectively disabled here",
+  )
 }
 
 ///|

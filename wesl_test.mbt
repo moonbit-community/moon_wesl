@@ -600,6 +600,20 @@ test "wesl: resolver exposes display name and registered modules" {
 }
 
 ///|
+test "wesl: no resolver error matches upstream context" {
+  let result = try? NoResolver::new().resolve_source(ModulePath::new_root())
+
+  match result {
+    Err(ResolveError::ModuleNotFound(_, context)) =>
+      debug_inspect(
+        context,
+        content="\"no module resolver, imports are effectively disabled here\"",
+      )
+    _ => fail("expected no resolver module-not-found error")
+  }
+}
+
+///|
 test "wesl: virtual resolver accepts translation units" {
   let resolver = VirtualResolver::new()
   let root_path = ModulePath::from_path("/shaders/root")
