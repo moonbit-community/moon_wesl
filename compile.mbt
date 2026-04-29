@@ -1455,19 +1455,21 @@ fn[R : Resolver] wesl_load_module(
   match modules.get(path) {
     Some(existing) => existing
     None => {
-      let raw_source = R::resolve_source(resolver, path) catch {
-        err => raise WeslCompileError::Resolve(err)
-      }
-      let source = if options.condcomp {
-        wesl_apply_condcomp(raw_source, options.features)
+      let translation_unit = if options.condcomp || !options.imports {
+        let raw_source = R::resolve_source(resolver, path) catch {
+          err => raise WeslCompileError::Resolve(err)
+        }
+        let source = if options.condcomp {
+          wesl_apply_condcomp(raw_source, options.features)
+        } else {
+          raw_source
+        }
+        parse_translation_unit(path, source, options.imports)
       } else {
-        raw_source
+        R::resolve_module(resolver, path) catch {
+          err => raise WeslCompileError::Resolve(err)
+        }
       }
-      let translation_unit = parse_translation_unit(
-        path,
-        source,
-        options.imports,
-      )
       let imports : Array[ImportItem] = []
       let parsed_items : Array[ModuleItem] = []
       let named_items : @hashmap.HashMap[String, Int] = @hashmap.HashMap::new()

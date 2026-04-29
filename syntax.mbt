@@ -13,10 +13,10 @@
 // limitations under the License.
 
 ///|
-priv struct SyntaxSpan {
+pub(all) struct SyntaxSpan {
   start_line : Int
   end_line : Int
-}
+} derive(Eq, Debug)
 
 ///|
 fn SyntaxSpan::context(self : SyntaxSpan, path : ModulePath) -> String {
@@ -37,11 +37,11 @@ fn SyntaxSpan::symbol_context(
 }
 
 ///|
-priv struct Attribute {
+pub(all) struct Attribute {
   name : String
   arguments : String?
   span : SyntaxSpan
-}
+} derive(Eq, Debug)
 
 ///|
 fn Attribute::matches(self : Attribute, target : String) -> Bool {
@@ -71,11 +71,11 @@ fn syntax_has_attribute(attributes : Array[Attribute], target : String) -> Bool 
 }
 
 ///|
-priv struct ImportNode {
+pub(all) struct ImportNode {
   path_segments : Array[String]
   rename : String?
   children : Array[ImportNode]
-}
+} derive(Eq, Debug)
 
 ///|
 fn ImportNode::is_leaf(self : ImportNode) -> Bool {
@@ -83,12 +83,12 @@ fn ImportNode::is_leaf(self : ImportNode) -> Bool {
 }
 
 ///|
-priv struct ImportedName {
+pub(all) struct ImportedName {
   export_module_path : ModulePath?
   export_name : String?
   namespace_path : ModulePath
   local_name : String
-}
+} derive(Eq, Debug)
 
 ///|
 fn syntax_concat_segments(
@@ -179,11 +179,11 @@ fn syntax_flatten_import_node(
 }
 
 ///|
-priv struct ImportStatement {
+pub(all) struct ImportStatement {
   span : SyntaxSpan
   attributes : Array[Attribute]
   entries : Array[ImportNode]
-}
+} derive(Eq, Debug)
 
 ///|
 fn ImportStatement::is_public(self : ImportStatement) -> Bool {
@@ -204,42 +204,42 @@ fn ImportStatement::flatten_items(
 }
 
 ///|
-priv struct FunctionDeclaration {
+pub(all) struct FunctionDeclaration {
   name : String
-}
+} derive(Eq, Debug)
 
 ///|
-priv struct StructDeclaration {
+pub(all) struct StructDeclaration {
   name : String
-}
+} derive(Eq, Debug)
 
 ///|
-priv struct AliasDeclaration {
+pub(all) struct AliasDeclaration {
   name : String
   target : String?
-}
+} derive(Eq, Debug)
 
 ///|
-priv struct ConstDeclaration {
+pub(all) struct ConstDeclaration {
   name : String
   initializer : String?
-}
+} derive(Eq, Debug)
 
 ///|
-priv struct OverrideDeclaration {
+pub(all) struct OverrideDeclaration {
   name : String
-}
+} derive(Eq, Debug)
 
 ///|
-priv struct LetDeclaration {
+pub(all) struct LetDeclaration {
   name : String
-}
+} derive(Eq, Debug)
 
 ///|
-priv struct VarDeclaration {
+pub(all) struct VarDeclaration {
   name : String?
   template_arguments : String?
-}
+} derive(Eq, Debug)
 
 ///|
 fn VarDeclaration::ident(self : VarDeclaration) -> String? {
@@ -252,7 +252,7 @@ fn VarDeclaration::template_args(self : VarDeclaration) -> String? {
 }
 
 ///|
-priv enum GlobalDeclarationHeader {
+pub(all) enum GlobalDeclarationHeader {
   Function(FunctionDeclaration)
   Struct(StructDeclaration)
   Alias(AliasDeclaration)
@@ -262,15 +262,15 @@ priv enum GlobalDeclarationHeader {
   Var(VarDeclaration)
   ConstAssert
   Other
-}
+} derive(Eq, Debug)
 
 ///|
-priv struct GlobalDeclaration {
+pub(all) struct GlobalDeclaration {
   header : GlobalDeclarationHeader
   attributes : Array[Attribute]
   source : String
   span : SyntaxSpan
-}
+} derive(Eq, Debug)
 
 ///|
 fn GlobalDeclaration::ident(self : GlobalDeclaration) -> String? {
@@ -307,7 +307,7 @@ fn GlobalDeclaration::is_const_assert(self : GlobalDeclaration) -> Bool {
 }
 
 ///|
-priv struct TranslationUnit {
+pub(all) struct TranslationUnit {
   imports : Array[ImportStatement]
   global_declarations : Array[GlobalDeclaration]
-}
+} derive(Eq, Debug)

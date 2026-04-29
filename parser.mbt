@@ -792,7 +792,7 @@ fn Parser::parse_global_declaration(
 }
 
 ///|
-fn parse_global_declarations(
+pub fn parse_global_declarations(
   source : String,
 ) -> Array[GlobalDeclaration] raise WeslCompileError {
   let declarations : Array[GlobalDeclaration] = []
@@ -810,7 +810,7 @@ fn parse_global_declarations(
 }
 
 ///|
-fn parse_translation_unit(
+pub fn parse_translation_unit(
   current_path : ModulePath,
   source : String,
   parse_imports : Bool,

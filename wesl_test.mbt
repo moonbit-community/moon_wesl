@@ -545,6 +545,46 @@ test "wesl: resolver exposes display name and registered modules" {
 }
 
 ///|
+struct AppendDeclPreprocessor {}
+
+///|
+impl ModulePreprocessor for AppendDeclPreprocessor with preprocess_module(
+  _self,
+  _path,
+  unit,
+) {
+  unit.global_declarations.push(GlobalDeclaration::{
+    header: GlobalDeclarationHeader::Function(FunctionDeclaration::{
+      name: "injected",
+    }),
+    attributes: Array::new(),
+    source: "fn injected() -> f32 {\n  return 1.0;\n}",
+    span: SyntaxSpan::{ start_line: 1, end_line: 3 },
+  })
+  unit
+}
+
+///|
+test "wesl: preprocessor can transform resolved translation units" {
+  let resolver = VirtualResolver::new()
+  let root_path = ModulePath::from_path("/shaders/root")
+  resolver.add_module(
+    root_path, "@fragment\nfn fragment() -> f32 {\n  return injected();\n}\n",
+  )
+
+  let compiled = compile(
+    root_path,
+    Preprocessor::new(resolver, AppendDeclPreprocessor::{  }),
+    EscapeMangler::default(),
+    CompileOptions::default().with_condcomp(false).with_strip(false),
+  )
+  let compiled_text = compiled.to_string()
+
+  debug_inspect(compiled_text.contains("fn injected()"), content="true")
+  debug_inspect(compiled_text.contains("return injected();"), content="true")
+}
+
+///|
 test "wesl: file resolver maps module path to wesl path" {
   let resolver = FileResolver::new("shaders")
   let root_path = ModulePath::from_path("/materials/root")

@@ -11,7 +11,11 @@ pub fn[R : Resolver] compile(ModulePath, R, EscapeMangler, CompileOptions) -> Co
 
 pub fn[R : Resolver] compile_sourcemap(ModulePath, R, EscapeMangler, CompileOptions) -> CompileResult raise WeslCompileError
 
+pub fn parse_global_declarations(String) -> Array[GlobalDeclaration] raise WeslCompileError
+
 pub fn parse_module_path(String) -> ModulePath raise ModulePathParseError
+
+pub fn parse_translation_unit(ModulePath, String, Bool) -> TranslationUnit raise WeslCompileError
 
 // Errors
 pub(all) suberror ModulePathParseError {
@@ -25,6 +29,7 @@ pub fn ModulePathParseError::message(Self) -> String
 pub(all) suberror ResolveError {
   FileNotFound(String, String)
   ModuleNotFound(ModulePath, String)
+  Error(String)
 }
 pub fn ResolveError::message(Self) -> String
 
@@ -41,6 +46,17 @@ pub(all) suberror WeslCompileError {
 pub fn WeslCompileError::message(Self) -> String
 
 // Types and methods
+pub(all) struct AliasDeclaration {
+  name : String
+  target : String?
+} derive(Eq, @debug.Debug)
+
+pub(all) struct Attribute {
+  name : String
+  arguments : String?
+  span : SyntaxSpan
+} derive(Eq, @debug.Debug)
+
 pub struct BasicSourceMap {
   root : ModulePath
 } derive(@debug.Debug)
@@ -100,6 +116,11 @@ pub struct CompileResult {
 pub fn CompileResult::has_sourcemap(Self) -> Bool
 pub fn CompileResult::to_string(Self) -> String
 
+pub(all) struct ConstDeclaration {
+  name : String
+  initializer : String?
+} derive(Eq, @debug.Debug)
+
 pub struct EscapeMangler {
 }
 pub fn EscapeMangler::default() -> Self
@@ -127,6 +148,57 @@ pub fn FileResolver::file_path(Self, ModulePath) -> String raise ResolveError
 pub fn FileResolver::new(String) -> Self
 pub fn FileResolver::set_extension(Self, String) -> Self
 pub impl Resolver for FileResolver
+
+pub(all) struct FunctionDeclaration {
+  name : String
+} derive(Eq, @debug.Debug)
+
+pub(all) struct GlobalDeclaration {
+  header : GlobalDeclarationHeader
+  attributes : Array[Attribute]
+  source : String
+  span : SyntaxSpan
+} derive(Eq, @debug.Debug)
+
+pub(all) enum GlobalDeclarationHeader {
+  Function(FunctionDeclaration)
+  Struct(StructDeclaration)
+  Alias(AliasDeclaration)
+  Const(ConstDeclaration)
+  Override(OverrideDeclaration)
+  Let(LetDeclaration)
+  Var(VarDeclaration)
+  ConstAssert
+  Other
+} derive(Eq, @debug.Debug)
+
+pub struct IdentityPreprocessor {
+}
+pub fn IdentityPreprocessor::new() -> Self
+pub impl ModulePreprocessor for IdentityPreprocessor
+
+pub(all) struct ImportNode {
+  path_segments : Array[String]
+  rename : String?
+  children : Array[ImportNode]
+} derive(Eq, @debug.Debug)
+
+pub(all) struct ImportStatement {
+  span : SyntaxSpan
+  attributes : Array[Attribute]
+  entries : Array[ImportNode]
+} derive(Eq, @debug.Debug)
+
+pub(all) struct ImportedName {
+  export_module_path : ModulePath?
+  export_name : String?
+  namespace_path : ModulePath
+  local_name : String
+} derive(Eq, @debug.Debug)
+
+pub(all) struct LetDeclaration {
+  name : String
+} derive(Eq, @debug.Debug)
 
 pub(all) enum ManglerKind {
   Escape
@@ -162,6 +234,10 @@ pub struct NoResolver {
 pub fn NoResolver::new() -> Self
 pub impl Resolver for NoResolver
 
+pub(all) struct OverrideDeclaration {
+  name : String
+} derive(Eq, @debug.Debug)
+
 pub(all) enum PathOrigin {
   Absolute
   Relative(Int)
@@ -174,6 +250,13 @@ pub struct PkgResolver {
 pub fn PkgResolver::add_package(Self, CodegenPkg) -> Unit
 pub fn PkgResolver::new() -> Self
 pub impl Resolver for PkgResolver
+
+pub struct Preprocessor[R, P] {
+  resolver : R
+  preprocess : P
+}
+pub fn[R, P] Preprocessor::new(R, P) -> Self[R, P]
+pub impl[R : Resolver, P : ModulePreprocessor] Resolver for Preprocessor[R, P]
 
 pub struct Router {
   // private fields
@@ -197,6 +280,25 @@ pub fn StandardResolver::add_package(Self, CodegenPkg) -> Unit
 pub fn StandardResolver::generate_constant_module(Self) -> String
 pub fn StandardResolver::new(String) -> Self
 pub impl Resolver for StandardResolver
+
+pub(all) struct StructDeclaration {
+  name : String
+} derive(Eq, @debug.Debug)
+
+pub(all) struct SyntaxSpan {
+  start_line : Int
+  end_line : Int
+} derive(Eq, @debug.Debug)
+
+pub(all) struct TranslationUnit {
+  imports : Array[ImportStatement]
+  global_declarations : Array[GlobalDeclaration]
+} derive(Eq, @debug.Debug)
+
+pub(all) struct VarDeclaration {
+  name : String?
+  template_arguments : String?
+} derive(Eq, @debug.Debug)
 
 pub struct VirtualResolver {
   files : @hashmap.HashMap[ModulePath, String]
@@ -240,8 +342,13 @@ pub fn[R] Wesl::use_stripping(Self[R], Bool) -> Self[R]
 // Type aliases
 
 // Traits
+pub(open) trait ModulePreprocessor {
+  preprocess_module(Self, ModulePath, TranslationUnit) -> TranslationUnit raise ResolveError
+}
+
 pub(open) trait Resolver {
   resolve_source(Self, ModulePath) -> String raise ResolveError
+  resolve_module(Self, ModulePath) -> TranslationUnit raise ResolveError = _
   display_name(Self, ModulePath) -> String? = _
   fs_path(Self, ModulePath) -> String? = _
 }

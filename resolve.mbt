@@ -16,6 +16,7 @@
 pub(all) suberror ResolveError {
   FileNotFound(String, String)
   ModuleNotFound(ModulePath, String)
+  Error(String)
 }
 
 ///|
@@ -24,14 +25,24 @@ pub fn ResolveError::message(self : ResolveError) -> String {
     FileNotFound(path, context) => "file not found: `\{path}` (\{context})"
     ModuleNotFound(path, context) =>
       "module not found: `\{path.to_string()}` (\{context})"
+    Error(message) => message
   }
 }
 
 ///|
 pub(open) trait Resolver {
   resolve_source(Self, ModulePath) -> String raise ResolveError
+  resolve_module(Self, ModulePath) -> TranslationUnit raise ResolveError = _
   display_name(Self, ModulePath) -> String? = _
   fs_path(Self, ModulePath) -> String? = _
+}
+
+///|
+impl Resolver with resolve_module(self, path) {
+  let source = Self::resolve_source(self, path)
+  parse_translation_unit(path, source, true) catch {
+    err => raise ResolveError::Error(err.message())
+  }
 }
 
 ///|
@@ -106,6 +117,75 @@ pub impl Resolver for VirtualResolver with resolve_source(self, path) {
 ///|
 pub impl Resolver for VirtualResolver with display_name(_self, path) {
   Some(path.to_string())
+}
+
+///|
+pub(open) trait ModulePreprocessor {
+  preprocess_module(Self, ModulePath, TranslationUnit) -> TranslationUnit raise ResolveError
+}
+
+///|
+pub struct IdentityPreprocessor {}
+
+///|
+pub fn IdentityPreprocessor::new() -> IdentityPreprocessor {
+  IdentityPreprocessor::{  }
+}
+
+///|
+pub impl ModulePreprocessor for IdentityPreprocessor with preprocess_module(
+  _self,
+  _path,
+  unit,
+) {
+  unit
+}
+
+///|
+pub struct Preprocessor[R, P] {
+  resolver : R
+  preprocess : P
+}
+
+///|
+pub fn[R, P] Preprocessor::new(
+  resolver : R,
+  preprocess : P,
+) -> Preprocessor[R, P] {
+  Preprocessor::{ resolver, preprocess }
+}
+
+///|
+pub impl[R : Resolver, P : ModulePreprocessor] Resolver for Preprocessor[R, P] with resolve_source(
+  self,
+  path,
+) {
+  R::resolve_source(self.resolver, path)
+}
+
+///|
+pub impl[R : Resolver, P : ModulePreprocessor] Resolver for Preprocessor[R, P] with resolve_module(
+  self,
+  path,
+) {
+  let unit = R::resolve_module(self.resolver, path)
+  P::preprocess_module(self.preprocess, path, unit)
+}
+
+///|
+pub impl[R : Resolver, P : ModulePreprocessor] Resolver for Preprocessor[R, P] with display_name(
+  self,
+  path,
+) {
+  R::display_name(self.resolver, path)
+}
+
+///|
+pub impl[R : Resolver, P : ModulePreprocessor] Resolver for Preprocessor[R, P] with fs_path(
+  self,
+  path,
+) {
+  R::fs_path(self.resolver, path)
 }
 
 ///|
@@ -443,6 +523,19 @@ fn ResolverMount::resolve_source(
 }
 
 ///|
+fn ResolverMount::resolve_module(
+  self : ResolverMount,
+  path : ModulePath,
+) -> TranslationUnit raise ResolveError {
+  match self {
+    Virtual(resolver) => resolver.resolve_module(path)
+    File(resolver) => resolver.resolve_module(path)
+    Pkg(resolver) => resolver.resolve_module(path)
+    Standard(resolver) => resolver.resolve_module(path)
+  }
+}
+
+///|
 fn ResolverMount::display_name(
   self : ResolverMount,
   path : ModulePath,
@@ -584,6 +677,12 @@ fn Router::route(
 pub impl Resolver for Router with resolve_source(self, path) {
   let (resolver, suffix) = self.route(path)
   resolver.resolve_source(resolver.route_path(path, suffix))
+}
+
+///|
+pub impl Resolver for Router with resolve_module(self, path) {
+  let (resolver, suffix) = self.route(path)
+  resolver.resolve_module(resolver.route_path(path, suffix))
 }
 
 ///|
