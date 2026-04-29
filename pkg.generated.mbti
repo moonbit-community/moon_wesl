@@ -116,6 +116,12 @@ pub struct CompileResult {
 pub fn CompileResult::has_sourcemap(Self) -> Bool
 pub fn CompileResult::to_string(Self) -> String
 
+pub struct CondCompPreprocessor {
+  features : Features
+}
+pub fn CondCompPreprocessor::new(Features) -> Self
+pub impl ModulePreprocessor for CondCompPreprocessor
+
 pub(all) struct ConstDeclaration {
   name : String
   initializer : String?

@@ -787,6 +787,335 @@ fn wesl_apply_condcomp(
 }
 
 ///|
+priv struct CondCompEvalState {
+  mut has_if : Bool
+  mut is_true : Bool
+  mut removed : Bool
+}
+
+///|
+fn CondCompEvalState::new() -> CondCompEvalState {
+  CondCompEvalState::{ has_if: false, is_true: false, removed: false }
+}
+
+///|
+fn wesl_is_condcomp_attribute(attribute : Attribute) -> Bool {
+  attribute.name == "if" || attribute.name == "elif" || attribute.name == "else"
+}
+
+///|
+fn wesl_single_condcomp_attribute(
+  attributes : Array[Attribute],
+) -> Attribute? raise WeslCompileError {
+  let mut found : Attribute? = None
+  for attribute in attributes {
+    if wesl_is_condcomp_attribute(attribute) {
+      match found {
+        Some(_) =>
+          raise WeslCompileError::InvalidExpression(
+            "cannot have multiple @if/@elif/@else attributes on the same node",
+          )
+        None => found = Some(attribute)
+      }
+    }
+  }
+  found
+}
+
+///|
+fn wesl_filter_condcomp_attributes(
+  attributes : Array[Attribute],
+  replacement : Attribute?,
+) -> Array[Attribute] {
+  let filtered : Array[Attribute] = []
+  let mut inserted = false
+  for attribute in attributes {
+    if wesl_is_condcomp_attribute(attribute) {
+      if !inserted {
+        match replacement {
+          Some(next) => filtered.push(next)
+          None => ()
+        }
+        inserted = true
+      }
+    } else {
+      filtered.push(attribute)
+    }
+  }
+  filtered
+}
+
+///|
+fn wesl_condcomp_attr_end(
+  source : String,
+  at_index : Int,
+) -> Int raise WeslCompileError {
+  let name_start = at_index + 1
+  let mut name_end = name_start
+  while name_end < source.length() &&
+        wesl_is_identifier_char(source.code_unit_at(name_end).to_int()) {
+    name_end += 1
+  }
+  let name = source[name_start:name_end].to_owned()
+  if name == "if" || name == "elif" {
+    let expr_start = wesl_skip_layout(source, name_end)
+    if expr_start >= source.length() ||
+      source.code_unit_at(expr_start).to_int() != 40 {
+      raise WeslCompileError::InvalidExpression(
+        source[at_index:source.length()].to_owned(),
+      )
+    }
+    let expr_end = wesl_find_matching_delim(source, expr_start, 40, 41)
+    wesl_skip_layout(source, expr_end + 1)
+  } else if name == "else" {
+    wesl_skip_layout(source, name_end)
+  } else {
+    name_end
+  }
+}
+
+///|
+fn wesl_remove_leading_condcomp_attr(
+  source : String,
+) -> String raise WeslCompileError {
+  let attr_start = wesl_skip_layout(source, 0)
+  if attr_start < source.length() &&
+    source.code_unit_at(attr_start).to_int() == 64 {
+    let attr_end = wesl_condcomp_attr_end(source, attr_start)
+    source[0:attr_start].to_owned() +
+    source[attr_end:source.length()].to_owned()
+  } else {
+    source
+  }
+}
+
+///|
+fn wesl_replace_leading_condcomp_attr(
+  source : String,
+  replacement : String,
+) -> String raise WeslCompileError {
+  let attr_start = wesl_skip_layout(source, 0)
+  if attr_start < source.length() &&
+    source.code_unit_at(attr_start).to_int() == 64 {
+    let attr_end = wesl_condcomp_attr_end(source, attr_start)
+    source[0:attr_start].to_owned() +
+    replacement +
+    "\n" +
+    source[attr_end:source.length()].to_owned()
+  } else {
+    source
+  }
+}
+
+///|
+fn wesl_condcomp_attr_value(
+  attr : Attribute,
+  features : Features,
+) -> CondValue raise WeslCompileError {
+  match attr.arguments {
+    Some(expr) => wesl_parse_if_value(expr, features)
+    None =>
+      raise WeslCompileError::InvalidExpression(
+        "missing @\{attr.name} expression",
+      )
+  }
+}
+
+///|
+fn wesl_transform_condcomp_node(
+  attr : Attribute?,
+  attributes : Array[Attribute],
+  source : String,
+  features : Features,
+  state : CondCompEvalState,
+) -> (Bool, Array[Attribute]?, String?) raise WeslCompileError {
+  match attr {
+    None => {
+      state.has_if = false
+      let transformed = wesl_apply_condcomp(source, features)
+      (true, None, Some(transformed))
+    }
+    Some(cond_attr) => {
+      let mut keep_node = true
+      let mut remove_attr = false
+      let mut replacement : Attribute? = None
+      let mut replacement_source : String? = None
+      let mut is_true = false
+      match cond_attr.name {
+        "if" => {
+          state.has_if = true
+          state.is_true = false
+          match wesl_condcomp_attr_value(cond_attr, features) {
+            Known(true) => {
+              remove_attr = true
+              is_true = true
+            }
+            Known(false) => keep_node = false
+            Unknown => replacement = Some(cond_attr)
+          }
+        }
+        "elif" => {
+          if !state.has_if {
+            raise WeslCompileError::InvalidExpression(
+              "an @elif or @else attribute must be preceded by a @if or @elif on the previous node",
+            )
+          }
+          state.has_if = true
+          match wesl_condcomp_attr_value(cond_attr, features) {
+            Known(true) =>
+              if state.is_true {
+                keep_node = false
+              } else {
+                is_true = true
+                if state.removed {
+                  remove_attr = true
+                } else {
+                  replacement = Some(Attribute::{
+                    ..cond_attr,
+                    name: "else",
+                    arguments: None,
+                  })
+                  replacement_source = Some("@else")
+                }
+              }
+            Known(false) => keep_node = false
+            Unknown =>
+              if state.removed {
+                replacement = Some(Attribute::{ ..cond_attr, name: "if" })
+                let expr = cond_attr.arguments.unwrap_or("")
+                replacement_source = Some("@if(\{expr})")
+              } else {
+                replacement = Some(cond_attr)
+              }
+          }
+        }
+        "else" => {
+          if !state.has_if {
+            raise WeslCompileError::InvalidExpression(
+              "an @elif or @else attribute must be preceded by a @if or @elif on the previous node",
+            )
+          }
+          state.has_if = false
+          if state.is_true {
+            keep_node = false
+          } else if state.removed {
+            remove_attr = true
+          } else {
+            replacement = Some(cond_attr)
+          }
+        }
+        _ => ()
+      }
+      state.is_true = is_true || state.is_true
+      state.removed = !keep_node
+      if !keep_node {
+        (false, None, None)
+      } else {
+        let next_source = match replacement_source {
+          Some(text) => wesl_replace_leading_condcomp_attr(source, text)
+          None =>
+            if remove_attr {
+              wesl_remove_leading_condcomp_attr(source)
+            } else {
+              source
+            }
+        }
+        let transformed = wesl_apply_condcomp(next_source, features)
+        let next_attrs = if remove_attr {
+          Some(wesl_filter_condcomp_attributes(attributes, None))
+        } else {
+          Some(wesl_filter_condcomp_attributes(attributes, replacement))
+        }
+        (true, next_attrs, Some(transformed))
+      }
+    }
+  }
+}
+
+///|
+fn wesl_condcomp_imports(
+  imports : Array[ImportStatement],
+  features : Features,
+) -> Array[ImportStatement] raise WeslCompileError {
+  let out : Array[ImportStatement] = []
+  let state = CondCompEvalState::new()
+  for statement in imports {
+    let attr = wesl_single_condcomp_attribute(statement.attributes)
+    let source = ""
+    let (keep_node, next_attrs, _) = wesl_transform_condcomp_node(
+      attr,
+      statement.attributes,
+      source,
+      features,
+      state,
+    )
+    if keep_node {
+      out.push(ImportStatement::{
+        ..statement,
+        attributes: next_attrs.unwrap_or(statement.attributes),
+      })
+    }
+  }
+  out
+}
+
+///|
+fn wesl_condcomp_declarations(
+  declarations : Array[GlobalDeclaration],
+  features : Features,
+) -> Array[GlobalDeclaration] raise WeslCompileError {
+  let out : Array[GlobalDeclaration] = []
+  let state = CondCompEvalState::new()
+  for declaration in declarations {
+    let attr = wesl_single_condcomp_attribute(declaration.attributes)
+    let (keep_node, next_attrs, next_source) = wesl_transform_condcomp_node(
+      attr,
+      declaration.attributes,
+      declaration.source,
+      features,
+      state,
+    )
+    if keep_node {
+      out.push(GlobalDeclaration::{
+        ..declaration,
+        attributes: next_attrs.unwrap_or(declaration.attributes),
+        source: next_source.unwrap_or(declaration.source),
+      })
+    }
+  }
+  out
+}
+
+///|
+pub struct CondCompPreprocessor {
+  features : Features
+}
+
+///|
+pub fn CondCompPreprocessor::new(features : Features) -> CondCompPreprocessor {
+  CondCompPreprocessor::{ features, }
+}
+
+///|
+pub impl ModulePreprocessor for CondCompPreprocessor with preprocess_module(
+  self,
+  _path,
+  unit,
+) {
+  TranslationUnit::{
+    imports: wesl_condcomp_imports(unit.imports, self.features) catch {
+      err => raise ResolveError::Error(err.message())
+    },
+    global_declarations: wesl_condcomp_declarations(
+      unit.global_declarations,
+      self.features,
+    ) catch {
+      err => raise ResolveError::Error(err.message())
+    },
+  }
+}
+
+///|
 fn wesl_push_unique(items : Array[String], value : String) -> Unit {
   if value == "" {
     return
@@ -1455,18 +1784,42 @@ fn[R : Resolver] wesl_load_module(
   match modules.get(path) {
     Some(existing) => existing
     None => {
-      let translation_unit = if options.condcomp || !options.imports {
+      let translation_unit = if options.condcomp && options.imports {
+        let unit = R::resolve_module(resolver, path) catch {
+          ResolveError::Error(message) => raise WeslCompileError::Parse(message)
+          err => raise WeslCompileError::Resolve(err)
+        }
+        ModulePreprocessor::preprocess_module(
+          CondCompPreprocessor::new(options.features),
+          path,
+          unit,
+        ) catch {
+          ResolveError::Error(message) =>
+            raise WeslCompileError::InvalidExpression(message)
+          err => raise WeslCompileError::Resolve(err)
+        }
+      } else if options.condcomp {
         let raw_source = R::resolve_source(resolver, path) catch {
           err => raise WeslCompileError::Resolve(err)
         }
-        let source = if options.condcomp {
-          wesl_apply_condcomp(raw_source, options.features)
-        } else {
-          raw_source
+        let unit = parse_translation_unit(path, raw_source, options.imports)
+        ModulePreprocessor::preprocess_module(
+          CondCompPreprocessor::new(options.features),
+          path,
+          unit,
+        ) catch {
+          ResolveError::Error(message) =>
+            raise WeslCompileError::InvalidExpression(message)
+          err => raise WeslCompileError::Resolve(err)
         }
-        parse_translation_unit(path, source, options.imports)
+      } else if !options.imports {
+        let raw_source = R::resolve_source(resolver, path) catch {
+          err => raise WeslCompileError::Resolve(err)
+        }
+        parse_translation_unit(path, raw_source, options.imports)
       } else {
         R::resolve_module(resolver, path) catch {
+          ResolveError::Error(message) => raise WeslCompileError::Parse(message)
           err => raise WeslCompileError::Resolve(err)
         }
       }

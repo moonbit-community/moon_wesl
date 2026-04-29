@@ -423,6 +423,28 @@ test "wesl: keep conditional feature preserves unresolved attributes" {
 }
 
 ///|
+test "wesl: conditional translation handles top-level elif chains" {
+  let resolver = VirtualResolver::new()
+  let root_path = ModulePath::from_path("/shaders/root")
+  resolver.add_module(
+    root_path, "@if(FIRST)\nfn selected() -> f32 {\n  return 1.0;\n}\n@elif(SECOND)\nfn selected() -> f32 {\n  return 2.0;\n}\n@else\nfn selected() -> f32 {\n  return 3.0;\n}\n\n@fragment\nfn fragment() -> f32 {\n  return selected();\n}\n",
+  )
+
+  let compiled = compile(
+    root_path,
+    resolver,
+    EscapeMangler::default(),
+    CompileOptions::default().with_strip(false).with_feature("SECOND", true),
+  )
+  let compiled_text = compiled.to_string()
+
+  debug_inspect(compiled_text.contains("return 1.0;"), content="false")
+  debug_inspect(compiled_text.contains("return 2.0;"), content="true")
+  debug_inspect(compiled_text.contains("return 3.0;"), content="false")
+  debug_inspect(compiled_text.contains("@elif"), content="false")
+}
+
+///|
 test "wesl: validate option controls semantic validation pass" {
   let root_path = ModulePath::from_path("/shaders/root")
   let source = "const m: mat2x2<i32> = mat2x2(1, 0, 0, 0);\n"
@@ -565,6 +587,32 @@ impl ModulePreprocessor for AppendDeclPreprocessor with preprocess_module(
 }
 
 ///|
+struct ConditionalAppendPreprocessor {}
+
+///|
+impl ModulePreprocessor for ConditionalAppendPreprocessor with preprocess_module(
+  _self,
+  _path,
+  unit,
+) {
+  unit.global_declarations.push(GlobalDeclaration::{
+    header: GlobalDeclarationHeader::Function(FunctionDeclaration::{
+      name: "injected",
+    }),
+    attributes: [
+      Attribute::{
+        name: "if",
+        arguments: Some("EXTRA"),
+        span: SyntaxSpan::{ start_line: 1, end_line: 1 },
+      },
+    ],
+    source: "@if(EXTRA)\nfn injected() -> f32 {\n  return 4.0;\n}",
+    span: SyntaxSpan::{ start_line: 1, end_line: 4 },
+  })
+  unit
+}
+
+///|
 test "wesl: preprocessor can transform resolved translation units" {
   let resolver = VirtualResolver::new()
   let root_path = ModulePath::from_path("/shaders/root")
@@ -582,6 +630,26 @@ test "wesl: preprocessor can transform resolved translation units" {
 
   debug_inspect(compiled_text.contains("fn injected()"), content="true")
   debug_inspect(compiled_text.contains("return injected();"), content="true")
+}
+
+///|
+test "wesl: conditional translation runs after custom module preprocessing" {
+  let resolver = VirtualResolver::new()
+  let root_path = ModulePath::from_path("/shaders/root")
+  resolver.add_module(
+    root_path, "@fragment\nfn fragment() -> f32 {\n  return injected();\n}\n",
+  )
+
+  let compiled = compile(
+    root_path,
+    Preprocessor::new(resolver, ConditionalAppendPreprocessor::{  }),
+    EscapeMangler::default(),
+    CompileOptions::default().with_strip(false).with_feature("EXTRA", true),
+  )
+  let compiled_text = compiled.to_string()
+
+  debug_inspect(compiled_text.contains("@if(EXTRA)"), content="false")
+  debug_inspect(compiled_text.contains("return 4.0;"), content="true")
 }
 
 ///|
