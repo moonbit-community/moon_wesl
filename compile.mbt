@@ -235,14 +235,26 @@ pub fn CompileOptions::set_missing_feature_behavior(
 }
 
 ///|
+pub struct BasicSourceMap {
+  root : ModulePath
+} derive(Debug)
+
+///|
 pub struct CompileResult {
+  syntax : String
   source : String
+  sourcemap : BasicSourceMap?
   modules : Array[ModulePath]
 } derive(Debug)
 
 ///|
 pub fn CompileResult::to_string(self : CompileResult) -> String {
-  self.source
+  self.syntax
+}
+
+///|
+pub fn CompileResult::has_sourcemap(self : CompileResult) -> Bool {
+  self.sourcemap is Some(_)
 }
 
 ///|
@@ -2272,7 +2284,7 @@ fn wesl_emit_item_source(
   root : ModulePath,
   modules : @hashmap.HashMap[ModulePath, ParsedModule],
   used_decls : @hashmap.HashMap[String, Bool],
-  mangler : EscapeMangler,
+  mangler : ManglerKind,
   options : CompileOptions,
 ) -> String {
   let mut current = item.source
@@ -2290,7 +2302,7 @@ fn wesl_emit_item_source(
             current = wesl_replace_reference_identifier(
               current,
               import_ref,
-              EscapeMangler::mangle(mangler, target_path, target_name),
+              ManglerKind::mangle(mangler, target_path, target_name),
               item.name,
             )
           }
@@ -2301,7 +2313,7 @@ fn wesl_emit_item_source(
         current = wesl_replace_identifier(
           current,
           qualified_ref,
-          EscapeMangler::mangle(mangler, target_path, target_name),
+          ManglerKind::mangle(mangler, target_path, target_name),
         )
       ModuleItemRef::Local(_) => ()
     }
@@ -2314,7 +2326,7 @@ fn wesl_emit_item_source(
         current = wesl_replace_global_identifier(
           current,
           name,
-          EscapeMangler::mangle(mangler, parsed_module.path, name),
+          ManglerKind::mangle(mangler, parsed_module.path, name),
           item.name,
         )
       }
@@ -2332,7 +2344,7 @@ fn wesl_emit_module(
   used_decls : @hashmap.HashMap[String, Bool],
   emitted : @hashmap.HashMap[ModulePath, Bool],
   parts : Array[String],
-  mangler : EscapeMangler,
+  mangler : ManglerKind,
   options : CompileOptions,
 ) -> Unit {
   if emitted.contains(path) || !used_modules.contains(path) {
@@ -2454,13 +2466,15 @@ fn wesl_emit_module(
 }
 
 ///|
-pub fn[R : Resolver] compile(
+fn[R : Resolver] compile_with_mangler_kind(
   root : ModulePath,
   resolver : R,
-  mangler : EscapeMangler,
+  mangler : ManglerKind,
   options : CompileOptions,
+  use_sourcemap : Bool,
 ) -> CompileResult raise WeslCompileError {
   let _ = options.lower
+  let _ = options.generics
   let modules : @hashmap.HashMap[ModulePath, ParsedModule] = @hashmap.HashMap::new()
   let order : Array[ModulePath] = []
   let used_modules : @hashmap.HashMap[ModulePath, Bool] = @hashmap.HashMap::new()
@@ -2490,12 +2504,39 @@ pub fn[R : Resolver] compile(
     root, root, modules, used_modules, used_decls, emitted, parts, mangler, options,
   )
   let assembled = parts.filter(fn(part) { part != "" }).join("\n\n")
+  let source = if options.lower {
+    wesl_lower_source(assembled)
+  } else {
+    assembled
+  }
   CompileResult::{
-    source: if options.lower {
-      wesl_lower_source(assembled)
+    syntax: source,
+    source,
+    sourcemap: if use_sourcemap {
+      Some(BasicSourceMap::{ root, })
     } else {
-      assembled
+      None
     },
     modules: order,
   }
+}
+
+///|
+pub fn[R : Resolver] compile(
+  root : ModulePath,
+  resolver : R,
+  _mangler : EscapeMangler,
+  options : CompileOptions,
+) -> CompileResult raise WeslCompileError {
+  compile_with_mangler_kind(root, resolver, Escape, options, false)
+}
+
+///|
+pub fn[R : Resolver] compile_sourcemap(
+  root : ModulePath,
+  resolver : R,
+  _mangler : EscapeMangler,
+  options : CompileOptions,
+) -> CompileResult raise WeslCompileError {
+  compile_with_mangler_kind(root, resolver, Escape, options, true)
 }

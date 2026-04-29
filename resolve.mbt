@@ -33,6 +33,19 @@ pub(open) trait Resolver {
 }
 
 ///|
+pub struct NoResolver {}
+
+///|
+pub fn NoResolver::new() -> NoResolver {
+  NoResolver::{  }
+}
+
+///|
+pub impl Resolver for NoResolver with resolve_source(_self, path) {
+  raise ResolveError::ModuleNotFound(path, "no resolver")
+}
+
+///|
 pub struct VirtualResolver {
   files : @hashmap.HashMap[ModulePath, String]
 }

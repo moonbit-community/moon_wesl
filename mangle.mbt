@@ -16,6 +16,14 @@
 pub struct EscapeMangler {}
 
 ///|
+pub(all) enum ManglerKind {
+  Escape
+  Hash
+  Unicode
+  None
+} derive(Eq, Debug)
+
+///|
 pub fn EscapeMangler::default() -> EscapeMangler {
   EscapeMangler::{  }
 }
@@ -78,5 +86,49 @@ pub fn EscapeMangler::mangle(
     }
     let escaped_path = escaped_components.join("_")
     "\{origin}_\{escaped_path}_\{escaped_item}"
+  }
+}
+
+///|
+fn hash_mangler_hash(path : ModulePath, item : String) -> UInt {
+  let mut hash = 2166136261U
+  let text = path.to_string() + "::" + item
+  for index in 0..<text.length() {
+    hash = hash ^ text.code_unit_at(index).to_uint()
+    hash = hash * 16777619U
+  }
+  hash
+}
+
+///|
+fn unicode_mangler_component(text : String) -> String {
+  text
+  .replace(old="_", new="＿")
+  .replace(old="/", new="ᐟ")
+  .replace(old=":", new="꞉")
+  .replace(old="<", new="ᐸ")
+  .replace(old=">", new="ᐳ")
+  .replace(old=",", new="ˏ")
+  .replace(old=" ", new="")
+}
+
+///|
+pub fn ManglerKind::mangle(
+  self : ManglerKind,
+  path : ModulePath,
+  item : String,
+) -> String {
+  match self {
+    Escape => EscapeMangler::mangle(EscapeMangler::default(), path, item)
+    Hash => "\{item}_\{hash_mangler_hash(path, item).to_string()}"
+    Unicode =>
+      if path.is_root() {
+        unicode_mangler_component(item)
+      } else {
+        unicode_mangler_component(path.to_string()) +
+        "_" +
+        unicode_mangler_component(item)
+      }
+    None => item
   }
 }

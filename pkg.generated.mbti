@@ -9,6 +9,8 @@ import {
 // Values
 pub fn[R : Resolver] compile(ModulePath, R, EscapeMangler, CompileOptions) -> CompileResult raise WeslCompileError
 
+pub fn[R : Resolver] compile_sourcemap(ModulePath, R, EscapeMangler, CompileOptions) -> CompileResult raise WeslCompileError
+
 pub fn parse_module_path(String) -> ModulePath raise ModulePathParseError
 
 // Errors
@@ -39,6 +41,10 @@ pub(all) suberror WeslCompileError {
 pub fn WeslCompileError::message(Self) -> String
 
 // Types and methods
+pub struct BasicSourceMap {
+  root : ModulePath
+} derive(@debug.Debug)
+
 pub struct CompileOptions {
   imports : Bool
   condcomp : Bool
@@ -68,9 +74,12 @@ pub fn CompileOptions::with_strip(Self, Bool) -> Self
 pub fn CompileOptions::with_validate(Self, Bool) -> Self
 
 pub struct CompileResult {
+  syntax : String
   source : String
+  sourcemap : BasicSourceMap?
   modules : Array[ModulePath]
 } derive(@debug.Debug)
+pub fn CompileResult::has_sourcemap(Self) -> Bool
 pub fn CompileResult::to_string(Self) -> String
 
 pub struct EscapeMangler {
@@ -92,6 +101,14 @@ pub struct Features {
 pub fn Features::default() -> Self
 pub fn Features::with_feature(Self, String, Feature) -> Self
 
+pub(all) enum ManglerKind {
+  Escape
+  Hash
+  Unicode
+  None
+} derive(Eq, @debug.Debug)
+pub fn ManglerKind::mangle(Self, ModulePath, String) -> String
+
 type ModuleItemRef derive(Eq)
 
 pub(all) struct ModulePath {
@@ -111,6 +128,11 @@ pub fn ModulePath::starts_with(Self, Self) -> Bool
 pub fn ModulePath::to_path_string(Self) -> String
 pub fn ModulePath::to_string(Self) -> String
 
+pub struct NoResolver {
+}
+pub fn NoResolver::new() -> Self
+pub impl Resolver for NoResolver
+
 pub(all) enum PathOrigin {
   Absolute
   Relative(Int)
@@ -124,6 +146,30 @@ pub fn VirtualResolver::add_module(Self, ModulePath, String) -> Unit
 pub fn VirtualResolver::get_module(Self, ModulePath) -> String raise ResolveError
 pub fn VirtualResolver::new() -> Self
 pub impl Resolver for VirtualResolver
+
+pub struct Wesl[R] {
+  options : CompileOptions
+  use_sourcemap : Bool
+  resolver : R
+  mangler : ManglerKind
+}
+pub fn[R : Resolver] Wesl::compile(Self[R], ModulePath) -> CompileResult raise WeslCompileError
+pub fn[R] Wesl::keep_all_entrypoints(Self[R]) -> Self[R]
+pub fn[R] Wesl::keep_declarations(Self[R], Array[String]) -> Self[R]
+pub fn Wesl::new_barebones() -> Self[NoResolver]
+pub fn Wesl::new_virtual(VirtualResolver) -> Self[VirtualResolver]
+pub fn[R, CustomResolver] Wesl::set_custom_resolver(Self[R], CustomResolver) -> Self[CustomResolver]
+pub fn[R] Wesl::set_feature(Self[R], String, Feature) -> Self[R]
+pub fn[R] Wesl::set_mangler(Self[R], ManglerKind) -> Self[R]
+pub fn[R] Wesl::set_missing_feature_behavior(Self[R], Feature) -> Self[R]
+pub fn[R] Wesl::set_options(Self[R], CompileOptions) -> Self[R]
+pub fn[R] Wesl::unset_feature(Self[R], String) -> Self[R]
+pub fn[R] Wesl::use_condcomp(Self[R], Bool) -> Self[R]
+pub fn[R] Wesl::use_generics(Self[R], Bool) -> Self[R]
+pub fn[R] Wesl::use_imports(Self[R], Bool) -> Self[R]
+pub fn[R] Wesl::use_lower(Self[R], Bool) -> Self[R]
+pub fn[R] Wesl::use_sourcemap(Self[R], Bool) -> Self[R]
+pub fn[R] Wesl::use_stripping(Self[R], Bool) -> Self[R]
 
 // Type aliases
 

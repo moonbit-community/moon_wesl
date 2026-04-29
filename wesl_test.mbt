@@ -456,3 +456,48 @@ test "wesl: validate option controls semantic validation pass" {
 
   debug_inspect(compiled.to_string().contains("mat2x2<i32>"), content="true")
 }
+
+///|
+test "wesl: facade compile uses custom resolver and sourcemap option" {
+  let resolver = VirtualResolver::new()
+  let root_path = ModulePath::from_path("/shaders/root")
+  resolver.add_module(
+    root_path, "@compute @workgroup_size(1)\nfn main() {\n}\n",
+  )
+
+  let compiled = Wesl::new_barebones()
+    .set_custom_resolver(resolver)
+    .set_options(
+      CompileOptions::default().with_strip(false).with_validate(false),
+    )
+    .use_sourcemap(true)
+    .compile(root_path)
+
+  debug_inspect(compiled.has_sourcemap(), content="true")
+  debug_inspect(compiled.modules.length(), content="1")
+  debug_inspect(compiled.to_string().contains("@compute"), content="true")
+}
+
+///|
+test "wesl: facade can select hash mangler" {
+  let resolver = VirtualResolver::new()
+  let util_path = ModulePath::from_path("/shaders/util")
+  let root_path = ModulePath::from_path("/shaders/root")
+  resolver.add_module(util_path, "fn make_value() -> f32 {\n  return 3.0;\n}\n")
+  resolver.add_module(
+    root_path, "import super::util::make_value;\n@fragment\nfn fragment() -> f32 {\n  return make_value();\n}\n",
+  )
+
+  let compiled = Wesl::new_barebones()
+    .set_custom_resolver(resolver)
+    .set_options(CompileOptions::default().with_lower(true))
+    .set_mangler(Hash)
+    .compile(root_path)
+  let compiled_text = compiled.to_string()
+
+  debug_inspect(
+    compiled_text.contains("package_shaders_util__1make_value"),
+    content="false",
+  )
+  debug_inspect(compiled_text.contains("make_value_"), content="true")
+}
