@@ -242,3 +242,163 @@ pub impl Resolver for StandardResolver with fs_path(self, path) {
     self.files.fs_path(path)
   }
 }
+
+///|
+priv enum ResolverMount {
+  Virtual(VirtualResolver)
+  File(FileResolver)
+  Standard(StandardResolver)
+}
+
+///|
+fn ResolverMount::resolve_source(
+  self : ResolverMount,
+  path : ModulePath,
+) -> String raise ResolveError {
+  match self {
+    Virtual(resolver) => resolver.resolve_source(path)
+    File(resolver) => resolver.resolve_source(path)
+    Standard(resolver) => resolver.resolve_source(path)
+  }
+}
+
+///|
+fn ResolverMount::display_name(
+  self : ResolverMount,
+  path : ModulePath,
+) -> String? {
+  match self {
+    Virtual(resolver) => resolver.display_name(path)
+    File(resolver) => resolver.display_name(path)
+    Standard(resolver) => resolver.display_name(path)
+  }
+}
+
+///|
+fn ResolverMount::fs_path(self : ResolverMount, path : ModulePath) -> String? {
+  match self {
+    Virtual(resolver) => resolver.fs_path(path)
+    File(resolver) => resolver.fs_path(path)
+    Standard(resolver) => resolver.fs_path(path)
+  }
+}
+
+///|
+pub struct Router {
+  priv mount_points : Array[(ModulePath, ResolverMount)]
+  priv mut fallback : (ModulePath, ResolverMount)?
+}
+
+///|
+pub fn Router::new() -> Router {
+  Router::{ mount_points: [], fallback: None }
+}
+
+///|
+pub fn Router::mount_resolver(
+  self : Router,
+  prefix : ModulePath,
+  resolver : VirtualResolver,
+) -> Unit {
+  self.mount_points.push((prefix, Virtual(resolver)))
+}
+
+///|
+pub fn Router::mount_file_resolver(
+  self : Router,
+  prefix : ModulePath,
+  resolver : FileResolver,
+) -> Unit {
+  self.mount_points.push((prefix, File(resolver)))
+}
+
+///|
+pub fn Router::mount_standard_resolver(
+  self : Router,
+  prefix : ModulePath,
+  resolver : StandardResolver,
+) -> Unit {
+  self.mount_points.push((prefix, Standard(resolver)))
+}
+
+///|
+pub fn Router::mount_fallback_resolver(
+  self : Router,
+  resolver : VirtualResolver,
+) -> Unit {
+  self.fallback = Some((ModulePath::new_root(), Virtual(resolver)))
+}
+
+///|
+pub fn Router::mount_fallback_file_resolver(
+  self : Router,
+  resolver : FileResolver,
+) -> Unit {
+  self.fallback = Some((ModulePath::new_root(), File(resolver)))
+}
+
+///|
+fn router_suffix_path(path : ModulePath, prefix : ModulePath) -> ModulePath {
+  ModulePath::new(
+    Absolute,
+    module_path_slice(
+      path.components,
+      prefix.components.length(),
+      path.components.length(),
+    ),
+  )
+}
+
+///|
+fn Router::route(
+  self : Router,
+  path : ModulePath,
+) -> (ResolverMount, ModulePath) raise ResolveError {
+  let mut selected : (ModulePath, ResolverMount)? = None
+  for entry in self.mount_points {
+    let (prefix, _) = entry
+    if path.starts_with(prefix) {
+      match selected {
+        Some((best_prefix, _)) =>
+          if prefix.components.length() > best_prefix.components.length() {
+            selected = Some(entry)
+          }
+        None => selected = Some(entry)
+      }
+    }
+  }
+  match selected {
+    Some((prefix, resolver)) => (resolver, router_suffix_path(path, prefix))
+    None =>
+      match self.fallback {
+        Some((prefix, resolver)) => (resolver, router_suffix_path(path, prefix))
+        None => raise ResolveError::ModuleNotFound(path, "no mount point")
+      }
+  }
+}
+
+///|
+pub impl Resolver for Router with resolve_source(self, path) {
+  let (resolver, suffix) = self.route(path)
+  resolver.resolve_source(suffix)
+}
+
+///|
+pub impl Resolver for Router with display_name(self, path) {
+  try {
+    let (resolver, suffix) = self.route(path)
+    resolver.display_name(suffix)
+  } catch {
+    _ => None
+  }
+}
+
+///|
+pub impl Resolver for Router with fs_path(self, path) {
+  try {
+    let (resolver, suffix) = self.route(path)
+    resolver.fs_path(suffix)
+  } catch {
+    _ => None
+  }
+}

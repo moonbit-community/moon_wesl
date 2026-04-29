@@ -542,3 +542,45 @@ test "wesl: standard resolver exposes constants package" {
   debug_inspect(source.contains("const PI = 3.141592653589793"), content="true")
   debug_inspect(resolver.fs_path(constants_path), content="None")
 }
+
+///|
+test "wesl: router dispatches to longest matching mount" {
+  let router = Router::new()
+  let package_path = try! parse_module_path("package")
+  let bar_path = try! parse_module_path("package::bar")
+
+  let base = VirtualResolver::new()
+  base.add_module(ModulePath::new_root(), "fn root() {}\n")
+  base.add_module(ModulePath::new(Absolute, ["foo"]), "fn foo() {}\n")
+  base.add_module(ModulePath::new(Absolute, ["bar"]), "fn base_bar() {}\n")
+  router.mount_resolver(package_path, base)
+
+  let nested = VirtualResolver::new()
+  nested.add_module(ModulePath::new_root(), "fn nested_root() {}\n")
+  nested.add_module(ModulePath::new(Absolute, ["baz"]), "fn baz() {}\n")
+  router.mount_resolver(bar_path, nested)
+
+  let fallback = VirtualResolver::new()
+  fallback.add_module(
+    ModulePath::new(Absolute, ["external"]),
+    "fn external() {}\n",
+  )
+  router.mount_fallback_resolver(fallback)
+
+  debug_inspect(
+    router.resolve_source(try! parse_module_path("package::foo")),
+    content="\"fn foo() {}\\n\"",
+  )
+  debug_inspect(
+    router.resolve_source(try! parse_module_path("package::bar")),
+    content="\"fn nested_root() {}\\n\"",
+  )
+  debug_inspect(
+    router.resolve_source(try! parse_module_path("package::bar::baz")),
+    content="\"fn baz() {}\\n\"",
+  )
+  debug_inspect(
+    router.resolve_source(try! parse_module_path("foo::external")),
+    content="\"fn external() {}\\n\"",
+  )
+}

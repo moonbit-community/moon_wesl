@@ -150,6 +150,17 @@ pub(all) enum PathOrigin {
   Package(String)
 } derive(Eq, Hash, @debug.Debug)
 
+pub struct Router {
+  // private fields
+}
+pub fn Router::mount_fallback_file_resolver(Self, FileResolver) -> Unit
+pub fn Router::mount_fallback_resolver(Self, VirtualResolver) -> Unit
+pub fn Router::mount_file_resolver(Self, ModulePath, FileResolver) -> Unit
+pub fn Router::mount_resolver(Self, ModulePath, VirtualResolver) -> Unit
+pub fn Router::mount_standard_resolver(Self, ModulePath, StandardResolver) -> Unit
+pub fn Router::new() -> Self
+pub impl Resolver for Router
+
 pub struct StandardResolver {
   files : FileResolver
   constants : @hashmap.HashMap[String, Double]
