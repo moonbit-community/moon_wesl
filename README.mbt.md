@@ -73,8 +73,9 @@ test {
 }
 ```
 
-The result contains the final emitted source in `result.source` and the loaded
-module order in `result.modules`.
+The result contains the final emitted syntax tree in `result.syntax`; call
+`result.to_string()` for the WGSL text. Loaded module order is available in
+`result.modules`.
 
 ## Core Concepts
 

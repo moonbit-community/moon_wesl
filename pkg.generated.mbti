@@ -108,8 +108,7 @@ pub fn CompileOptions::with_strip(Self, Bool) -> Self
 pub fn CompileOptions::with_validate(Self, Bool) -> Self
 
 pub struct CompileResult {
-  syntax : String
-  source : String
+  syntax : TranslationUnit
   sourcemap : BasicSourceMap?
   modules : Array[ModulePath]
 } derive(@debug.Debug)

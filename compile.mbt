@@ -241,15 +241,14 @@ pub struct BasicSourceMap {
 
 ///|
 pub struct CompileResult {
-  syntax : String
-  source : String
+  syntax : TranslationUnit
   sourcemap : BasicSourceMap?
   modules : Array[ModulePath]
 } derive(Debug)
 
 ///|
 pub fn CompileResult::to_string(self : CompileResult) -> String {
-  self.syntax
+  self.syntax.to_string()
 }
 
 ///|
@@ -2864,9 +2863,9 @@ fn[R : Resolver] compile_with_mangler_kind(
   } else {
     assembled
   }
+  let syntax = parse_translation_unit(root, source, false)
   CompileResult::{
-    syntax: source,
-    source,
+    syntax,
     sourcemap: if use_sourcemap {
       Some(BasicSourceMap::{ root, })
     } else {

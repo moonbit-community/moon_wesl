@@ -505,6 +505,7 @@ test "wesl: facade compile uses custom resolver and sourcemap option" {
 
   debug_inspect(compiled.has_sourcemap(), content="true")
   debug_inspect(compiled.modules.length(), content="1")
+  debug_inspect(compiled.syntax.global_declarations.length(), content="1")
   debug_inspect(compiled.to_string().contains("@compute"), content="true")
 }
 
