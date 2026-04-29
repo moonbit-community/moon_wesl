@@ -54,6 +54,16 @@ test "wesl: escape mangler matches Bevy naming" {
 }
 
 ///|
+test "wesl: mangler kind default is escape" {
+  let path = try! parse_module_path("package::bevy_pbr::lighting")
+
+  debug_inspect(
+    ManglerKind::default().mangle(path, "item"),
+    content="\"package__1bevy_pbr_lighting_item\"",
+  )
+}
+
+///|
 test "wesl: compile resolves imports and conditional translation" {
   let resolver = VirtualResolver::new()
   let util_path = ModulePath::from_path("/shaders/util")

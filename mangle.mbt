@@ -24,6 +24,11 @@ pub(all) enum ManglerKind {
 } derive(Eq, Debug)
 
 ///|
+pub fn ManglerKind::default() -> ManglerKind {
+  Escape
+}
+
+///|
 pub fn EscapeMangler::default() -> EscapeMangler {
   EscapeMangler::{  }
 }

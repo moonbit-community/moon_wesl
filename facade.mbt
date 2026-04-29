@@ -48,7 +48,7 @@ pub fn Wesl::new_virtual(resolver : VirtualResolver) -> Wesl[VirtualResolver] {
     options: CompileOptions::default(),
     use_sourcemap: true,
     resolver,
-    mangler: Escape,
+    mangler: ManglerKind::default(),
   }
 }
 
@@ -58,7 +58,7 @@ pub fn Wesl::new(base : String) -> Wesl[StandardResolver] {
     options: CompileOptions::default(),
     use_sourcemap: true,
     resolver: StandardResolver::new(base),
-    mangler: Escape,
+    mangler: ManglerKind::default(),
   }
 }
 
@@ -68,7 +68,7 @@ pub fn Wesl::new_experimental(base : String) -> Wesl[StandardResolver] {
     options: CompileOptions::default().with_generics(true).with_lower(true),
     use_sourcemap: true,
     resolver: StandardResolver::new(base),
-    mangler: Escape,
+    mangler: ManglerKind::default(),
   }
 }
 

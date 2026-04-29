@@ -213,6 +213,7 @@ pub(all) enum ManglerKind {
   Unicode
   None
 } derive(Eq, @debug.Debug)
+pub fn ManglerKind::default() -> Self
 pub fn ManglerKind::mangle(Self, ModulePath, String) -> String
 
 type ModuleItemRef derive(Eq)
