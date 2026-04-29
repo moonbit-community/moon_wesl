@@ -154,6 +154,7 @@ pub struct FileResolver {
   base : String
   extension : String
 }
+pub fn FileResolver::default() -> Self
 pub fn FileResolver::file_path(Self, ModulePath) -> String raise ResolveError
 pub fn FileResolver::new(String) -> Self
 pub fn FileResolver::set_extension(Self, String) -> Self
@@ -244,6 +245,7 @@ pub fn ModulePath::to_string(Self) -> String
 
 pub struct NoResolver {
 }
+pub fn NoResolver::default() -> Self
 pub fn NoResolver::new() -> Self
 pub impl Resolver for NoResolver
 
@@ -261,6 +263,7 @@ pub struct PkgResolver {
   packages : Array[CodegenPkg]
 }
 pub fn PkgResolver::add_package(Self, CodegenPkg) -> Unit
+pub fn PkgResolver::default() -> Self
 pub fn PkgResolver::new() -> Self
 pub impl Resolver for PkgResolver
 
@@ -274,6 +277,7 @@ pub impl[R : Resolver, P : ModulePreprocessor] Resolver for Preprocessor[R, P]
 pub struct Router {
   // private fields
 }
+pub fn Router::default() -> Self
 pub fn Router::mount_fallback_file_resolver(Self, FileResolver) -> Unit
 pub fn Router::mount_fallback_resolver(Self, VirtualResolver) -> Unit
 pub fn Router::mount_file_resolver(Self, ModulePath, FileResolver) -> Unit
@@ -320,6 +324,7 @@ pub struct VirtualResolver {
 }
 pub fn VirtualResolver::add_module(Self, ModulePath, String) -> Unit
 pub fn VirtualResolver::add_translation_unit(Self, ModulePath, TranslationUnit) -> Unit
+pub fn VirtualResolver::default() -> Self
 pub fn VirtualResolver::get_module(Self, ModulePath) -> String raise ResolveError
 pub fn VirtualResolver::modules(Self) -> Array[(ModulePath, String)]
 pub fn VirtualResolver::new() -> Self

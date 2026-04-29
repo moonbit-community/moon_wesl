@@ -64,6 +64,11 @@ pub fn NoResolver::new() -> NoResolver {
 }
 
 ///|
+pub fn NoResolver::default() -> NoResolver {
+  NoResolver::new()
+}
+
+///|
 pub impl Resolver for NoResolver with resolve_source(_self, path) {
   raise ResolveError::ModuleNotFound(
     path, "no module resolver, imports are effectively disabled here",
@@ -78,6 +83,11 @@ pub struct VirtualResolver {
 ///|
 pub fn VirtualResolver::new() -> VirtualResolver {
   VirtualResolver::{ files: @hashmap.HashMap::new() }
+}
+
+///|
+pub fn VirtualResolver::default() -> VirtualResolver {
+  VirtualResolver::new()
 }
 
 ///|
@@ -266,6 +276,11 @@ pub fn PkgResolver::new() -> PkgResolver {
 }
 
 ///|
+pub fn PkgResolver::default() -> PkgResolver {
+  PkgResolver::new()
+}
+
+///|
 pub fn PkgResolver::add_package(self : PkgResolver, pkg : CodegenPkg) -> Unit {
   self.packages.push(pkg)
 }
@@ -373,6 +388,11 @@ pub fn FileResolver::new(base : String) -> FileResolver {
 }
 
 ///|
+pub fn FileResolver::default() -> FileResolver {
+  FileResolver::{ base: "", extension: "" }
+}
+
+///|
 pub fn FileResolver::set_extension(
   self : FileResolver,
   extension : String,
@@ -403,7 +423,12 @@ pub fn FileResolver::file_path(
   }
   let tail = path.components.join("/")
   let stem = if tail == "" { "package" } else { tail }
-  file_resolver_join(self.base, "\{stem}.\{self.extension}")
+  let filename = if self.extension == "" {
+    stem
+  } else {
+    "\{stem}.\{self.extension}"
+  }
+  file_resolver_join(self.base, filename)
 }
 
 ///|
@@ -590,6 +615,11 @@ pub struct Router {
 ///|
 pub fn Router::new() -> Router {
   Router::{ mount_points: [], fallback: None }
+}
+
+///|
+pub fn Router::default() -> Router {
+  Router::new()
 }
 
 ///|

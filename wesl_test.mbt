@@ -642,6 +642,40 @@ test "wesl: no resolver error matches upstream context" {
 }
 
 ///|
+test "wesl: resolver defaults match upstream constructors" {
+  let root_path = ModulePath::new_root()
+  let no_resolver_result = try? NoResolver::default().resolve_source(root_path)
+  let pkg_result = try? PkgResolver::default().resolve_source(
+    try! parse_module_path("demo"),
+  )
+  let router_result = try? Router::default().resolve_source(root_path)
+
+  debug_inspect(VirtualResolver::default().modules().length(), content="0")
+  debug_inspect(
+    FileResolver::default().fs_path(root_path),
+    content="Some(\"package\")",
+  )
+  match no_resolver_result {
+    Err(ResolveError::ModuleNotFound(_, context)) =>
+      debug_inspect(
+        context,
+        content="\"no module resolver, imports are effectively disabled here\"",
+      )
+    _ => fail("expected default no resolver to reject modules")
+  }
+  match pkg_result {
+    Err(ResolveError::ModuleNotFound(_, context)) =>
+      debug_inspect(context, content="\"dependency `demo` not found\"")
+    _ => fail("expected default package resolver to reject unknown package")
+  }
+  match router_result {
+    Err(ResolveError::ModuleNotFound(_, context)) =>
+      debug_inspect(context, content="\"no mount point\"")
+    _ => fail("expected default router to have no mount point")
+  }
+}
+
+///|
 test "wesl: virtual resolver accepts translation units" {
   let resolver = VirtualResolver::new()
   let root_path = ModulePath::from_path("/shaders/root")
@@ -759,6 +793,10 @@ test "wesl: file resolver maps module path to wesl path" {
   debug_inspect(
     wgsl_resolver.fs_path(root_path),
     content="Some(\"shaders/materials/root.wgsl\")",
+  )
+  debug_inspect(
+    FileResolver::default().fs_path(root_path),
+    content="Some(\"materials/root\")",
   )
 }
 
