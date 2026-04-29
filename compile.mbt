@@ -1041,11 +1041,10 @@ fn wesl_condcomp_imports(
   let state = CondCompEvalState::new()
   for statement in imports {
     let attr = wesl_single_condcomp_attribute(statement.attributes)
-    let source = ""
-    let (keep_node, next_attrs, _) = wesl_transform_condcomp_node(
+    let (keep_node, next_attrs, next_source) = wesl_transform_condcomp_node(
       attr,
       statement.attributes,
-      source,
+      statement.source,
       features,
       state,
     )
@@ -1053,6 +1052,7 @@ fn wesl_condcomp_imports(
       out.push(ImportStatement::{
         ..statement,
         attributes: next_attrs.unwrap_or(statement.attributes),
+        source: next_source.unwrap_or(statement.source),
       })
     }
   }

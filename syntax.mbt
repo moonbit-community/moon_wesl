@@ -183,11 +183,17 @@ pub(all) struct ImportStatement {
   span : SyntaxSpan
   attributes : Array[Attribute]
   entries : Array[ImportNode]
+  source : String
 } derive(Eq, Debug)
 
 ///|
 fn ImportStatement::is_public(self : ImportStatement) -> Bool {
   syntax_has_attribute(self.attributes, "publish")
+}
+
+///|
+pub fn ImportStatement::source_text(self : ImportStatement) -> String {
+  self.source
 }
 
 ///|
@@ -311,3 +317,15 @@ pub(all) struct TranslationUnit {
   imports : Array[ImportStatement]
   global_declarations : Array[GlobalDeclaration]
 } derive(Eq, Debug)
+
+///|
+pub fn TranslationUnit::to_string(self : TranslationUnit) -> String {
+  let parts : Array[String] = []
+  for statement in self.imports {
+    parts.push(statement.source_text())
+  }
+  for declaration in self.global_declarations {
+    parts.push(declaration.source)
+  }
+  parts.join("\n\n")
+}

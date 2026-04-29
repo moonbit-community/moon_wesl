@@ -667,7 +667,12 @@ fn Parser::parse_import_statement(
       "unsupported import statement (\{context}): \{item_source}",
     )
   }
-  let statement = ImportStatement::{ span, attributes: attrs, entries: items }
+  let statement = ImportStatement::{
+    span,
+    attributes: attrs,
+    entries: items,
+    source: item_source,
+  }
   ignore(statement.flatten_items(current_path))
   statement
 }

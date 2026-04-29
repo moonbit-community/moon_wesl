@@ -567,6 +567,25 @@ test "wesl: resolver exposes display name and registered modules" {
 }
 
 ///|
+test "wesl: virtual resolver accepts translation units" {
+  let resolver = VirtualResolver::new()
+  let root_path = ModulePath::from_path("/shaders/root")
+  let unit = parse_translation_unit(
+    root_path, "fn helper() -> f32 {\n  return 1.0;\n}\n", true,
+  )
+  resolver.add_translation_unit(root_path, unit)
+
+  let compiled = compile(
+    root_path,
+    resolver,
+    EscapeMangler::default(),
+    CompileOptions::default().with_strip(false),
+  )
+
+  debug_inspect(compiled.to_string().contains("fn helper()"), content="true")
+}
+
+///|
 struct AppendDeclPreprocessor {}
 
 ///|

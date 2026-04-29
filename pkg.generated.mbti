@@ -193,7 +193,9 @@ pub(all) struct ImportStatement {
   span : SyntaxSpan
   attributes : Array[Attribute]
   entries : Array[ImportNode]
+  source : String
 } derive(Eq, @debug.Debug)
+pub fn ImportStatement::source_text(Self) -> String
 
 pub(all) struct ImportedName {
   export_module_path : ModulePath?
@@ -300,6 +302,7 @@ pub(all) struct TranslationUnit {
   imports : Array[ImportStatement]
   global_declarations : Array[GlobalDeclaration]
 } derive(Eq, @debug.Debug)
+pub fn TranslationUnit::to_string(Self) -> String
 
 pub(all) struct VarDeclaration {
   name : String?
@@ -310,6 +313,7 @@ pub struct VirtualResolver {
   files : @hashmap.HashMap[ModulePath, String]
 }
 pub fn VirtualResolver::add_module(Self, ModulePath, String) -> Unit
+pub fn VirtualResolver::add_translation_unit(Self, ModulePath, TranslationUnit) -> Unit
 pub fn VirtualResolver::get_module(Self, ModulePath) -> String raise ResolveError
 pub fn VirtualResolver::modules(Self) -> Array[(ModulePath, String)]
 pub fn VirtualResolver::new() -> Self

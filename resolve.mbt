@@ -88,6 +88,15 @@ pub fn VirtualResolver::add_module(
 }
 
 ///|
+pub fn VirtualResolver::add_translation_unit(
+  self : VirtualResolver,
+  path : ModulePath,
+  translation_unit : TranslationUnit,
+) -> Unit {
+  self.add_module(path, translation_unit.to_string())
+}
+
+///|
 pub fn VirtualResolver::get_module(
   self : VirtualResolver,
   path : ModulePath,
