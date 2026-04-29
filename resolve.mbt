@@ -30,6 +30,18 @@ pub fn ResolveError::message(self : ResolveError) -> String {
 ///|
 pub(open) trait Resolver {
   resolve_source(Self, ModulePath) -> String raise ResolveError
+  display_name(Self, ModulePath) -> String? = _
+  fs_path(Self, ModulePath) -> String? = _
+}
+
+///|
+impl Resolver with display_name(_self, _path) {
+  None
+}
+
+///|
+impl Resolver with fs_path(_self, _path) {
+  None
 }
 
 ///|
@@ -76,6 +88,22 @@ pub fn VirtualResolver::get_module(
 }
 
 ///|
+pub fn VirtualResolver::modules(
+  self : VirtualResolver,
+) -> Array[(ModulePath, String)] {
+  let modules : Array[(ModulePath, String)] = []
+  for entry in self.files.iter() {
+    modules.push(entry)
+  }
+  modules
+}
+
+///|
 pub impl Resolver for VirtualResolver with resolve_source(self, path) {
   self.get_module(path)
+}
+
+///|
+pub impl Resolver for VirtualResolver with display_name(_self, path) {
+  Some(path.to_string())
 }

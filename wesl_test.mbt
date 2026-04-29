@@ -501,3 +501,17 @@ test "wesl: facade can select hash mangler" {
   )
   debug_inspect(compiled_text.contains("make_value_"), content="true")
 }
+
+///|
+test "wesl: resolver exposes display name and registered modules" {
+  let resolver = VirtualResolver::new()
+  let root_path = ModulePath::from_path("/shaders/root")
+  resolver.add_module(root_path, "fn helper() {}\n")
+
+  debug_inspect(
+    resolver.display_name(root_path),
+    content="Some(\"package::shaders::root\")",
+  )
+  debug_inspect(resolver.fs_path(root_path), content="None")
+  debug_inspect(resolver.modules().length(), content="1")
+}

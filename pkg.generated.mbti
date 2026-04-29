@@ -144,6 +144,7 @@ pub struct VirtualResolver {
 }
 pub fn VirtualResolver::add_module(Self, ModulePath, String) -> Unit
 pub fn VirtualResolver::get_module(Self, ModulePath) -> String raise ResolveError
+pub fn VirtualResolver::modules(Self) -> Array[(ModulePath, String)]
 pub fn VirtualResolver::new() -> Self
 pub impl Resolver for VirtualResolver
 
@@ -176,5 +177,7 @@ pub fn[R] Wesl::use_stripping(Self[R], Bool) -> Self[R]
 // Traits
 pub(open) trait Resolver {
   resolve_source(Self, ModulePath) -> String raise ResolveError
+  display_name(Self, ModulePath) -> String? = _
+  fs_path(Self, ModulePath) -> String? = _
 }
 
