@@ -240,11 +240,30 @@ pub struct BasicSourceMap {
 } derive(Debug)
 
 ///|
+pub fn BasicSourceMap::default() -> BasicSourceMap {
+  BasicSourceMap::{ root: ModulePath::new_root() }
+}
+
+///|
+pub fn BasicSourceMap::new() -> BasicSourceMap {
+  BasicSourceMap::default()
+}
+
+///|
 pub struct CompileResult {
   syntax : TranslationUnit
   sourcemap : BasicSourceMap?
   modules : Array[ModulePath]
 } derive(Debug)
+
+///|
+pub fn CompileResult::default() -> CompileResult {
+  CompileResult::{
+    syntax: TranslationUnit::default(),
+    sourcemap: None,
+    modules: [],
+  }
+}
 
 ///|
 pub fn CompileResult::to_string(self : CompileResult) -> String {

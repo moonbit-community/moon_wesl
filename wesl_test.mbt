@@ -64,6 +64,17 @@ test "wesl: mangler kind default is escape" {
 }
 
 ///|
+test "wesl: default result mirrors upstream empty output" {
+  let result = CompileResult::default()
+  let source_map = BasicSourceMap::new()
+
+  debug_inspect(result.to_string(), content="\"\"")
+  debug_inspect(result.has_sourcemap(), content="false")
+  debug_inspect(result.modules.length(), content="0")
+  debug_inspect(source_map.root.to_string(), content="\"package\"")
+}
+
+///|
 test "wesl: compile resolves imports and conditional translation" {
   let resolver = VirtualResolver::new()
   let util_path = ModulePath::from_path("/shaders/util")

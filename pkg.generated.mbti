@@ -60,6 +60,8 @@ pub(all) struct Attribute {
 pub struct BasicSourceMap {
   root : ModulePath
 } derive(@debug.Debug)
+pub fn BasicSourceMap::default() -> Self
+pub fn BasicSourceMap::new() -> Self
 
 pub struct CodegenModule {
   name : String
@@ -112,6 +114,7 @@ pub struct CompileResult {
   sourcemap : BasicSourceMap?
   modules : Array[ModulePath]
 } derive(@debug.Debug)
+pub fn CompileResult::default() -> Self
 pub fn CompileResult::has_sourcemap(Self) -> Bool
 pub fn CompileResult::to_string(Self) -> String
 
@@ -302,6 +305,7 @@ pub(all) struct TranslationUnit {
   imports : Array[ImportStatement]
   global_declarations : Array[GlobalDeclaration]
 } derive(Eq, @debug.Debug)
+pub fn TranslationUnit::default() -> Self
 pub fn TranslationUnit::to_string(Self) -> String
 
 pub(all) struct VarDeclaration {

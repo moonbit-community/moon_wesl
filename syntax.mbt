@@ -319,6 +319,11 @@ pub(all) struct TranslationUnit {
 } derive(Eq, Debug)
 
 ///|
+pub fn TranslationUnit::default() -> TranslationUnit {
+  TranslationUnit::{ imports: [], global_declarations: [] }
+}
+
+///|
 pub fn TranslationUnit::to_string(self : TranslationUnit) -> String {
   let parts : Array[String] = []
   for statement in self.imports {
