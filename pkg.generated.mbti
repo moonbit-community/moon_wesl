@@ -45,6 +45,24 @@ pub struct BasicSourceMap {
   root : ModulePath
 } derive(@debug.Debug)
 
+pub struct CodegenModule {
+  name : String
+  source : String
+  submodules : Array[CodegenModule]
+} derive(Eq, @debug.Debug)
+pub fn CodegenModule::add_submodule(Self, Self) -> Unit
+pub fn CodegenModule::new(String, String) -> Self
+pub fn CodegenModule::with_submodules(Self, Array[Self]) -> Self
+
+pub struct CodegenPkg {
+  crate_name : String
+  root : CodegenModule
+  dependencies : Array[CodegenPkg]
+} derive(Eq, @debug.Debug)
+pub fn CodegenPkg::add_dependency(Self, Self) -> Unit
+pub fn CodegenPkg::new(String, CodegenModule) -> Self
+pub fn CodegenPkg::with_dependencies(Self, Array[Self]) -> Self
+
 pub struct CompileOptions {
   imports : Bool
   condcomp : Bool
@@ -150,22 +168,32 @@ pub(all) enum PathOrigin {
   Package(String)
 } derive(Eq, Hash, @debug.Debug)
 
+pub struct PkgResolver {
+  packages : Array[CodegenPkg]
+}
+pub fn PkgResolver::add_package(Self, CodegenPkg) -> Unit
+pub fn PkgResolver::new() -> Self
+pub impl Resolver for PkgResolver
+
 pub struct Router {
   // private fields
 }
 pub fn Router::mount_fallback_file_resolver(Self, FileResolver) -> Unit
 pub fn Router::mount_fallback_resolver(Self, VirtualResolver) -> Unit
 pub fn Router::mount_file_resolver(Self, ModulePath, FileResolver) -> Unit
+pub fn Router::mount_pkg_resolver(Self, ModulePath, PkgResolver) -> Unit
 pub fn Router::mount_resolver(Self, ModulePath, VirtualResolver) -> Unit
 pub fn Router::mount_standard_resolver(Self, ModulePath, StandardResolver) -> Unit
 pub fn Router::new() -> Self
 pub impl Resolver for Router
 
 pub struct StandardResolver {
+  pkg : PkgResolver
   files : FileResolver
   constants : @hashmap.HashMap[String, Double]
 }
 pub fn StandardResolver::add_constant(Self, String, Double) -> Unit
+pub fn StandardResolver::add_package(Self, CodegenPkg) -> Unit
 pub fn StandardResolver::generate_constant_module(Self) -> String
 pub fn StandardResolver::new(String) -> Self
 pub impl Resolver for StandardResolver
@@ -185,6 +213,10 @@ pub struct Wesl[R] {
   resolver : R
   mangler : ManglerKind
 }
+pub fn Wesl::add_constant(Self[StandardResolver], String, Double) -> Self[StandardResolver]
+pub fn Wesl::add_constants(Self[StandardResolver], Array[(String, Double)]) -> Self[StandardResolver]
+pub fn Wesl::add_package(Self[StandardResolver], CodegenPkg) -> Self[StandardResolver]
+pub fn Wesl::add_packages(Self[StandardResolver], Array[CodegenPkg]) -> Self[StandardResolver]
 pub fn[R : Resolver] Wesl::compile(Self[R], ModulePath) -> CompileResult raise WeslCompileError
 pub fn[R] Wesl::keep_all_entrypoints(Self[R]) -> Self[R]
 pub fn[R] Wesl::keep_declarations(Self[R], Array[String]) -> Self[R]

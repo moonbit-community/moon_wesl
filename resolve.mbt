@@ -109,6 +109,168 @@ pub impl Resolver for VirtualResolver with display_name(_self, path) {
 }
 
 ///|
+pub struct CodegenModule {
+  name : String
+  source : String
+  submodules : Array[CodegenModule]
+} derive(Debug, Eq)
+
+///|
+pub struct CodegenPkg {
+  crate_name : String
+  root : CodegenModule
+  dependencies : Array[CodegenPkg]
+} derive(Debug, Eq)
+
+///|
+pub fn CodegenModule::new(name : String, source : String) -> CodegenModule {
+  CodegenModule::{ name, source, submodules: [] }
+}
+
+///|
+pub fn CodegenModule::with_submodules(
+  self : CodegenModule,
+  submodules : Array[CodegenModule],
+) -> CodegenModule {
+  CodegenModule::{ ..self, submodules, }
+}
+
+///|
+pub fn CodegenModule::add_submodule(
+  self : CodegenModule,
+  submodule : CodegenModule,
+) -> Unit {
+  self.submodules.push(submodule)
+}
+
+///|
+pub fn CodegenPkg::new(crate_name : String, root : CodegenModule) -> CodegenPkg {
+  CodegenPkg::{ crate_name, root, dependencies: [] }
+}
+
+///|
+pub fn CodegenPkg::with_dependencies(
+  self : CodegenPkg,
+  dependencies : Array[CodegenPkg],
+) -> CodegenPkg {
+  CodegenPkg::{ ..self, dependencies, }
+}
+
+///|
+pub fn CodegenPkg::add_dependency(
+  self : CodegenPkg,
+  dependency : CodegenPkg,
+) -> Unit {
+  self.dependencies.push(dependency)
+}
+
+///|
+pub struct PkgResolver {
+  packages : Array[CodegenPkg]
+}
+
+///|
+pub fn PkgResolver::new() -> PkgResolver {
+  PkgResolver::{ packages: [] }
+}
+
+///|
+pub fn PkgResolver::add_package(self : PkgResolver, pkg : CodegenPkg) -> Unit {
+  self.packages.push(pkg)
+}
+
+///|
+fn pkg_resolver_find_package(
+  packages : Array[CodegenPkg],
+  name : String,
+) -> CodegenPkg? {
+  for pkg in packages {
+    if pkg.root.name == name {
+      return Some(pkg)
+    }
+  }
+  None
+}
+
+///|
+fn pkg_resolver_find_submodule(
+  node : CodegenModule,
+  name : String,
+) -> CodegenModule? {
+  for submodule in node.submodules {
+    if submodule.name == name {
+      return Some(submodule)
+    }
+  }
+  None
+}
+
+///|
+fn pkg_resolver_resolve_package_path(
+  root : CodegenPkg,
+  package_path : String,
+  full_path : ModulePath,
+) -> CodegenPkg raise ResolveError {
+  let parts = module_path_split_non_empty(package_path, "/")
+  if parts.length() <= 1 {
+    return root
+  }
+  let mut current = root
+  for index in 1..<parts.length() {
+    match pkg_resolver_find_package(current.dependencies, parts[index]) {
+      Some(next) => current = next
+      None =>
+        raise ResolveError::ModuleNotFound(
+          full_path,
+          "dependency `\{parts[index]}` not found in package path `\{package_path}`",
+        )
+    }
+  }
+  current
+}
+
+///|
+pub impl Resolver for PkgResolver with resolve_source(self, path) {
+  let package_path = match path.origin {
+    Package(name) => name
+    _ =>
+      raise ResolveError::ModuleNotFound(
+        path, "resolver can only resolve package imports",
+      )
+  }
+  let package_parts = module_path_split_non_empty(package_path, "/")
+  guard package_parts.get(0) is Some(root_name) else {
+    raise ResolveError::ModuleNotFound(path, "empty package path")
+  }
+  let root_package = match pkg_resolver_find_package(self.packages, root_name) {
+    Some(pkg) => pkg
+    None =>
+      raise ResolveError::ModuleNotFound(
+        path,
+        "dependency `\{package_path}` not found",
+      )
+  }
+  let pkg = pkg_resolver_resolve_package_path(root_package, package_path, path)
+  let mut current = pkg.root
+  for component in path.components {
+    match pkg_resolver_find_submodule(current, component) {
+      Some(submodule) => current = submodule
+      None =>
+        raise ResolveError::ModuleNotFound(
+          path,
+          "in module `\{current.name}`, no submodule named `\{component}`",
+        )
+    }
+  }
+  current.source
+}
+
+///|
+pub impl Resolver for PkgResolver with display_name(_self, path) {
+  Some(path.to_string())
+}
+
+///|
 pub struct FileResolver {
   base : String
   extension : String
@@ -175,6 +337,7 @@ pub impl Resolver for FileResolver with fs_path(self, path) {
 
 ///|
 pub struct StandardResolver {
+  pkg : PkgResolver
   files : FileResolver
   constants : @hashmap.HashMap[String, Double]
 }
@@ -182,9 +345,18 @@ pub struct StandardResolver {
 ///|
 pub fn StandardResolver::new(base : String) -> StandardResolver {
   StandardResolver::{
+    pkg: PkgResolver::new(),
     files: FileResolver::new(base),
     constants: @hashmap.HashMap::new(),
   }
+}
+
+///|
+pub fn StandardResolver::add_package(
+  self : StandardResolver,
+  pkg : CodegenPkg,
+) -> Unit {
+  self.pkg.add_package(pkg)
 }
 
 ///|
@@ -220,6 +392,8 @@ fn standard_resolver_is_constants_path(path : ModulePath) -> Bool {
 pub impl Resolver for StandardResolver with resolve_source(self, path) {
   if standard_resolver_is_constants_path(path) {
     self.generate_constant_module()
+  } else if path.is_package() {
+    self.pkg.resolve_source(path)
   } else {
     self.files.resolve_source(path)
   }
@@ -229,6 +403,8 @@ pub impl Resolver for StandardResolver with resolve_source(self, path) {
 pub impl Resolver for StandardResolver with display_name(self, path) {
   if standard_resolver_is_constants_path(path) {
     Some(path.to_string())
+  } else if path.is_package() {
+    self.pkg.display_name(path)
   } else {
     self.files.display_name(path)
   }
@@ -238,6 +414,8 @@ pub impl Resolver for StandardResolver with display_name(self, path) {
 pub impl Resolver for StandardResolver with fs_path(self, path) {
   if standard_resolver_is_constants_path(path) {
     None
+  } else if path.is_package() {
+    self.pkg.fs_path(path)
   } else {
     self.files.fs_path(path)
   }
@@ -247,6 +425,7 @@ pub impl Resolver for StandardResolver with fs_path(self, path) {
 priv enum ResolverMount {
   Virtual(VirtualResolver)
   File(FileResolver)
+  Pkg(PkgResolver)
   Standard(StandardResolver)
 }
 
@@ -258,6 +437,7 @@ fn ResolverMount::resolve_source(
   match self {
     Virtual(resolver) => resolver.resolve_source(path)
     File(resolver) => resolver.resolve_source(path)
+    Pkg(resolver) => resolver.resolve_source(path)
     Standard(resolver) => resolver.resolve_source(path)
   }
 }
@@ -270,6 +450,7 @@ fn ResolverMount::display_name(
   match self {
     Virtual(resolver) => resolver.display_name(path)
     File(resolver) => resolver.display_name(path)
+    Pkg(resolver) => resolver.display_name(path)
     Standard(resolver) => resolver.display_name(path)
   }
 }
@@ -279,7 +460,20 @@ fn ResolverMount::fs_path(self : ResolverMount, path : ModulePath) -> String? {
   match self {
     Virtual(resolver) => resolver.fs_path(path)
     File(resolver) => resolver.fs_path(path)
+    Pkg(resolver) => resolver.fs_path(path)
     Standard(resolver) => resolver.fs_path(path)
+  }
+}
+
+///|
+fn ResolverMount::route_path(
+  self : ResolverMount,
+  original : ModulePath,
+  suffix : ModulePath,
+) -> ModulePath {
+  match self {
+    Pkg(_) => original
+    _ => suffix
   }
 }
 
@@ -319,6 +513,15 @@ pub fn Router::mount_standard_resolver(
   resolver : StandardResolver,
 ) -> Unit {
   self.mount_points.push((prefix, Standard(resolver)))
+}
+
+///|
+pub fn Router::mount_pkg_resolver(
+  self : Router,
+  prefix : ModulePath,
+  resolver : PkgResolver,
+) -> Unit {
+  self.mount_points.push((prefix, Pkg(resolver)))
 }
 
 ///|
@@ -380,14 +583,14 @@ fn Router::route(
 ///|
 pub impl Resolver for Router with resolve_source(self, path) {
   let (resolver, suffix) = self.route(path)
-  resolver.resolve_source(suffix)
+  resolver.resolve_source(resolver.route_path(path, suffix))
 }
 
 ///|
 pub impl Resolver for Router with display_name(self, path) {
   try {
     let (resolver, suffix) = self.route(path)
-    resolver.display_name(suffix)
+    resolver.display_name(resolver.route_path(path, suffix))
   } catch {
     _ => None
   }
@@ -397,7 +600,7 @@ pub impl Resolver for Router with display_name(self, path) {
 pub impl Resolver for Router with fs_path(self, path) {
   try {
     let (resolver, suffix) = self.route(path)
-    resolver.fs_path(suffix)
+    resolver.fs_path(resolver.route_path(path, suffix))
   } catch {
     _ => None
   }

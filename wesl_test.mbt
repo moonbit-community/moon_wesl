@@ -503,6 +503,34 @@ test "wesl: facade can select hash mangler" {
 }
 
 ///|
+test "wesl: facade standard resolver can add packages and constants" {
+  let root = CodegenModule::new("demo", "fn root() {}\n")
+  root.add_submodule(
+    CodegenModule::new(
+      "shader", "@fragment\nfn fragment() -> f32 {\n  return 1.0;\n}\n",
+    ),
+  )
+  let compiled_pkg = Wesl::new("shaders")
+    .add_package(CodegenPkg::new("demo_crate", root))
+    .use_stripping(false)
+    .use_lower(false)
+    .compile(try! parse_module_path("demo::shader"))
+
+  debug_inspect(compiled_pkg.to_string().contains("@fragment"), content="true")
+
+  let compiled_constants = Wesl::new("shaders")
+    .add_constant("PI", 3.141592653589793)
+    .use_stripping(false)
+    .use_lower(false)
+    .compile(try! parse_module_path("constants"))
+
+  debug_inspect(
+    compiled_constants.to_string().contains("const PI = 3.141592653589793"),
+    content="true",
+  )
+}
+
+///|
 test "wesl: resolver exposes display name and registered modules" {
   let resolver = VirtualResolver::new()
   let root_path = ModulePath::from_path("/shaders/root")
@@ -544,6 +572,44 @@ test "wesl: standard resolver exposes constants package" {
 }
 
 ///|
+test "wesl: package resolver reads codegen modules" {
+  let root = CodegenModule::new("demo", "fn root() {}\n")
+  root.add_submodule(CodegenModule::new("util", "fn util() {}\n"))
+  let resolver = PkgResolver::new()
+  resolver.add_package(CodegenPkg::new("demo_crate", root))
+
+  debug_inspect(
+    resolver.resolve_source(try! parse_module_path("demo")),
+    content="\"fn root() {}\\n\"",
+  )
+  debug_inspect(
+    resolver.resolve_source(try! parse_module_path("demo::util")),
+    content="\"fn util() {}\\n\"",
+  )
+  debug_inspect(
+    resolver.display_name(try! parse_module_path("demo::util")),
+    content="Some(\"demo::util\")",
+  )
+}
+
+///|
+test "wesl: standard resolver delegates package imports to codegen resolver" {
+  let root = CodegenModule::new("demo", "fn root() {}\n")
+  root.add_submodule(CodegenModule::new("util", "fn util() {}\n"))
+  let resolver = StandardResolver::new("shaders")
+  resolver.add_package(CodegenPkg::new("demo_crate", root))
+
+  debug_inspect(
+    resolver.resolve_source(try! parse_module_path("demo::util")),
+    content="\"fn util() {}\\n\"",
+  )
+  debug_inspect(
+    resolver.fs_path(try! parse_module_path("demo::util")),
+    content="None",
+  )
+}
+
+///|
 test "wesl: router dispatches to longest matching mount" {
   let router = Router::new()
   let package_path = try! parse_module_path("package")
@@ -582,5 +648,21 @@ test "wesl: router dispatches to longest matching mount" {
   debug_inspect(
     router.resolve_source(try! parse_module_path("foo::external")),
     content="\"fn external() {}\\n\"",
+  )
+}
+
+///|
+test "wesl: router can mount package resolver" {
+  let root = CodegenModule::new("demo", "fn root() {}\n")
+  root.add_submodule(CodegenModule::new("util", "fn util() {}\n"))
+  let pkg_resolver = PkgResolver::new()
+  pkg_resolver.add_package(CodegenPkg::new("demo_crate", root))
+
+  let router = Router::new()
+  router.mount_pkg_resolver(try! parse_module_path("demo"), pkg_resolver)
+
+  debug_inspect(
+    router.resolve_source(try! parse_module_path("demo::util")),
+    content="\"fn util() {}\\n\"",
   )
 }

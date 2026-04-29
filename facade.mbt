@@ -177,6 +177,48 @@ pub fn[R] Wesl::keep_all_entrypoints(self : Wesl[R]) -> Wesl[R] {
 }
 
 ///|
+pub fn Wesl::add_package(
+  self : Wesl[StandardResolver],
+  pkg : CodegenPkg,
+) -> Wesl[StandardResolver] {
+  self.resolver.add_package(pkg)
+  self
+}
+
+///|
+pub fn Wesl::add_packages(
+  self : Wesl[StandardResolver],
+  pkgs : Array[CodegenPkg],
+) -> Wesl[StandardResolver] {
+  for pkg in pkgs {
+    self.resolver.add_package(pkg)
+  }
+  self
+}
+
+///|
+pub fn Wesl::add_constant(
+  self : Wesl[StandardResolver],
+  name : String,
+  value : Double,
+) -> Wesl[StandardResolver] {
+  self.resolver.add_constant(name, value)
+  self
+}
+
+///|
+pub fn Wesl::add_constants(
+  self : Wesl[StandardResolver],
+  constants : Array[(String, Double)],
+) -> Wesl[StandardResolver] {
+  for entry in constants {
+    let (name, value) = entry
+    self.resolver.add_constant(name, value)
+  }
+  self
+}
+
+///|
 pub fn[R : Resolver] Wesl::compile(
   self : Wesl[R],
   root : ModulePath,
