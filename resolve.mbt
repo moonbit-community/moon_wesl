@@ -107,3 +107,138 @@ pub impl Resolver for VirtualResolver with resolve_source(self, path) {
 pub impl Resolver for VirtualResolver with display_name(_self, path) {
   Some(path.to_string())
 }
+
+///|
+pub struct FileResolver {
+  base : String
+  extension : String
+}
+
+///|
+pub fn FileResolver::new(base : String) -> FileResolver {
+  FileResolver::{ base, extension: "wesl" }
+}
+
+///|
+pub fn FileResolver::set_extension(
+  self : FileResolver,
+  extension : String,
+) -> FileResolver {
+  FileResolver::{ ..self, extension, }
+}
+
+///|
+fn file_resolver_join(base : String, tail : String) -> String {
+  if base == "" || base == "." {
+    tail
+  } else if base.has_suffix("/") {
+    base + tail
+  } else {
+    base + "/" + tail
+  }
+}
+
+///|
+pub fn FileResolver::file_path(
+  self : FileResolver,
+  path : ModulePath,
+) -> String raise ResolveError {
+  if path.is_package() {
+    raise ResolveError::ModuleNotFound(
+      path, "this is an external package import, not a file import. Use `package::` or `super::` for file imports.",
+    )
+  }
+  let tail = path.components.join("/")
+  let stem = if tail == "" { "package" } else { tail }
+  file_resolver_join(self.base, "\{stem}.\{self.extension}")
+}
+
+///|
+pub impl Resolver for FileResolver with resolve_source(self, path) {
+  let fs_path = self.file_path(path)
+  raise ResolveError::FileNotFound(fs_path, "physical file")
+}
+
+///|
+pub impl Resolver for FileResolver with display_name(self, path) {
+  Some(self.file_path(path)) catch {
+    _ => None
+  }
+}
+
+///|
+pub impl Resolver for FileResolver with fs_path(self, path) {
+  Some(self.file_path(path)) catch {
+    _ => None
+  }
+}
+
+///|
+pub struct StandardResolver {
+  files : FileResolver
+  constants : @hashmap.HashMap[String, Double]
+}
+
+///|
+pub fn StandardResolver::new(base : String) -> StandardResolver {
+  StandardResolver::{
+    files: FileResolver::new(base),
+    constants: @hashmap.HashMap::new(),
+  }
+}
+
+///|
+pub fn StandardResolver::add_constant(
+  self : StandardResolver,
+  name : String,
+  value : Double,
+) -> Unit {
+  self.constants.set(name, value)
+}
+
+///|
+pub fn StandardResolver::generate_constant_module(
+  self : StandardResolver,
+) -> String {
+  let parts : Array[String] = []
+  for entry in self.constants.iter() {
+    let (name, value) = entry
+    parts.push("const \{name} = \{value.to_string()};")
+  }
+  parts.join("\n")
+}
+
+///|
+fn standard_resolver_is_constants_path(path : ModulePath) -> Bool {
+  match path.origin {
+    Package(name) => name == "constants" || name.has_suffix("/constants")
+    _ => false
+  }
+}
+
+///|
+pub impl Resolver for StandardResolver with resolve_source(self, path) {
+  if standard_resolver_is_constants_path(path) {
+    self.generate_constant_module()
+  } else {
+    self.files.resolve_source(path)
+  }
+}
+
+///|
+pub impl Resolver for StandardResolver with display_name(self, path) {
+  if standard_resolver_is_constants_path(path) {
+    Some(path.to_string())
+  } else {
+    self.files.display_name(path)
+  }
+}
+
+///|
+pub impl Resolver for StandardResolver with fs_path(self, path) {
+  if standard_resolver_is_constants_path(path) {
+    None
+  } else {
+    self.files.fs_path(path)
+  }
+}

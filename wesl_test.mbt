@@ -515,3 +515,30 @@ test "wesl: resolver exposes display name and registered modules" {
   debug_inspect(resolver.fs_path(root_path), content="None")
   debug_inspect(resolver.modules().length(), content="1")
 }
+
+///|
+test "wesl: file resolver maps module path to wesl path" {
+  let resolver = FileResolver::new("shaders")
+  let root_path = ModulePath::from_path("/materials/root")
+
+  debug_inspect(
+    resolver.fs_path(root_path),
+    content="Some(\"shaders/materials/root.wesl\")",
+  )
+  let wgsl_resolver = resolver.set_extension("wgsl")
+  debug_inspect(
+    wgsl_resolver.fs_path(root_path),
+    content="Some(\"shaders/materials/root.wgsl\")",
+  )
+}
+
+///|
+test "wesl: standard resolver exposes constants package" {
+  let resolver = StandardResolver::new("shaders")
+  resolver.add_constant("PI", 3.141592653589793)
+  let constants_path = try! parse_module_path("constants")
+
+  let source = resolver.resolve_source(constants_path)
+  debug_inspect(source.contains("const PI = 3.141592653589793"), content="true")
+  debug_inspect(resolver.fs_path(constants_path), content="None")
+}

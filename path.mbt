@@ -272,6 +272,16 @@ pub fn ModulePath::is_root(self : ModulePath) -> Bool {
 }
 
 ///|
+pub fn ModulePath::is_package(self : ModulePath) -> Bool {
+  self.origin is Package(_)
+}
+
+///|
+pub fn ModulePath::is_relative(self : ModulePath) -> Bool {
+  self.origin is Relative(_)
+}
+
+///|
 pub fn ModulePath::to_path_string(self : ModulePath) -> String {
   let prefix = match self.origin {
     Absolute => "/"

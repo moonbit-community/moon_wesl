@@ -53,6 +53,26 @@ pub fn Wesl::new_virtual(resolver : VirtualResolver) -> Wesl[VirtualResolver] {
 }
 
 ///|
+pub fn Wesl::new(base : String) -> Wesl[StandardResolver] {
+  Wesl::{
+    options: CompileOptions::default(),
+    use_sourcemap: true,
+    resolver: StandardResolver::new(base),
+    mangler: Escape,
+  }
+}
+
+///|
+pub fn Wesl::new_experimental(base : String) -> Wesl[StandardResolver] {
+  Wesl::{
+    options: CompileOptions::default().with_generics(true).with_lower(true),
+    use_sourcemap: true,
+    resolver: StandardResolver::new(base),
+    mangler: Escape,
+  }
+}
+
+///|
 pub fn[R] Wesl::set_options(
   self : Wesl[R],
   options : CompileOptions,

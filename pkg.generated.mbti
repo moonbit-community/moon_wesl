@@ -101,6 +101,15 @@ pub struct Features {
 pub fn Features::default() -> Self
 pub fn Features::with_feature(Self, String, Feature) -> Self
 
+pub struct FileResolver {
+  base : String
+  extension : String
+}
+pub fn FileResolver::file_path(Self, ModulePath) -> String raise ResolveError
+pub fn FileResolver::new(String) -> Self
+pub fn FileResolver::set_extension(Self, String) -> Self
+pub impl Resolver for FileResolver
+
 pub(all) enum ManglerKind {
   Escape
   Hash
@@ -117,6 +126,8 @@ pub(all) struct ModulePath {
 } derive(Eq, Hash, @debug.Debug)
 pub fn ModulePath::first(Self) -> String?
 pub fn ModulePath::from_path(String) -> Self
+pub fn ModulePath::is_package(Self) -> Bool
+pub fn ModulePath::is_relative(Self) -> Bool
 pub fn ModulePath::is_root(Self) -> Bool
 pub fn ModulePath::join(Self, Array[String]) -> Self
 pub fn ModulePath::join_path(Self, Self) -> Self
@@ -139,6 +150,15 @@ pub(all) enum PathOrigin {
   Package(String)
 } derive(Eq, Hash, @debug.Debug)
 
+pub struct StandardResolver {
+  files : FileResolver
+  constants : @hashmap.HashMap[String, Double]
+}
+pub fn StandardResolver::add_constant(Self, String, Double) -> Unit
+pub fn StandardResolver::generate_constant_module(Self) -> String
+pub fn StandardResolver::new(String) -> Self
+pub impl Resolver for StandardResolver
+
 pub struct VirtualResolver {
   files : @hashmap.HashMap[ModulePath, String]
 }
@@ -157,7 +177,9 @@ pub struct Wesl[R] {
 pub fn[R : Resolver] Wesl::compile(Self[R], ModulePath) -> CompileResult raise WeslCompileError
 pub fn[R] Wesl::keep_all_entrypoints(Self[R]) -> Self[R]
 pub fn[R] Wesl::keep_declarations(Self[R], Array[String]) -> Self[R]
+pub fn Wesl::new(String) -> Self[StandardResolver]
 pub fn Wesl::new_barebones() -> Self[NoResolver]
+pub fn Wesl::new_experimental(String) -> Self[StandardResolver]
 pub fn Wesl::new_virtual(VirtualResolver) -> Self[VirtualResolver]
 pub fn[R, CustomResolver] Wesl::set_custom_resolver(Self[R], CustomResolver) -> Self[CustomResolver]
 pub fn[R] Wesl::set_feature(Self[R], String, Feature) -> Self[R]
