@@ -84,7 +84,7 @@ fn upstream_assert_standalone_compile_result(
   )
   match result {
     Ok(compiled) =>
-      if compiled.to_string().trim().to_string() == "" {
+      if compiled.to_string().trim().to_owned() == "" {
         Some("\{case_name}: expected non-empty compiled output")
       } else {
         None
@@ -96,10 +96,10 @@ fn upstream_assert_standalone_compile_result(
 
 ///|
 fn upstream_assert_bulk_case(case : UpstreamBulkCase) -> String? {
-  if case.name.trim().to_string() == "" {
+  if case.name.trim().to_owned() == "" {
     return Some("bulk case metadata: expected non-empty case name")
   }
-  if case.base_dir.trim().to_string() == "" {
+  if case.base_dir.trim().to_owned() == "" {
     return Some("\{case.name}: expected non-empty base_dir")
   }
   if case.include_paths.length() == 0 {
@@ -107,10 +107,10 @@ fn upstream_assert_bulk_case(case : UpstreamBulkCase) -> String? {
   }
   match (case.git_url, case.git_revision) {
     (Some(url), Some(revision)) => {
-      if url.trim().to_string() == "" {
+      if url.trim().to_owned() == "" {
         return Some("\{case.name}: expected non-empty git_url")
       }
-      if revision.trim().to_string() == "" {
+      if revision.trim().to_owned() == "" {
         return Some("\{case.name}: expected non-empty git_revision")
       }
     }
@@ -121,7 +121,7 @@ fn upstream_assert_bulk_case(case : UpstreamBulkCase) -> String? {
       )
   }
   for path in case.include_paths {
-    if path.trim().to_string() == "" {
+    if path.trim().to_owned() == "" {
       return Some("\{case.name}: include path must not be empty")
     }
     if !upstream_is_shader_path(path) {
@@ -131,7 +131,7 @@ fn upstream_assert_bulk_case(case : UpstreamBulkCase) -> String? {
     }
   }
   for path in case.exclude_paths {
-    if path.trim().to_string() == "" {
+    if path.trim().to_owned() == "" {
       return Some("\{case.name}: exclude path must not be empty")
     }
     if !upstream_is_shader_path(path) {

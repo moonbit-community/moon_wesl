@@ -75,7 +75,7 @@ fn module_path_drop_extension(path : String) -> String {
     }
   }
   if last_dot > last_slash {
-    path[:last_dot].to_string()
+    path[:last_dot].to_owned()
   } else {
     path
   }
@@ -85,7 +85,7 @@ fn module_path_drop_extension(path : String) -> String {
 fn module_path_split_non_empty(path : String, sep : String) -> Array[String] {
   let parts : Array[String] = []
   for part in path.split(sep) {
-    let text = part.to_string()
+    let text = part.to_owned()
     if text != "" {
       parts.push(text)
     }
@@ -97,7 +97,7 @@ fn module_path_split_non_empty(path : String, sep : String) -> Array[String] {
 fn module_path_split_preserve(path : String, sep : String) -> Array[String] {
   let parts : Array[String] = []
   for part in path.split(sep) {
-    parts.push(part.to_string())
+    parts.push(part.to_owned())
   }
   parts
 }
@@ -323,7 +323,7 @@ pub fn ModulePath::to_string(self : ModulePath) -> String {
 pub fn parse_module_path(
   text : String,
 ) -> ModulePath raise ModulePathParseError {
-  let parts = module_path_split_preserve(text.trim().to_string(), "::")
+  let parts = module_path_split_preserve(text.trim().to_owned(), "::")
   let origin = match parts.get(0) {
     Some("package") => Absolute
     Some("self") => Relative(0)

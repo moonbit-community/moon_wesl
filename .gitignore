@@ -2,3 +2,4 @@
 _build/
 .mooncakes/
 .moonagent/
+tools/wesl-ref-runner/target/

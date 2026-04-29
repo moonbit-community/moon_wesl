@@ -110,7 +110,7 @@ fn syntax_resolve_import_module_path(
   current_path : ModulePath,
   module_path_text : String,
 ) -> ModulePath raise WeslCompileError {
-  let raw_module_path = parse_module_path(module_path_text.trim().to_string()) catch {
+  let raw_module_path = parse_module_path(module_path_text.trim().to_owned()) catch {
     err => raise WeslCompileError::Parse(err.message())
   }
   match raw_module_path.origin {

@@ -20,6 +20,6 @@ fn eval_const_function(
   let tokens = const_eval_lex(source)
   let parser = ConstEvalParser::new(tokens)
   let function = parser.parse_function()
-  const_eval_validate_target(target_expr.trim().to_string(), function.name)
+  const_eval_validate_target(target_expr.trim().to_owned(), function.name)
   const_eval_execute_function(function)
 }

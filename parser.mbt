@@ -154,7 +154,7 @@ fn parser_validate_declaration_ident(
   if name == "_" {
     raise WeslCompileError::Parse("invalid declaration identifier `\{name}`")
   }
-  if name.length() >= 2 && name[:2].to_string() == "__" {
+  if name.length() >= 2 && name[:2].to_owned() == "__" {
     raise WeslCompileError::Parse("invalid declaration identifier `\{name}`")
   }
   if parser_is_reserved_word(name) {
@@ -218,7 +218,7 @@ fn parser_lex(source : String) -> Array[ParserToken] {
             parser_is_identifier_char(source.code_unit_at(index).to_int()) {
         index += 1
       }
-      tokens.push(Ident(source[start:index].to_string(), start, index, line))
+      tokens.push(Ident(source[start:index].to_owned(), start, index, line))
       continue
     }
     match code {
@@ -242,63 +242,104 @@ fn parser_lex(source : String) -> Array[ParserToken] {
 }
 
 ///|
-fn parser_source_slice(
-  source : String,
+fn[T] ArrayView::start(self : ArrayView[T]) -> Int = "%arrayview.start"
+
+///|
+priv struct Parser {
+  source : String
+  tokens : Array[ParserToken]
+  mut position : Int
+}
+
+///|
+fn Parser::new(source : String) -> Parser {
+  Parser::{ source, tokens: parser_lex(source), position: 0 }
+}
+
+///|
+fn Parser::from_view(source : String, view : ArrayView[ParserToken]) -> Parser {
+  let tokens : Array[ParserToken] = []
+  for token in view {
+    tokens.push(token)
+  }
+  Parser::{ source, tokens, position: 0 }
+}
+
+///|
+fn Parser::view(self : Parser) -> ArrayView[ParserToken] {
+  self.tokens[self.position:]
+}
+
+///|
+fn Parser::update_view(self : Parser, view : ArrayView[ParserToken]) -> Unit {
+  self.position = view.start()
+}
+
+///|
+fn[A] Parser::error(
+  self : Parser,
+  message : String,
+) -> A raise WeslCompileError {
+  match self.view() {
+    [token, ..] =>
+      raise WeslCompileError::Parse("\{message} at line \{token.line()}")
+    [] => raise WeslCompileError::Parse("\{message} at the end of input")
+  }
+}
+
+///|
+fn Parser::source_slice(
+  self : Parser,
   start_offset : Int,
   end_offset : Int,
 ) -> String {
   if start_offset >= end_offset {
     ""
   } else {
-    source[start_offset:end_offset].to_string()
+    self.source[start_offset:end_offset].to_owned()
   }
 }
 
 ///|
-fn parser_trim_source_slice(
-  source : String,
+fn Parser::trim_source_slice(
+  self : Parser,
   start_offset : Int,
   end_offset : Int,
 ) -> String {
-  parser_source_slice(source, start_offset, end_offset).trim().to_string()
+  self.source_slice(start_offset, end_offset).trim().to_owned()
 }
 
 ///|
-fn parser_item_source(
-  source : String,
-  tokens : ArrayView[ParserToken],
-) -> String raise WeslCompileError {
-  match tokens {
+fn Parser::item_source(self : Parser) -> String raise WeslCompileError {
+  match self.tokens[:] {
     [first, ..] =>
-      match tokens.last() {
-        Some(last) => parser_source_slice(source, first.start(), last.end())
-        None => raise WeslCompileError::Parse("empty top-level item")
+      match self.tokens.last() {
+        Some(last) => self.source_slice(first.start(), last.end())
+        None => self.error("empty top-level item")
       }
-    [] => raise WeslCompileError::Parse("empty top-level item")
+    [] => self.error("empty top-level item")
   }
 }
 
 ///|
-fn parser_item_span(
-  tokens : ArrayView[ParserToken],
-) -> SyntaxSpan raise WeslCompileError {
-  match tokens {
+fn Parser::item_span(self : Parser) -> SyntaxSpan raise WeslCompileError {
+  match self.tokens[:] {
     [first, ..] =>
-      match tokens.last() {
+      match self.tokens.last() {
         Some(last) =>
           SyntaxSpan::{ start_line: first.line(), end_line: last.line() }
-        None => raise WeslCompileError::Parse("empty top-level item")
+        None => self.error("empty top-level item")
       }
-    [] => raise WeslCompileError::Parse("empty top-level item")
+    [] => self.error("empty top-level item")
   }
 }
 
 ///|
-fn parser_consume_balanced_parens(
-  view : ArrayView[ParserToken],
-) -> (ArrayView[ParserToken], ParserToken) raise WeslCompileError {
+fn Parser::consume_balanced_parens(
+  self : Parser,
+) -> ParserToken raise WeslCompileError {
   let mut depth = 1
-  for current = view {
+  let rest = for current = self.view() {
     match current {
       [token, .. rest] =>
         match token {
@@ -309,23 +350,27 @@ fn parser_consume_balanced_parens(
           RParen(_, _, _) => {
             depth -= 1
             if depth == 0 {
-              break (rest, token)
+              break rest
             }
             continue rest
           }
           _ => continue rest
         }
-      [] => raise WeslCompileError::Parse("unclosed attribute arguments")
+      [] => self.error("unclosed attribute arguments")
     }
   }
+  let closing_index = rest.start() - 1
+  let closing_token = self.tokens[closing_index]
+  self.update_view(rest)
+  closing_token
 }
 
 ///|
-fn parser_consume_balanced_angles(
-  view : ArrayView[ParserToken],
-) -> (ArrayView[ParserToken], ParserToken) raise WeslCompileError {
+fn Parser::consume_balanced_angles(
+  self : Parser,
+) -> ParserToken raise WeslCompileError {
   let mut depth = 1
-  for current = view {
+  let rest = for current = self.view() {
     match current {
       [token, .. rest] =>
         match token {
@@ -336,60 +381,50 @@ fn parser_consume_balanced_angles(
           Gt(_, _, _) => {
             depth -= 1
             if depth == 0 {
-              break (rest, token)
+              break rest
             }
             continue rest
           }
           _ => continue rest
         }
-      [] => raise WeslCompileError::Parse("unclosed generic arguments")
+      [] => self.error("unclosed generic arguments")
     }
   }
+  let closing_index = rest.start() - 1
+  let closing_token = self.tokens[closing_index]
+  self.update_view(rest)
+  closing_token
 }
 
 ///|
-fn parser_parse_attributes(
-  source : String,
-  tokens : ArrayView[ParserToken],
-) -> (Array[Attribute], ArrayView[ParserToken]) raise WeslCompileError {
+fn Parser::parse_attributes(
+  self : Parser,
+) -> Array[Attribute] raise WeslCompileError {
   let attrs : Array[Attribute] = []
-  let rest = for current = tokens {
+  for current = self.view() {
     match current {
-      [at_token, Ident(name, _, _, _), .. rest] => {
-        guard at_token is At(_, _, _) else { break current }
-        match rest {
-          [lparen_token, .. after_lparen] =>
-            if lparen_token is LParen(_, _, _) {
-              let (after_args, closing_token) = parser_consume_balanced_parens(
-                after_lparen,
-              )
-              attrs.push(Attribute::{
-                name,
-                arguments: Some(
-                  parser_trim_source_slice(
-                    source,
-                    lparen_token.end(),
-                    closing_token.start(),
-                  ),
+      [At(_, _, _) as at_token, Ident(name, _, _, _), .. rest] => {
+        self.update_view(rest)
+        match self.view() {
+          [LParen(_, _, _) as lparen_token, .. after_lparen] => {
+            self.update_view(after_lparen)
+            let closing_token = self.consume_balanced_parens()
+            attrs.push(Attribute::{
+              name,
+              arguments: Some(
+                self.trim_source_slice(
+                  lparen_token.end(),
+                  closing_token.start(),
                 ),
-                span: SyntaxSpan::{
-                  start_line: at_token.line(),
-                  end_line: closing_token.line(),
-                },
-              })
-              continue after_args
-            } else {
-              attrs.push(Attribute::{
-                name,
-                arguments: None,
-                span: SyntaxSpan::{
-                  start_line: at_token.line(),
-                  end_line: at_token.line(),
-                },
-              })
-              continue rest
-            }
-          [] => {
+              ),
+              span: SyntaxSpan::{
+                start_line: at_token.line(),
+                end_line: closing_token.line(),
+              },
+            })
+            continue self.view()
+          }
+          _ => {
             attrs.push(Attribute::{
               name,
               arguments: None,
@@ -398,32 +433,33 @@ fn parser_parse_attributes(
                 end_line: at_token.line(),
               },
             })
-            continue rest
+            continue self.view()
           }
         }
       }
-      rest => break rest
+      rest => {
+        self.update_view(rest)
+        break
+      }
     }
   }
-  (attrs, rest)
+  attrs
 }
 
 ///|
-fn parser_item_is_import(
-  source : String,
-  tokens : ArrayView[ParserToken],
-) -> Bool raise WeslCompileError {
-  let (_, rest) = parser_parse_attributes(source, tokens)
-  match rest {
+fn Parser::item_is_import(self : Parser) -> Bool raise WeslCompileError {
+  ignore(self.parse_attributes())
+  match self.view() {
     [Ident("import", _, _, _), ..] => true
     _ => false
   }
 }
 
 ///|
-fn parser_consume_top_level_item(
-  view : ArrayView[ParserToken],
-) -> (ArrayView[ParserToken], ArrayView[ParserToken]) raise WeslCompileError {
+fn Parser::consume_top_level_item(
+  self : Parser,
+) -> ArrayView[ParserToken] raise WeslCompileError {
+  let view = self.view()
   let mut paren_depth = 0
   let mut bracket_depth = 0
   let mut brace_depth = 0
@@ -468,149 +504,131 @@ fn parser_consume_top_level_item(
         bracket_depth == 0 &&
         brace_depth == 0 => break rest
       [_, .. rest] => continue rest
-      [] => raise WeslCompileError::Parse("unexpected end of top-level item")
+      [] => self.error("unexpected end of top-level item")
     }
   }
   let consumed = view.length() - rest.length()
-  (view[:consumed], rest)
+  let item = view[:consumed]
+  self.update_view(rest)
+  item
 }
 
 ///|
-fn parser_parse_import_segment(
-  view : ArrayView[ParserToken],
-) -> (String, ArrayView[ParserToken]) raise WeslCompileError {
-  match view {
-    [Ident("as", _, _, _), ..] =>
-      raise WeslCompileError::Parse("expected import path segment")
-    [Ident(segment, _, _, _), .. rest] => (segment, rest)
-    _ => raise WeslCompileError::Parse("expected import path segment")
+fn Parser::parse_import_segment(self : Parser) -> String raise WeslCompileError {
+  match self.view() {
+    [Ident("as", _, _, _), ..] => self.error("expected import path segment")
+    [Ident(segment, _, _, _), .. rest] => {
+      self.update_view(rest)
+      segment
+    }
+    _ => self.error("expected import path segment")
   }
 }
 
 ///|
-fn parser_parse_import_group(
-  source : String,
-  view : ArrayView[ParserToken],
+fn Parser::parse_import_group(
+  self : Parser,
   entries : Array[ImportNode],
-) -> ArrayView[ParserToken] raise WeslCompileError {
-  if view is [RBrace(_, _, _), ..] {
-    raise WeslCompileError::Parse("import group must not be empty")
+) -> Unit raise WeslCompileError {
+  if self.view() is [RBrace(_, _, _), ..] {
+    self.error("import group must not be empty")
   }
-  let mut current = view
   while true {
-    let (entry, rest) = parser_parse_import_node(source, current)
-    entries.push(entry)
-    current = rest
-    match current {
+    entries.push(self.parse_import_node())
+    match self.view() {
       [Comma(_, _, _), .. rest] => {
-        current = rest
-        if current is [RBrace(_, _, _), ..] {
-          return current
+        self.update_view(rest)
+        if self.view() is [RBrace(_, _, _), ..] {
+          return
         }
       }
-      [RBrace(_, _, _), ..] => return current
-      _ => raise WeslCompileError::Parse("expected ',' or '}' in import group")
+      [RBrace(_, _, _), ..] => return
+      _ => self.error("expected ',' or '}' in import group")
     }
   }
-  current
 }
 
 ///|
-fn parser_parse_import_node(
-  source : String,
-  view : ArrayView[ParserToken],
-) -> (ImportNode, ArrayView[ParserToken]) raise WeslCompileError {
-  match view {
-    [LBrace(_, _, _), ..] =>
-      raise WeslCompileError::Parse("unexpected anonymous import group")
+fn Parser::parse_import_node(
+  self : Parser,
+) -> ImportNode raise WeslCompileError {
+  match self.view() {
+    [LBrace(_, _, _), ..] => self.error("unexpected anonymous import group")
     _ => {
       let segments : Array[String] = []
-      let mut current = view
-      let (first_segment, first_rest) = parser_parse_import_segment(current)
-      segments.push(first_segment)
-      current = first_rest
+      segments.push(self.parse_import_segment())
       while true {
-        match current {
+        match self.view() {
           [DoubleColon(_, _, _), LBrace(_, _, _), .. rest] => {
+            self.update_view(rest)
             let children : Array[ImportNode] = []
-            let inner_rest = parser_parse_import_group(source, rest, children)
-            return match inner_rest {
-              [RBrace(_, _, _), .. tail] =>
-                (
-                  ImportNode::{
-                    path_segments: segments,
-                    rename: None,
-                    children,
-                  },
-                  tail,
-                )
-              _ =>
-                raise WeslCompileError::Parse("expected '}' after import group")
+            self.parse_import_group(children)
+            match self.view() {
+              [RBrace(_, _, _), .. tail] => {
+                self.update_view(tail)
+                return ImportNode::{
+                  path_segments: segments,
+                  rename: None,
+                  children,
+                }
+              }
+              _ => self.error("expected '}' after import group")
             }
           }
           [DoubleColon(_, _, _), .. rest] => {
-            let (segment, tail) = parser_parse_import_segment(rest)
-            segments.push(segment)
-            current = tail
+            self.update_view(rest)
+            segments.push(self.parse_import_segment())
           }
           _ => break
         }
       }
-      let mut local_name : String? = None
-      match current {
+      let local_name = match self.view() {
         [Ident("as", _, _, _), Ident(alias_name, _, _, _), .. rest] => {
-          local_name = Some(alias_name)
-          current = rest
+          self.update_view(rest)
+          Some(alias_name)
         }
         [Ident("as", _, _, _), ..] =>
-          raise WeslCompileError::Parse("expected import alias after `as`")
-        _ => ()
+          self.error("expected import alias after `as`")
+        _ => None
       }
-      (
-        ImportNode::{
-          path_segments: segments,
-          rename: local_name,
-          children: [],
-        },
-        current,
-      )
+      ImportNode::{ path_segments: segments, rename: local_name, children: [] }
     }
   }
 }
 
 ///|
-fn parser_parse_import_statement(
+fn Parser::parse_import_statement(
+  self : Parser,
   current_path : ModulePath,
-  source : String,
-  tokens : ArrayView[ParserToken],
 ) -> ImportStatement raise WeslCompileError {
-  let item_source = parser_item_source(source, tokens).trim().to_string()
-  let span = parser_item_span(tokens)
+  let item_source = self.item_source().trim().to_owned()
+  let span = self.item_span()
   let context = span.context(current_path)
-  guard tokens.last() is Some(Semi(_, _, _)) else {
+  guard self.tokens.last() is Some(Semi(_, _, _)) else {
     raise WeslCompileError::Parse(
       "unsupported import statement (\{context}): \{item_source}",
     )
   }
-  let (attrs, rest) = parser_parse_attributes(source, tokens) catch {
+  let attrs = self.parse_attributes() catch {
     Parse(reason) => raise WeslCompileError::Parse("\{reason} (\{context})")
     err => raise err
   }
-  guard rest is [Ident("import", _, _, _), .. after_import] else {
+  guard self.view() is [Ident("import", _, _, _), .. after_import] else {
     raise WeslCompileError::Parse(
       "unsupported import statement (\{context}): \{item_source}",
     )
   }
+  self.update_view(after_import)
   let items : Array[ImportNode] = []
-  let mut current = after_import
-  match current {
+  match self.view() {
     [LBrace(_, _, _), .. rest] => {
-      let inner_rest = parser_parse_import_group(source, rest, items) catch {
+      self.update_view(rest)
+      self.parse_import_group(items) catch {
         Parse(reason) => raise WeslCompileError::Parse("\{reason} (\{context})")
         err => raise err
       }
-      current = match inner_rest {
-        [RBrace(_, _, _), .. tail] => tail
+      match self.view() {
+        [RBrace(_, _, _), .. tail] => self.update_view(tail)
         _ =>
           raise WeslCompileError::Parse(
             "unsupported import statement (\{context}): \{item_source}",
@@ -620,24 +638,23 @@ fn parser_parse_import_statement(
     _ => ()
   }
   while true {
-    match current {
+    match self.view() {
       [Semi(_, _, _), ..] => break
       [] =>
         raise WeslCompileError::Parse(
           "unsupported import statement (\{context}): \{item_source}",
         )
-      _ => {
-        let (entry, rest2) = parser_parse_import_node(source, current) catch {
-          Parse(reason) =>
-            raise WeslCompileError::Parse("\{reason} (\{context})")
-          err => raise err
-        }
-        items.push(entry)
-        current = rest2
-      }
+      _ =>
+        items.push(
+          self.parse_import_node() catch {
+            Parse(reason) =>
+              raise WeslCompileError::Parse("\{reason} (\{context})")
+            err => raise err
+          },
+        )
     }
-    match current {
-      [Comma(_, _, _), .. rest2] => current = rest2
+    match self.view() {
+      [Comma(_, _, _), .. rest] => self.update_view(rest)
       [Semi(_, _, _), ..] => break
       _ =>
         raise WeslCompileError::Parse(
@@ -656,16 +673,13 @@ fn parser_parse_import_statement(
 }
 
 ///|
-fn parser_slice_after_top_level_eq(
-  source : String,
-  tokens : ArrayView[ParserToken],
-) -> String? {
-  guard tokens.last() is Some(last_token) else { return None }
+fn Parser::slice_after_top_level_eq(self : Parser) -> String? {
+  guard self.tokens.last() is Some(last_token) else { return None }
   let mut paren_depth = 0
   let mut bracket_depth = 0
   let mut brace_depth = 0
   let mut eq_end : Int? = None
-  for current = tokens {
+  for current = self.tokens[:] {
     match current {
       [token, .. rest] => {
         match token {
@@ -691,8 +705,7 @@ fn parser_slice_after_top_level_eq(
   match eq_end {
     Some(eq_offset) =>
       Some(
-        parser_trim_source_slice(
-          source,
+        self.trim_source_slice(
           eq_offset,
           match last_token {
             Semi(start, _, _) => start
@@ -705,32 +718,24 @@ fn parser_slice_after_top_level_eq(
 }
 
 ///|
-fn parser_parse_var_declaration(
-  source : String,
-  view : ArrayView[ParserToken],
+fn Parser::parse_var_declaration(
+  self : Parser,
 ) -> VarDeclaration raise WeslCompileError {
-  let mut current = view
   let mut template_arguments : String? = None
-  match current {
-    [lt_token, .. rest] =>
-      if lt_token is Lt(_, _, _) {
-        let (after_template, closing_token) = parser_consume_balanced_angles(
-          rest,
-        )
-        template_arguments = Some(
-          parser_trim_source_slice(
-            source,
-            lt_token.end(),
-            closing_token.start(),
-          ),
-        )
-        current = after_template
-      }
+  match self.view() {
+    [Lt(_, _, _) as lt_token, .. rest] => {
+      self.update_view(rest)
+      let closing_token = self.consume_balanced_angles()
+      template_arguments = Some(
+        self.trim_source_slice(lt_token.end(), closing_token.start()),
+      )
+    }
     _ => ()
   }
-  let name = match current {
-    [Ident(ident_name, _, _, _), ..] => {
+  let name = match self.view() {
+    [Ident(ident_name, _, _, _), .. rest] => {
       parser_validate_declaration_ident(ident_name)
+      self.update_view(rest)
       Some(ident_name)
     }
     _ => None
@@ -739,14 +744,13 @@ fn parser_parse_var_declaration(
 }
 
 ///|
-fn parse_global_declaration(
-  source : String,
-  tokens : ArrayView[ParserToken],
+fn Parser::parse_global_declaration(
+  self : Parser,
 ) -> GlobalDeclaration raise WeslCompileError {
-  let span = parser_item_span(tokens)
-  let item_source = parser_item_source(source, tokens).trim().to_string()
-  let (attrs, rest) = parser_parse_attributes(source, tokens)
-  let header = match rest {
+  let span = self.item_span()
+  let item_source = self.item_source().trim().to_owned()
+  let attrs = self.parse_attributes()
+  let header = match self.view() {
     [Ident("fn", _, _, _), Ident(name, _, _, _), ..] => {
       parser_validate_declaration_ident(name)
       GlobalDeclarationHeader::Function(FunctionDeclaration::{ name, })
@@ -759,14 +763,14 @@ fn parse_global_declaration(
       parser_validate_declaration_ident(name)
       GlobalDeclarationHeader::Alias(AliasDeclaration::{
         name,
-        target: parser_slice_after_top_level_eq(source, tokens),
+        target: self.slice_after_top_level_eq(),
       })
     }
     [Ident("const", _, _, _), Ident(name, _, _, _), ..] => {
       parser_validate_declaration_ident(name)
       GlobalDeclarationHeader::Const(ConstDeclaration::{
         name,
-        initializer: parser_slice_after_top_level_eq(source, tokens),
+        initializer: self.slice_after_top_level_eq(),
       })
     }
     [Ident("override", _, _, _), Ident(name, _, _, _), ..] => {
@@ -777,8 +781,10 @@ fn parse_global_declaration(
       parser_validate_declaration_ident(name)
       GlobalDeclarationHeader::Let(LetDeclaration::{ name, })
     }
-    [Ident("var", _, _, _), .. rest] =>
-      GlobalDeclarationHeader::Var(parser_parse_var_declaration(source, rest))
+    [Ident("var", _, _, _), .. rest] => {
+      self.update_view(rest)
+      GlobalDeclarationHeader::Var(self.parse_var_declaration())
+    }
     [Ident("const_assert", _, _, _), ..] => GlobalDeclarationHeader::ConstAssert
     _ => GlobalDeclarationHeader::Other
   }
@@ -790,15 +796,15 @@ fn parse_global_declarations(
   source : String,
 ) -> Array[GlobalDeclaration] raise WeslCompileError {
   let declarations : Array[GlobalDeclaration] = []
-  let tokens = parser_lex(source)
-  let mut view = tokens[:]
-  while !view.is_empty() {
-    let (item_tokens, rest) = parser_consume_top_level_item(view)
-    view = rest
-    if parser_item_is_import(source, item_tokens) {
+  let parser = Parser::new(source)
+  while !parser.view().is_empty() {
+    let item_tokens = parser.consume_top_level_item()
+    if Parser::from_view(source, item_tokens).item_is_import() {
       continue
     }
-    declarations.push(parse_global_declaration(source, item_tokens))
+    declarations.push(
+      Parser::from_view(source, item_tokens).parse_global_declaration(),
+    )
   }
   declarations
 }
@@ -811,20 +817,22 @@ fn parse_translation_unit(
 ) -> TranslationUnit raise WeslCompileError {
   let imports : Array[ImportStatement] = []
   let global_declarations : Array[GlobalDeclaration] = []
-  let tokens = parser_lex(source)
-  let mut view = tokens[:]
-  while !view.is_empty() {
-    let (item_tokens, rest) = parser_consume_top_level_item(view)
-    view = rest
-    if parser_item_is_import(source, item_tokens) {
+  let parser = Parser::new(source)
+  while !parser.view().is_empty() {
+    let item_tokens = parser.consume_top_level_item()
+    if Parser::from_view(source, item_tokens).item_is_import() {
       if parse_imports {
         imports.push(
-          parser_parse_import_statement(current_path, source, item_tokens),
+          Parser::from_view(source, item_tokens).parse_import_statement(
+            current_path,
+          ),
         )
       }
       continue
     }
-    global_declarations.push(parse_global_declaration(source, item_tokens))
+    global_declarations.push(
+      Parser::from_view(source, item_tokens).parse_global_declaration(),
+    )
   }
   TranslationUnit::{ imports, global_declarations }
 }

@@ -150,7 +150,7 @@ fn const_eval_lex(
                 ) {
             index += 1
           }
-          tokens.push(ConstEvalToken::Ident(source[start:index].to_string()))
+          tokens.push(ConstEvalToken::Ident(source[start:index].to_owned()))
         } else if const_eval_is_digit(code) {
           let start = index
           index += 1
@@ -158,10 +158,10 @@ fn const_eval_lex(
                 const_eval_is_number_char(source.code_unit_at(index).to_int()) {
             index += 1
           }
-          tokens.push(ConstEvalToken::Number(source[start:index].to_string()))
+          tokens.push(ConstEvalToken::Number(source[start:index].to_owned()))
         } else {
           raise WeslCompileError::Parse(
-            "unsupported const-eval token `\{source[index:index + 1].to_string()}`",
+            "unsupported const-eval token `\{source[index:index + 1].to_owned()}`",
           )
         }
     }
@@ -546,7 +546,7 @@ fn const_eval_remove_underscores(text : String) -> String {
   let parts : Array[String] = []
   for i = 0; i < text.length(); i = i + 1 {
     if text.code_unit_at(i).to_int() != 95 {
-      parts.push(text[i:i + 1].to_string())
+      parts.push(text[i:i + 1].to_owned())
     }
   }
   parts.join("")
@@ -579,8 +579,8 @@ fn const_eval_parse_integer_literal(
 ) -> Int64 raise WeslCompileError {
   let normalized = const_eval_remove_underscores(text)
   if normalized.length() >= 2 &&
-    (normalized[:2].to_string() == "0x" || normalized[:2].to_string() == "0X") {
-    let digits = normalized[2:normalized.length()].to_string()
+    (normalized[:2].to_owned() == "0x" || normalized[:2].to_owned() == "0X") {
+    let digits = normalized[2:normalized.length()].to_owned()
     return @string.parse_int64(digits[:], base=16) catch {
       _ =>
         raise WeslCompileError::Validation("invalid integer literal `\{text}`")
@@ -597,10 +597,10 @@ fn const_eval_parse_hex_float_literal(
 ) -> Double raise WeslCompileError {
   let normalized = const_eval_remove_underscores(text)
   guard normalized.length() >= 3 &&
-    (normalized[:2].to_string() == "0x" || normalized[:2].to_string() == "0X") else {
+    (normalized[:2].to_owned() == "0x" || normalized[:2].to_owned() == "0X") else {
     raise WeslCompileError::Validation("invalid float literal `\{text}`")
   }
-  let body = normalized[2:normalized.length()].to_string()
+  let body = normalized[2:normalized.length()].to_owned()
   let exponent_index = match body.find("p") {
     Some(index) => index
     None =>
@@ -610,7 +610,7 @@ fn const_eval_parse_hex_float_literal(
           raise WeslCompileError::Validation("invalid float literal `\{text}`")
       }
   }
-  let mantissa = body[:exponent_index].to_string()
+  let mantissa = body[:exponent_index].to_owned()
   let exponent = @string.parse_int(
     body[exponent_index + 1:body.length()],
     base=10,
@@ -619,11 +619,11 @@ fn const_eval_parse_hex_float_literal(
   }
   let dot_index = mantissa.find(".")
   let integer_text = match dot_index {
-    Some(index) => mantissa[:index].to_string()
+    Some(index) => mantissa[:index].to_owned()
     None => mantissa
   }
   let fraction_text = match dot_index {
-    Some(index) => mantissa[index + 1:mantissa.length()].to_string()
+    Some(index) => mantissa[index + 1:mantissa.length()].to_owned()
     None => ""
   }
   let mut value = if integer_text == "" {
@@ -662,10 +662,7 @@ fn const_eval_parse_double_literal(
     Ok(value) => value
     Err(_) =>
       if normalized.length() >= 2 &&
-        (
-          normalized[:2].to_string() == "0x" ||
-          normalized[:2].to_string() == "0X"
-        ) {
+        (normalized[:2].to_owned() == "0x" || normalized[:2].to_owned() == "0X") {
         const_eval_parse_hex_float_literal(normalized)
       } else {
         raise WeslCompileError::Validation("invalid float literal `\{text}`")
@@ -696,14 +693,14 @@ fn const_eval_parse_literal(
     raise WeslCompileError::Validation("empty literal")
   }
   let is_hex = text.length() >= 2 &&
-    (text[:2].to_string() == "0x" || text[:2].to_string() == "0X")
+    (text[:2].to_owned() == "0x" || text[:2].to_owned() == "0X")
   if text.contains(".") || text.contains("p") || text.contains("P") {
-    let float_text = match text[text.length() - 1:text.length()].to_string() {
-      "f" => text[:text.length() - 1].to_string()
+    let float_text = match text[text.length() - 1:text.length()].to_owned() {
+      "f" => text[:text.length() - 1].to_owned()
       _ => text
     }
     let value = const_eval_parse_double_literal(float_text)
-    return match text[text.length() - 1:text.length()].to_string() {
+    return match text[text.length() - 1:text.length()].to_owned() {
       "f" => ConstEvalValue::F32(const_eval_exact_f32_from_double(text, value))
       _ => ConstEvalValue::AbstractFloat(value)
     }
@@ -711,14 +708,14 @@ fn const_eval_parse_literal(
   if is_hex {
     return ConstEvalValue::AbstractInt(const_eval_parse_integer_literal(text))
   }
-  let suffix = text[text.length() - 1:text.length()].to_string()
+  let suffix = text[text.length() - 1:text.length()].to_owned()
   match suffix {
     "u" =>
       ConstEvalValue::U32(
         const_eval_require_u32(
           ConstEvalValue::AbstractInt(
             const_eval_parse_integer_literal(
-              text[:text.length() - 1].to_string(),
+              text[:text.length() - 1].to_owned(),
             ),
           ),
           text,
@@ -729,7 +726,7 @@ fn const_eval_parse_literal(
         const_eval_require_i32(
           ConstEvalValue::AbstractInt(
             const_eval_parse_integer_literal(
-              text[:text.length() - 1].to_string(),
+              text[:text.length() - 1].to_owned(),
             ),
           ),
           text,
@@ -737,7 +734,7 @@ fn const_eval_parse_literal(
       )
     "f" => {
       let value = const_eval_parse_double_literal(
-        text[:text.length() - 1].to_string(),
+        text[:text.length() - 1].to_owned(),
       )
       ConstEvalValue::F32(const_eval_exact_f32_from_double(text, value))
     }

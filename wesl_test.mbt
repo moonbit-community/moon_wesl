@@ -369,3 +369,90 @@ test "wesl: private imports cannot be re-exported" {
     _ => fail("expected non-publish re-export to fail")
   }
 }
+
+///|
+test "wesl: missing conditional feature can be configured as an error" {
+  let resolver = VirtualResolver::new()
+  let root_path = ModulePath::from_path("/shaders/root")
+  resolver.add_module(
+    root_path, "@if(EXPERIMENTAL_SHADER)\nfn enabled() -> f32 {\n  return 1.0;\n}\n@else\nfn disabled() -> f32 {\n  return 0.0;\n}\n",
+  )
+
+  let result = try? compile(
+    root_path,
+    resolver,
+    EscapeMangler::default(),
+    CompileOptions::default().set_missing_feature_behavior(Feature::Error),
+  )
+
+  match result {
+    Err(WeslCompileError::InvalidExpression(message)) => {
+      debug_inspect(message.contains("unexpected feature flag"), content="true")
+      debug_inspect(message.contains("EXPERIMENTAL_SHADER"), content="true")
+    }
+    _ => fail("expected unexpected feature flag error")
+  }
+}
+
+///|
+test "wesl: keep conditional feature preserves unresolved attributes" {
+  let resolver = VirtualResolver::new()
+  let root_path = ModulePath::from_path("/shaders/root")
+  resolver.add_module(
+    root_path, "@if(EXPERIMENTAL_SHADER)\nfn enabled() -> f32 {\n  return 1.0;\n}\n@else\nfn disabled() -> f32 {\n  return 0.0;\n}\n",
+  )
+
+  let compiled = compile(
+    root_path,
+    resolver,
+    EscapeMangler::default(),
+    CompileOptions::default()
+    .with_strip(false)
+    .with_validate(false)
+    .set_missing_feature_behavior(Feature::Keep),
+  )
+  let compiled_text = compiled.to_string()
+
+  debug_inspect(
+    compiled_text.contains("@if(EXPERIMENTAL_SHADER)"),
+    content="true",
+  )
+  debug_inspect(compiled_text.contains("@else"), content="true")
+  debug_inspect(compiled_text.contains("fn enabled()"), content="true")
+  debug_inspect(compiled_text.contains("fn disabled()"), content="true")
+}
+
+///|
+test "wesl: validate option controls semantic validation pass" {
+  let root_path = ModulePath::from_path("/shaders/root")
+  let source = "const m: mat2x2<i32> = mat2x2(1, 0, 0, 0);\n"
+
+  let failing_resolver = VirtualResolver::new()
+  failing_resolver.add_module(root_path, source)
+  let failing = try? compile(
+    root_path,
+    failing_resolver,
+    EscapeMangler::default(),
+    CompileOptions::default().with_strip(false),
+  )
+
+  match failing {
+    Err(WeslCompileError::Validation(message)) =>
+      debug_inspect(
+        message.contains("matrix types must use floating scalar types"),
+        content="true",
+      )
+    _ => fail("expected matrix validation error")
+  }
+
+  let passing_resolver = VirtualResolver::new()
+  passing_resolver.add_module(root_path, source)
+  let compiled = compile(
+    root_path,
+    passing_resolver,
+    EscapeMangler::default(),
+    CompileOptions::default().with_strip(false).with_validate(false),
+  )
+
+  debug_inspect(compiled.to_string().contains("mat2x2<i32>"), content="true")
+}

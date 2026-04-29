@@ -42,24 +42,30 @@ pub fn WeslCompileError::message(Self) -> String
 pub struct CompileOptions {
   imports : Bool
   condcomp : Bool
+  generics : Bool
   strip : Bool
   lower : Bool
+  validate : Bool
   lazy_resolution : Bool
   mangle_root : Bool
-  keep_root : Bool
   keep : Array[String]?
-  features : @hashmap.HashMap[String, Bool]
+  keep_root : Bool
+  features : Features
 }
 pub fn CompileOptions::default() -> Self
 pub fn CompileOptions::keep_declarations(Self, Array[String]) -> Self
+pub fn CompileOptions::set_feature(Self, String, Feature) -> Self
+pub fn CompileOptions::set_missing_feature_behavior(Self, Feature) -> Self
 pub fn CompileOptions::with_condcomp(Self, Bool) -> Self
 pub fn CompileOptions::with_feature(Self, String, Bool) -> Self
+pub fn CompileOptions::with_generics(Self, Bool) -> Self
 pub fn CompileOptions::with_imports(Self, Bool) -> Self
 pub fn CompileOptions::with_keep_root(Self, Bool) -> Self
 pub fn CompileOptions::with_lazy(Self, Bool) -> Self
 pub fn CompileOptions::with_lower(Self, Bool) -> Self
 pub fn CompileOptions::with_mangle_root(Self, Bool) -> Self
 pub fn CompileOptions::with_strip(Self, Bool) -> Self
+pub fn CompileOptions::with_validate(Self, Bool) -> Self
 
 pub struct CompileResult {
   source : String
@@ -71,6 +77,20 @@ pub struct EscapeMangler {
 }
 pub fn EscapeMangler::default() -> Self
 pub fn EscapeMangler::mangle(Self, ModulePath, String) -> String
+
+pub(all) enum Feature {
+  Enable
+  Disable
+  Keep
+  Error
+} derive(Eq, @debug.Debug)
+
+pub struct Features {
+  default : Feature
+  flags : @hashmap.HashMap[String, Feature]
+}
+pub fn Features::default() -> Self
+pub fn Features::with_feature(Self, String, Feature) -> Self
 
 type ModuleItemRef derive(Eq)
 

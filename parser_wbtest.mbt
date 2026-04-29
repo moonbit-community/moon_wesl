@@ -19,7 +19,7 @@ fn parser_is_digit(code : Int) -> Bool {
 
 ///|
 fn parse_expression(source : String) -> Unit raise WeslCompileError {
-  let expr = source.trim().to_string()
+  let expr = source.trim().to_owned()
   if expr == "" {
     raise WeslCompileError::Parse("empty expression")
   }

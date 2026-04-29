@@ -68,7 +68,7 @@ fn upstream_normalize_text(text : String) -> String {
     if upstream_is_whitespace(code) {
       match word_start {
         Some(begin) => {
-          parts.push(text[begin:i].to_string())
+          parts.push(text[begin:i].to_owned())
           word_start = None
         }
         None => ()
@@ -83,15 +83,15 @@ fn upstream_normalize_text(text : String) -> String {
     }
     match word_start {
       Some(begin) => {
-        parts.push(text[begin:i].to_string())
+        parts.push(text[begin:i].to_owned())
         word_start = None
       }
       None => ()
     }
-    parts.push(text[i:i + 1].to_string())
+    parts.push(text[i:i + 1].to_owned())
   }
   match word_start {
-    Some(begin) => parts.push(text[begin:text.length()].to_string())
+    Some(begin) => parts.push(text[begin:text.length()].to_owned())
     None => ()
   }
   parts.join(" ")
@@ -116,7 +116,7 @@ fn upstream_canonicalize_mangle(text : String) -> String {
     }
     if current == 95 && next == 95 && upstream_is_digit(after) {
       if start < i {
-        parts.push(text[start:i].to_string())
+        parts.push(text[start:i].to_owned())
       }
       parts.push("_")
       i = i + 2
@@ -130,7 +130,7 @@ fn upstream_canonicalize_mangle(text : String) -> String {
     i = i + 1
   }
   if start < text.length() {
-    parts.push(text[start:text.length()].to_string())
+    parts.push(text[start:text.length()].to_owned())
   }
   parts.join("")
 }
@@ -164,7 +164,7 @@ fn upstream_strip_trailing_commas(text : String) -> String {
       index += 1
       continue
     }
-    parts.push(text[index:index + 1].to_string())
+    parts.push(text[index:index + 1].to_owned())
     index += 1
   }
   parts.join("")
@@ -216,7 +216,7 @@ fn upstream_has_suffix(text : String, suffix : String) -> Bool {
   if suffix_len > text_len {
     return false
   }
-  text[text_len - suffix_len:text_len].to_string() == suffix
+  text[text_len - suffix_len:text_len].to_owned() == suffix
 }
 
 ///|
@@ -226,9 +226,9 @@ fn upstream_is_shader_path(path : String) -> Bool {
 
 ///|
 fn upstream_fixture_module_path(path : String) -> ModulePath {
-  let normalized = if path.length() >= 2 && path[0:2].to_string() == "./" {
-    "/\{path[2:path.length()].to_string()}"
-  } else if path.length() > 0 && path[0:1].to_string() == "/" {
+  let normalized = if path.length() >= 2 && path[0:2].to_owned() == "./" {
+    "/\{path[2:path.length()].to_owned()}"
+  } else if path.length() > 0 && path[0:1].to_owned() == "/" {
     path
   } else {
     "/\{path}"

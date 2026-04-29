@@ -37,7 +37,7 @@ fn escape_mangler_component(comp : String) -> String {
     let count = escape_mangler_count_char(comp, 47) + 1
     let pieces : Array[String] = []
     for piece in comp.split("/") {
-      pieces.push(escape_mangler_component(piece.to_string()))
+      pieces.push(escape_mangler_component(piece.to_owned()))
     }
     let suffix = pieces.join("_")
     return "import_\{count}_\{suffix}"

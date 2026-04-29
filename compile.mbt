@@ -13,16 +13,99 @@
 // limitations under the License.
 
 ///|
+pub(all) enum Feature {
+  Enable
+  Disable
+  Keep
+  Error
+} derive(Eq, Debug)
+
+///|
+priv enum CondValue {
+  Known(Bool)
+  Unknown
+}
+
+///|
+fn CondValue::not(self : CondValue) -> CondValue {
+  match self {
+    Known(value) => Known(!value)
+    Unknown => Unknown
+  }
+}
+
+///|
+fn CondValue::and_value(self : CondValue, other : CondValue) -> CondValue {
+  match (self, other) {
+    (Known(false), _) => Known(false)
+    (_, Known(false)) => Known(false)
+    (Known(true), value) => value
+    (value, Known(true)) => value
+    (Unknown, Unknown) => Unknown
+  }
+}
+
+///|
+fn CondValue::or_value(self : CondValue, other : CondValue) -> CondValue {
+  match (self, other) {
+    (Known(true), _) => Known(true)
+    (_, Known(true)) => Known(true)
+    (Known(false), value) => value
+    (value, Known(false)) => value
+    (Unknown, Unknown) => Unknown
+  }
+}
+
+///|
+pub struct Features {
+  default : Feature
+  flags : @hashmap.HashMap[String, Feature]
+}
+
+///|
+pub fn Features::default() -> Features {
+  Features::{ default: Disable, flags: @hashmap.HashMap::new() }
+}
+
+///|
+pub fn Features::with_feature(
+  self : Features,
+  name : String,
+  value : Feature,
+) -> Features {
+  self.flags.set(name, value)
+  self
+}
+
+///|
+fn Features::eval_cond(
+  self : Features,
+  name : String,
+) -> CondValue raise WeslCompileError {
+  match self.flags.get(name).unwrap_or(self.default) {
+    Enable => Known(true)
+    Disable => Known(false)
+    Keep => Unknown
+    Error =>
+      raise WeslCompileError::InvalidExpression(
+        "unexpected feature flag: `\{name}`",
+      )
+  }
+}
+
+///|
 pub struct CompileOptions {
   imports : Bool
   condcomp : Bool
+  generics : Bool
   strip : Bool
   lower : Bool
+  validate : Bool
   lazy_resolution : Bool
   mangle_root : Bool
-  keep_root : Bool
   keep : Array[String]?
-  features : @hashmap.HashMap[String, Bool]
+  keep_root : Bool
+  features : Features
 }
 
 ///|
@@ -30,13 +113,15 @@ pub fn CompileOptions::default() -> CompileOptions {
   CompileOptions::{
     imports: true,
     condcomp: true,
+    generics: false,
     strip: true,
     lower: false,
+    validate: true,
     lazy_resolution: true,
     mangle_root: false,
-    keep_root: false,
     keep: None,
-    features: @hashmap.HashMap::new(),
+    keep_root: false,
+    features: Features::default(),
   }
 }
 
@@ -65,6 +150,14 @@ pub fn CompileOptions::with_lower(
 }
 
 ///|
+pub fn CompileOptions::with_generics(
+  self : CompileOptions,
+  generics : Bool,
+) -> CompileOptions {
+  CompileOptions::{ ..self, generics, }
+}
+
+///|
 pub fn CompileOptions::with_strip(
   self : CompileOptions,
   strip : Bool,
@@ -78,6 +171,14 @@ pub fn CompileOptions::with_lazy(
   enabled : Bool,
 ) -> CompileOptions {
   CompileOptions::{ ..self, lazy_resolution: enabled }
+}
+
+///|
+pub fn CompileOptions::with_validate(
+  self : CompileOptions,
+  validate : Bool,
+) -> CompileOptions {
+  CompileOptions::{ ..self, validate, }
 }
 
 ///|
@@ -110,8 +211,27 @@ pub fn CompileOptions::with_feature(
   name : String,
   value : Bool,
 ) -> CompileOptions {
-  self.features.set(name, value)
-  self
+  self.set_feature(name, if value { Enable } else { Disable })
+}
+
+///|
+pub fn CompileOptions::set_feature(
+  self : CompileOptions,
+  name : String,
+  value : Feature,
+) -> CompileOptions {
+  CompileOptions::{ ..self, features: self.features.with_feature(name, value) }
+}
+
+///|
+pub fn CompileOptions::set_missing_feature_behavior(
+  self : CompileOptions,
+  value : Feature,
+) -> CompileOptions {
+  CompileOptions::{
+    ..self,
+    features: Features::{ ..self.features, default: value },
+  }
 }
 
 ///|
@@ -231,7 +351,7 @@ fn wesl_starts_with_at(source : String, index : Int, needle : String) -> Bool {
   if index < 0 || index + needle.length() > source.length() {
     return false
   }
-  source[index:index + needle.length()].to_string() == needle
+  source[index:index + needle.length()].to_owned() == needle
 }
 
 ///|
@@ -261,9 +381,9 @@ fn wesl_find_matching_delim(
 ///|
 fn wesl_parse_if_primary(
   source : String,
-  features : @hashmap.HashMap[String, Bool],
+  features : Features,
   index : Int,
-) -> (Bool, Int) raise WeslCompileError {
+) -> (CondValue, Int) raise WeslCompileError {
   let i = wesl_skip_whitespace(source, index)
   if i >= source.length() {
     raise WeslCompileError::InvalidExpression(source)
@@ -285,13 +405,13 @@ fn wesl_parse_if_primary(
   if end_index == i {
     raise WeslCompileError::InvalidExpression(source)
   }
-  let ident = source[i:end_index].to_string()
+  let ident = source[i:end_index].to_owned()
   let value = if ident == "true" {
-    true
+    Known(true)
   } else if ident == "false" {
-    false
+    Known(false)
   } else {
-    features.get(ident).unwrap_or(false)
+    features.eval_cond(ident)
   }
   (value, end_index)
 }
@@ -299,13 +419,13 @@ fn wesl_parse_if_primary(
 ///|
 fn wesl_parse_if_not(
   source : String,
-  features : @hashmap.HashMap[String, Bool],
+  features : Features,
   index : Int,
-) -> (Bool, Int) raise WeslCompileError {
+) -> (CondValue, Int) raise WeslCompileError {
   let i = wesl_skip_whitespace(source, index)
   if i < source.length() && source.code_unit_at(i).to_int() == 33 { // '!'
     let (value, next_index) = wesl_parse_if_not(source, features, i + 1)
-    (!value, next_index)
+    (value.not(), next_index)
   } else {
     wesl_parse_if_primary(source, features, i)
   }
@@ -314,16 +434,16 @@ fn wesl_parse_if_not(
 ///|
 fn wesl_parse_if_and(
   source : String,
-  features : @hashmap.HashMap[String, Bool],
+  features : Features,
   index : Int,
-) -> (Bool, Int) raise WeslCompileError {
+) -> (CondValue, Int) raise WeslCompileError {
   let (initial, initial_index) = wesl_parse_if_not(source, features, index)
   let mut lhs = initial
   let mut next_index = initial_index
   let mut i = wesl_skip_whitespace(source, next_index)
   while i + 1 < source.length() && wesl_starts_with_at(source, i, "&&") {
     let (rhs, rhs_index) = wesl_parse_if_not(source, features, i + 2)
-    lhs = lhs && rhs
+    lhs = lhs.and_value(rhs)
     next_index = rhs_index
     i = wesl_skip_whitespace(source, next_index)
   }
@@ -333,16 +453,16 @@ fn wesl_parse_if_and(
 ///|
 fn wesl_parse_if_or(
   source : String,
-  features : @hashmap.HashMap[String, Bool],
+  features : Features,
   index : Int,
-) -> (Bool, Int) raise WeslCompileError {
+) -> (CondValue, Int) raise WeslCompileError {
   let (initial, initial_index) = wesl_parse_if_and(source, features, index)
   let mut lhs = initial
   let mut next_index = initial_index
   let mut i = wesl_skip_whitespace(source, next_index)
   while i + 1 < source.length() && wesl_starts_with_at(source, i, "||") {
     let (rhs, rhs_index) = wesl_parse_if_and(source, features, i + 2)
-    lhs = lhs || rhs
+    lhs = lhs.or_value(rhs)
     next_index = rhs_index
     i = wesl_skip_whitespace(source, next_index)
   }
@@ -352,9 +472,9 @@ fn wesl_parse_if_or(
 ///|
 fn wesl_parse_if_value(
   expr : String,
-  features : @hashmap.HashMap[String, Bool],
-) -> Bool raise WeslCompileError {
-  let source = expr.trim().to_string()
+  features : Features,
+) -> CondValue raise WeslCompileError {
+  let source = expr.trim().to_owned()
   if source == "" {
     raise WeslCompileError::InvalidExpression(expr)
   }
@@ -418,7 +538,7 @@ fn wesl_find_condcomp_region(
     let block_end = wesl_find_matching_delim(source, region_start, 123, 125)
     return (region_start, block_end + 1)
   }
-  let tokens = parser_lex(source[region_start:source.length()].to_string())
+  let tokens = parser_lex(source[region_start:source.length()].to_owned())
   let block_like = match tokens.get(0) {
     Some(Ident(keyword, _, _, _)) =>
       keyword == "fn" ||
@@ -487,7 +607,7 @@ fn wesl_find_condcomp_region(
 ///|
 fn wesl_apply_condcomp(
   source : String,
-  features : @hashmap.HashMap[String, Bool],
+  features : Features,
 ) -> String raise WeslCompileError {
   let mut out = ""
   let mut index = 0
@@ -497,54 +617,133 @@ fn wesl_apply_condcomp(
       if expr_start >= source.length() ||
         source.code_unit_at(expr_start).to_int() != 40 {
         raise WeslCompileError::InvalidExpression(
-          source[index:source.length()].to_string(),
+          source[index:source.length()].to_owned(),
         )
       }
       let expr_end = wesl_find_matching_delim(source, expr_start, 40, 41)
-      let expr = source[expr_start + 1:expr_end].to_string()
+      let expr = source[expr_start + 1:expr_end].to_owned()
       let (region_start, region_end) = wesl_find_condcomp_region(
         source,
         expr_end + 1,
       )
-      let mut selected : String? = None
-      if wesl_parse_if_value(expr, features) {
-        selected = Some(
-          wesl_apply_condcomp(
-            source[region_start:region_end].to_string(),
-            features,
-          ),
-        )
+      let region = wesl_apply_condcomp(
+        source[region_start:region_end].to_owned(),
+        features,
+      )
+      let mut prev_true = false
+      let mut prev_removed = false
+      match wesl_parse_if_value(expr, features) {
+        Known(true) => {
+          out = out + region
+          prev_true = true
+          prev_removed = false
+        }
+        Known(false) => prev_removed = true
+        Unknown => {
+          out = out + source[index:expr_end + 1].to_owned() + "\n" + region
+          prev_removed = false
+        }
       }
       let mut next_index = region_end
       while true {
-        let else_start = wesl_skip_layout(source, next_index)
-        if !wesl_starts_with_at(source, else_start, "@else") {
-          break
-        }
-        let tail_start = wesl_skip_layout(source, else_start + 5)
-        if wesl_starts_with_at(source, tail_start, "if") {
-          let elif_expr_start = wesl_skip_layout(source, tail_start + 2)
+        let attr_start = wesl_skip_layout(source, next_index)
+        if wesl_starts_with_at(source, attr_start, "@elif") {
+          let elif_expr_start = wesl_skip_layout(source, attr_start + 5)
           if elif_expr_start >= source.length() ||
             source.code_unit_at(elif_expr_start).to_int() != 40 {
             raise WeslCompileError::InvalidExpression(
-              source[else_start:source.length()].to_string(),
+              source[attr_start:source.length()].to_owned(),
             )
           }
           let elif_expr_end = wesl_find_matching_delim(
             source, elif_expr_start, 40, 41,
           )
-          let elif_expr = source[elif_expr_start + 1:elif_expr_end].to_string()
+          let elif_expr = source[elif_expr_start + 1:elif_expr_end].to_owned()
           let (elif_region_start, elif_region_end) = wesl_find_condcomp_region(
             source,
             elif_expr_end + 1,
           )
-          if selected is None && wesl_parse_if_value(elif_expr, features) {
-            selected = Some(
-              wesl_apply_condcomp(
-                source[elif_region_start:elif_region_end].to_string(),
-                features,
-              ),
+          let elif_region = wesl_apply_condcomp(
+            source[elif_region_start:elif_region_end].to_owned(),
+            features,
+          )
+          if prev_true {
+            prev_removed = true
+          } else {
+            match wesl_parse_if_value(elif_expr, features) {
+              Known(true) => {
+                if prev_removed {
+                  out = out + elif_region
+                } else {
+                  out = out + "@else\n" + elif_region
+                }
+                prev_true = true
+                prev_removed = false
+              }
+              Known(false) => prev_removed = true
+              Unknown => {
+                if prev_removed {
+                  out = out + "@if(" + elif_expr + ")\n" + elif_region
+                } else {
+                  out = out +
+                    source[attr_start:elif_expr_end + 1].to_owned() +
+                    "\n" +
+                    elif_region
+                }
+                prev_removed = false
+              }
+            }
+          }
+          next_index = elif_region_end
+          continue
+        }
+        if !wesl_starts_with_at(source, attr_start, "@else") {
+          break
+        }
+        let tail_start = wesl_skip_layout(source, attr_start + 5)
+        if wesl_starts_with_at(source, tail_start, "if") {
+          let elif_expr_start = wesl_skip_layout(source, tail_start + 2)
+          if elif_expr_start >= source.length() ||
+            source.code_unit_at(elif_expr_start).to_int() != 40 {
+            raise WeslCompileError::InvalidExpression(
+              source[attr_start:source.length()].to_owned(),
             )
+          }
+          let elif_expr_end = wesl_find_matching_delim(
+            source, elif_expr_start, 40, 41,
+          )
+          let elif_expr = source[elif_expr_start + 1:elif_expr_end].to_owned()
+          let (elif_region_start, elif_region_end) = wesl_find_condcomp_region(
+            source,
+            elif_expr_end + 1,
+          )
+          let elif_region = wesl_apply_condcomp(
+            source[elif_region_start:elif_region_end].to_owned(),
+            features,
+          )
+          if prev_true {
+            prev_removed = true
+          } else {
+            match wesl_parse_if_value(elif_expr, features) {
+              Known(true) => {
+                if prev_removed {
+                  out = out + elif_region
+                } else {
+                  out = out + "@else\n" + elif_region
+                }
+                prev_true = true
+                prev_removed = false
+              }
+              Known(false) => prev_removed = true
+              Unknown => {
+                if prev_removed {
+                  out = out + "@if(" + elif_expr + ")\n" + elif_region
+                } else {
+                  out = out + "@elif(" + elif_expr + ")\n" + elif_region
+                }
+                prev_removed = false
+              }
+            }
           }
           next_index = elif_region_end
           continue
@@ -552,22 +751,24 @@ fn wesl_apply_condcomp(
         let (else_region_start, else_region_end) = wesl_find_condcomp_region(
           source, tail_start,
         )
-        if selected is None {
-          selected = Some(
-            wesl_apply_condcomp(
-              source[else_region_start:else_region_end].to_string(),
-              features,
-            ),
-          )
+        let else_region = wesl_apply_condcomp(
+          source[else_region_start:else_region_end].to_owned(),
+          features,
+        )
+        if !prev_true {
+          if prev_removed {
+            out = out + else_region
+          } else {
+            out = out + source[attr_start:tail_start].to_owned() + else_region
+          }
         }
         next_index = else_region_end
         break
       }
-      out = out + selected.unwrap_or("")
       index = next_index
       continue
     }
-    out = out + source[index:index + 1].to_string()
+    out = out + source[index:index + 1].to_owned()
     index = index + 1
   }
   out
@@ -631,7 +832,7 @@ fn wesl_resolve_module_path(
   current_path : ModulePath,
   module_path_text : String,
 ) -> ModulePath raise WeslCompileError {
-  let raw_module_path = parse_module_path(module_path_text.trim().to_string()) catch {
+  let raw_module_path = parse_module_path(module_path_text.trim().to_owned()) catch {
     err => raise WeslCompileError::Parse(err.message())
   }
   match raw_module_path.origin {
@@ -672,7 +873,7 @@ fn wesl_extend_module_path(
 
 ///|
 fn wesl_token_text(source : String, token : ParserToken) -> String {
-  source[token.start():token.end()].to_string()
+  source[token.start():token.end()].to_owned()
 }
 
 ///|
@@ -772,7 +973,7 @@ fn wesl_collect_qualified_segments(
     }
     break
   }
-  (segments, source[start_offset:end_offset].to_string(), index)
+  (segments, source[start_offset:end_offset].to_owned(), index)
 }
 
 ///|
@@ -937,7 +1138,7 @@ fn wesl_replace_identifier(
   let mut index = 0
   while index < source.length() {
     let can_match = index + old_name.length() <= source.length() &&
-      source[index:index + old_name.length()].to_string() == old_name
+      source[index:index + old_name.length()].to_owned() == old_name
     if can_match {
       let prev_code = if index == 0 {
         -1
@@ -957,7 +1158,7 @@ fn wesl_replace_identifier(
         continue
       }
     }
-    out = out + source[index:index + 1].to_string()
+    out = out + source[index:index + 1].to_owned()
     index = index + 1
   }
   out
@@ -984,7 +1185,7 @@ fn wesl_replace_reference_identifier(
     let start = token.start()
     let end_ = token.end()
     if previous_end < start {
-      out = out + source[previous_end:start].to_string()
+      out = out + source[previous_end:start].to_owned()
     }
     match token {
       LBrace(_, _, _) => {
@@ -994,16 +1195,16 @@ fn wesl_replace_reference_identifier(
         } else {
           scopes.push([])
         }
-        out = out + source[start:end_].to_string()
+        out = out + source[start:end_].to_owned()
       }
       RBrace(_, _, _) => {
         if scope_depth > 0 {
           scope_depth -= 1
         }
-        out = out + source[start:end_].to_string()
+        out = out + source[start:end_].to_owned()
       }
       Ident(name, _, _, _) => {
-        let original = source[start:end_].to_string()
+        let original = source[start:end_].to_owned()
         if wesl_is_bound_identifier(source, tokens, i) {
           let is_item_decl = match item_name {
             Some(current_item_name) =>
@@ -1023,12 +1224,12 @@ fn wesl_replace_reference_identifier(
           out = out + original
         }
       }
-      _ => out = out + source[start:end_].to_string()
+      _ => out = out + source[start:end_].to_owned()
     }
     previous_end = end_
   }
   if previous_end < source.length() {
-    out = out + source[previous_end:source.length()].to_string()
+    out = out + source[previous_end:source.length()].to_owned()
   }
   out
 }
@@ -1054,7 +1255,7 @@ fn wesl_replace_global_identifier(
     let start = token.start()
     let end_ = token.end()
     if previous_end < start {
-      out = out + source[previous_end:start].to_string()
+      out = out + source[previous_end:start].to_owned()
     }
     match token {
       LBrace(_, _, _) => {
@@ -1064,16 +1265,16 @@ fn wesl_replace_global_identifier(
         } else {
           scopes.push([])
         }
-        out = out + source[start:end_].to_string()
+        out = out + source[start:end_].to_owned()
       }
       RBrace(_, _, _) => {
         if scope_depth > 0 {
           scope_depth -= 1
         }
-        out = out + source[start:end_].to_string()
+        out = out + source[start:end_].to_owned()
       }
       Ident(name, _, _, _) => {
-        let original = source[start:end_].to_string()
+        let original = source[start:end_].to_owned()
         if wesl_is_bound_identifier(source, tokens, i) {
           let is_item_decl = match item_name {
             Some(current_item_name) =>
@@ -1098,12 +1299,12 @@ fn wesl_replace_global_identifier(
           out = out + original
         }
       }
-      _ => out = out + source[start:end_].to_string()
+      _ => out = out + source[start:end_].to_owned()
     }
     previous_end = end_
   }
   if previous_end < source.length() {
-    out = out + source[previous_end:source.length()].to_string()
+    out = out + source[previous_end:source.length()].to_owned()
   }
   out
 }
@@ -1562,7 +1763,7 @@ fn wesl_lower_source(source : String) -> String raise WeslCompileError {
         const_replacements,
       )
       .trim()
-      .to_string()
+      .to_owned()
     if lowered_item != "" {
       lowered.push(lowered_item)
     }
@@ -1670,7 +1871,7 @@ fn wesl_item_context(path : ModulePath, item : ModuleItem) -> String {
 
 ///|
 fn wesl_is_matrix_type_name(name : String) -> Bool {
-  if name.length() < 6 || name[:3].to_string() != "mat" {
+  if name.length() < 6 || name[:3].to_owned() != "mat" {
     return false
   }
   let mut index = 3
@@ -1905,9 +2106,9 @@ fn wesl_validate_matrix_type_templates(
             62,
           )
           let scalar = item.source[end_offset:close_offset]
-            .to_string()
+            .to_owned()
             .trim()
-            .to_string()
+            .to_owned()
           if scalar != "" && !wesl_is_float_scalar_name(scalar) {
             raise WeslCompileError::Validation(
               "matrix types must use floating scalar types (\{context})",
@@ -1938,7 +2139,7 @@ fn wesl_validate_matrix_constructors(
             40,
             41,
           )
-          let arguments = item.source[end_offset:close_offset].to_string()
+          let arguments = item.source[end_offset:close_offset].to_owned()
           if wesl_source_has_explicit_int_literal(arguments) {
             raise WeslCompileError::Validation(
               "matrix constructors must not use explicit integer literals (\{context})",
@@ -2023,7 +2224,7 @@ fn wesl_validate_matrix_assignments(
                 } else {
                   item.source.length()
                 }
-                let rhs = item.source[end_offset:rhs_end_offset].to_string()
+                let rhs = item.source[end_offset:rhs_end_offset].to_owned()
                 if wesl_source_has_explicit_int_literal(rhs) {
                   raise WeslCompileError::Validation(
                     "matrix assignments must not use explicit integer literals (\{context})",
@@ -2119,7 +2320,7 @@ fn wesl_emit_item_source(
       }
     }
   }
-  current.trim().to_string()
+  current.trim().to_owned()
 }
 
 ///|
@@ -2267,8 +2468,10 @@ pub fn[R : Resolver] compile(
   let root_module = wesl_mark_module_used(
     root, resolver, options, modules, order, used_modules, used_decls,
   )
-  wesl_validate_loaded_cycles(order, modules)
-  wesl_validate_loaded_types(order, modules)
+  if options.validate {
+    wesl_validate_loaded_cycles(order, modules)
+    wesl_validate_loaded_types(order, modules)
+  }
   for keep_name in wesl_root_keep_names(root_module, options) {
     ignore(
       wesl_mark_named_decl(
