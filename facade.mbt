@@ -128,6 +128,29 @@ pub fn[R] Wesl::set_feature(
 }
 
 ///|
+pub fn[R] Wesl::set_features(
+  self : Wesl[R],
+  features : Array[(String, Feature)],
+) -> Wesl[R] {
+  let flags : @hashmap.HashMap[String, Feature] = @hashmap.HashMap::new()
+  for entry in self.options.features.flags.iter() {
+    let (name, value) = entry
+    flags.set(name, value)
+  }
+  for entry in features {
+    let (name, value) = entry
+    flags.set(name, value)
+  }
+  Wesl::{
+    ..self,
+    options: CompileOptions::{
+      ..self.options,
+      features: Features::{ ..self.options.features, flags, },
+    },
+  }
+}
+
+///|
 pub fn[R] Wesl::unset_feature(self : Wesl[R], feature : String) -> Wesl[R] {
   let flags : @hashmap.HashMap[String, Feature] = @hashmap.HashMap::new()
   for entry in self.options.features.flags.iter() {
@@ -216,6 +239,11 @@ pub fn Wesl::add_constants(
     self.resolver.add_constant(name, value)
   }
   self
+}
+
+///|
+pub fn[R] Wesl::resolver(self : Wesl[R]) -> R {
+  self.resolver
 }
 
 ///|

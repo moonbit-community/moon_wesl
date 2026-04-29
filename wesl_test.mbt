@@ -480,6 +480,14 @@ test "wesl: validate option controls semantic validation pass" {
 }
 
 ///|
+test "wesl: compile options expose lazy resolution control" {
+  let options = CompileOptions::default()
+
+  debug_inspect(options.lazy_resolution, content="true")
+  debug_inspect(options.with_lazy(false).lazy_resolution, content="false")
+}
+
+///|
 test "wesl: facade compile uses custom resolver and sourcemap option" {
   let resolver = VirtualResolver::new()
   let root_path = ModulePath::from_path("/shaders/root")
@@ -522,6 +530,30 @@ test "wesl: facade can select hash mangler" {
     content="false",
   )
   debug_inspect(compiled_text.contains("make_value_"), content="true")
+}
+
+///|
+test "wesl: facade can set features in bulk and expose resolver" {
+  let resolver = VirtualResolver::new()
+  let root_path = ModulePath::from_path("/shaders/root")
+  resolver.add_module(
+    root_path, "@if(A)\nfn a() -> f32 {\n  return 1.0;\n}\n@if(B)\nfn b() -> f32 {\n  return 2.0;\n}\n@fragment\nfn fragment() -> f32 {\n  return a() + b();\n}\n",
+  )
+
+  let wesl = Wesl::new_barebones()
+    .set_custom_resolver(resolver)
+    .set_options(
+      CompileOptions::default().with_strip(false).with_validate(false),
+    )
+    .set_features([("A", Feature::Enable), ("B", Feature::Enable)])
+  let compiled = wesl.compile(root_path)
+  let returned_resolver = wesl.resolver()
+
+  debug_inspect(
+    compiled.to_string().contains("return a() + b();"),
+    content="true",
+  )
+  debug_inspect(returned_resolver.modules().length(), content="1")
 }
 
 ///|
