@@ -21,6 +21,20 @@ pub(all) enum Feature {
 } derive(Eq, Debug)
 
 ///|
+pub fn Feature::default() -> Feature {
+  Disable
+}
+
+///|
+pub fn Feature::from_bool(value : Bool) -> Feature {
+  if value {
+    Enable
+  } else {
+    Disable
+  }
+}
+
+///|
 priv enum CondValue {
   Known(Bool)
   Unknown
@@ -64,7 +78,7 @@ pub struct Features {
 
 ///|
 pub fn Features::default() -> Features {
-  Features::{ default: Disable, flags: @hashmap.HashMap::new() }
+  Features::{ default: Feature::default(), flags: @hashmap.HashMap::new() }
 }
 
 ///|
@@ -211,7 +225,7 @@ pub fn CompileOptions::with_feature(
   name : String,
   value : Bool,
 ) -> CompileOptions {
-  self.set_feature(name, if value { Enable } else { Disable })
+  self.set_feature(name, Feature::from_bool(value))
 }
 
 ///|

@@ -75,6 +75,13 @@ test "wesl: default result mirrors upstream empty output" {
 }
 
 ///|
+test "wesl: feature default and bool conversion match upstream" {
+  debug_inspect(Feature::default(), content="Disable")
+  debug_inspect(Feature::from_bool(true), content="Enable")
+  debug_inspect(Feature::from_bool(false), content="Disable")
+}
+
+///|
 test "wesl: compile resolves imports and conditional translation" {
   let resolver = VirtualResolver::new()
   let util_path = ModulePath::from_path("/shaders/util")
