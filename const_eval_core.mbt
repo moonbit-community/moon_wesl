@@ -2624,6 +2624,40 @@ fn const_eval_apply_sign(
 }
 
 ///|
+fn const_eval_count_one_bits_width(value : Int64, width : Int) -> Int64 {
+  let mut bits = value
+  let mut count = 0L
+  for _ in 0..<width {
+    if (bits & 1L) != 0L {
+      count += 1L
+    }
+    bits = bits >> 1
+  }
+  count
+}
+
+///|
+fn const_eval_apply_count_one_bits(
+  args : Array[ConstEvalValue],
+) -> ConstEvalValue raise WeslCompileError {
+  if args.length() != 1 {
+    raise WeslCompileError::Validation("`countOneBits` expects one argument")
+  }
+  match args[0] {
+    Bool(_) | AbstractFloat(_, _) | F32(_) =>
+      raise WeslCompileError::Validation(
+        "`countOneBits` expects a float or vector of float argument",
+      )
+    AbstractInt(number) =>
+      ConstEvalValue::AbstractInt(const_eval_count_one_bits_width(number, 64))
+    I32(number) =>
+      ConstEvalValue::I32(const_eval_count_one_bits_width(number, 32))
+    U32(number) =>
+      ConstEvalValue::U32(const_eval_count_one_bits_width(number, 32))
+  }
+}
+
+///|
 fn const_eval_eval_expr(
   expr : ConstEvalExpr,
   ctx : ConstEvalContext,
@@ -2707,6 +2741,7 @@ fn const_eval_eval_expr(
         "step" => const_eval_apply_step(values)
         "mix" => const_eval_apply_mix(values)
         "sign" => const_eval_apply_sign(values)
+        "countOneBits" => const_eval_apply_count_one_bits(values)
         _ =>
           match ctx.functions.get(name) {
             Some(function_) =>
