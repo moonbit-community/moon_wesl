@@ -1673,6 +1673,38 @@ fn parser_statement_control(
 }
 
 ///|
+fn parser_statement_attributes(
+  source : String,
+) -> Array[Attribute] raise WeslCompileError {
+  match @attribute_parse.parse_attributes_source(source) {
+    @attribute_parse.Parsed(success) => {
+      let attrs : Array[Attribute] = []
+      for attr in success.attributes {
+        attrs.push(Attribute::{
+          name: attr.name,
+          arguments: attr.arguments,
+          span: SyntaxSpan::{
+            start_line: attr.start_line,
+            end_line: attr.end_line,
+          },
+        })
+      }
+      attrs
+    }
+    @attribute_parse.Failed(diagnostic) => {
+      if diagnostic.incomplete {
+        raise WeslCompileError::Parse(
+          "incomplete statement attribute list at byte \{diagnostic.offset}",
+        )
+      }
+      raise WeslCompileError::Parse(
+        "invalid statement attribute list at byte \{diagnostic.offset}",
+      )
+    }
+  }
+}
+
+///|
 fn parser_trim_statement_semicolon(source : String) -> String {
   let trimmed = source.trim().to_owned()
   if trimmed.has_suffix(";") {
@@ -1854,6 +1886,7 @@ fn parser_function_body_from_generated(
         statement, item_source,
       ),
       control: parser_statement_control(statement, item_source),
+      attributes: parser_statement_attributes(statement.source),
     })
   }
   FunctionBody::{ statements: mapped }

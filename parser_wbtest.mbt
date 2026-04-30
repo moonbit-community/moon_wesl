@@ -372,6 +372,7 @@ test "parser: generated function parser records signature" {
         #|    assignment: None,
         #|    update_expression: None,
         #|    control: None,
+        #|    attributes: [],
         #|  },
         #|]
 
@@ -476,6 +477,18 @@ test "parser: generated statement parser classifies function body statements" {
         header.body.statements[0].expression,
         content=expected_conditional_call,
       )
+      let expected_statement_attrs =
+        #|[
+        #|  {
+        #|    name: "if",
+        #|    arguments: Some("true"),
+        #|    span: { start_line: 1, end_line: 1 },
+        #|  },
+        #|]
+      debug_inspect(
+        header.body.statements[0].attributes,
+        content=expected_statement_attrs,
+      )
       let expected_const_declaration =
         #|Some(
         #|  {
@@ -527,6 +540,7 @@ test "parser: generated statement parser classifies function body statements" {
         #|            assignment: None,
         #|            update_expression: None,
         #|            control: None,
+        #|            attributes: [],
         #|          },
         #|        ],
         #|      },
@@ -570,12 +584,14 @@ test "parser: generated statement parser classifies function body statements" {
         #|                        assignment: None,
         #|                        update_expression: None,
         #|                        control: None,
+        #|                        attributes: [],
         #|                      },
         #|                    ],
         #|                  },
         #|                },
         #|              ),
         #|            ),
+        #|            attributes: [],
         #|          },
         #|        ],
         #|      },
@@ -631,6 +647,7 @@ test "parser: generated statement parser classifies function body statements" {
         #|            ),
         #|            update_expression: None,
         #|            control: None,
+        #|            attributes: [],
         #|          },
         #|        ],
         #|      },

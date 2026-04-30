@@ -431,6 +431,7 @@ pub(all) struct Statement {
   assignment : AssignmentStatement?
   update_expression : Expression?
   control : ControlStatement?
+  attributes : Array[Attribute]
 } derive(Eq, Debug)
 
 ///|
