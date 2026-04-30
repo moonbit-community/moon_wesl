@@ -2125,7 +2125,6 @@ fn wesl_collect_ast_item_references(
     }
     Function(function_) => {
       for parameter in function_.parameters {
-        wesl_ast_bind_name(scopes, parameter.name)
         wesl_ast_collect_type_reference(
           parameter.type_expr,
           references,
@@ -2142,6 +2141,9 @@ fn wesl_collect_ast_item_references(
             ty, references, scopes, named_items, import_by_local, imports, current_path,
           )
         None => ()
+      }
+      for parameter in function_.parameters {
+        wesl_ast_bind_name(scopes, parameter.name)
       }
       wesl_ast_collect_body_references(
         function_.body,

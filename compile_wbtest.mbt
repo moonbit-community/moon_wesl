@@ -82,6 +82,24 @@ test "compile: AST reference collector follows function return type refs" {
 }
 
 ///|
+test "compile: AST reference collector does not bind parameters inside type list" {
+  let source =
+    #|struct Payload {
+    #|  value: f32,
+    #|}
+    #|
+    #|fn consume(Payload: Payload) {
+    #|  let next = Payload;
+    #|}
+  let unit = compile_test_module(source)
+  let refs = compile_test_ast_refs(unit.global_declarations[1].header, [
+    "Payload", "consume",
+  ])
+  inspect(refs.length(), content="1")
+  inspect(refs[0] == ModuleItemRef::Local("Payload"), content="true")
+}
+
+///|
 test "compile: AST reference collector respects local shadowing" {
   let source =
     #|struct Payload {
