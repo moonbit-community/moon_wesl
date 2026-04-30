@@ -16,6 +16,7 @@
 pub(all) struct FunctionParameterParseNode {
   name : String
   type_text : String
+  attributes : String
 } derive(Eq, Debug)
 
 ///|
@@ -474,6 +475,7 @@ fn function_parse_lex(source : String) -> FunctionLexResult {
       index += 1
       break
     }
+    let attr_start = index
     let (after_param_attrs, ok) = function_parse_skip_attributes(source, index)
     if !ok {
       return LexFailed(FunctionParseDiagnostic::{
@@ -517,7 +519,11 @@ fn function_parse_lex(source : String) -> FunctionLexResult {
     }
     function_parse_push(
       tokens,
-      PARAM(FunctionParameterParseNode::{ name: param_name, type_text }),
+      PARAM(FunctionParameterParseNode::{
+        name: param_name,
+        type_text,
+        attributes: source[attr_start:after_param_attrs].trim().to_owned(),
+      }),
       index,
       type_end,
     )

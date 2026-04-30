@@ -214,6 +214,7 @@ pub(all) struct FunctionParameter {
   name : String
   type_text : String
   type_expr : TypeExpression
+  attributes : Array[Attribute]
 } derive(Eq, Debug)
 
 ///|

@@ -428,6 +428,11 @@ fn parser_function_parameters_from_generated(
       name: parameter.name,
       type_text: parameter.type_text,
       type_expr: parser_parse_type_expression(parameter.type_text),
+      attributes: if parameter.attributes == "" {
+        []
+      } else {
+        parser_statement_attributes(parameter.attributes)
+      },
     })
   }
   mapped

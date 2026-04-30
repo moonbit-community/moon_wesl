@@ -353,6 +353,13 @@ test "parser: generated function parser records signature" {
         #|      template_text: None,
         #|      template_args: [Type({ path: [], ident: "f32", template_text: None, template_args: [] })],
         #|    },
+        #|    attributes: [
+        #|      {
+        #|        name: "location",
+        #|        arguments: Some("0"),
+        #|        span: { start_line: 1, end_line: 1 },
+        #|      },
+        #|    ],
         #|  },
         #|  {
         #|    name: "index",
@@ -366,6 +373,7 @@ test "parser: generated function parser records signature" {
         #|        Literal("4"),
         #|      ],
         #|    },
+        #|    attributes: [],
         #|  },
         #|]
 
