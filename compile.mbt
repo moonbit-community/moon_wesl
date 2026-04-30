@@ -257,6 +257,19 @@ pub struct BasicSourceMap {
 } derive(Debug)
 
 ///|
+pub(open) trait SourceMap {
+  get_decl(Self, String) -> (ModulePath, String)?
+  get_source(Self, ModulePath) -> String?
+  get_display_name(Self, ModulePath) -> String?
+  get_default_source(Self) -> String? = _
+}
+
+///|
+impl SourceMap with get_default_source(_self) {
+  None
+}
+
+///|
 pub fn BasicSourceMap::default() -> BasicSourceMap {
   BasicSourceMap::{
     root: ModulePath::new_root(),
@@ -331,6 +344,32 @@ pub fn BasicSourceMap::get_display_name(
 
 ///|
 pub fn BasicSourceMap::get_default_source(self : BasicSourceMap) -> String? {
+  self.default_source
+}
+
+///|
+pub impl SourceMap for BasicSourceMap with get_decl(self, decl) {
+  self.mappings.get(decl)
+}
+
+///|
+pub impl SourceMap for BasicSourceMap with get_source(self, path) {
+  match self.sources.get(path) {
+    Some((_, source)) => Some(source)
+    None => None
+  }
+}
+
+///|
+pub impl SourceMap for BasicSourceMap with get_display_name(self, path) {
+  match self.sources.get(path) {
+    Some((name, _)) => name
+    None => None
+  }
+}
+
+///|
+pub impl SourceMap for BasicSourceMap with get_default_source(self) {
   self.default_source
 }
 

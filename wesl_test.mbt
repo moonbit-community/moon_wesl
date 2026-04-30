@@ -88,6 +88,14 @@ test "wesl: default result mirrors upstream empty output" {
     source_map.get_default_source(),
     content="Some(\"fn helper() {}\\n\")",
   )
+  debug_inspect(
+    SourceMap::get_source(source_map, root_path),
+    content="Some(\"fn helper() {}\\n\")",
+  )
+  debug_inspect(
+    SourceMap::get_default_source(source_map),
+    content="Some(\"fn helper() {}\\n\")",
+  )
   match source_map.get_decl("package_helper") {
     Some((path, item)) => {
       debug_inspect(path.to_string(), content="\"package\"")

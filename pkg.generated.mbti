@@ -72,6 +72,7 @@ pub fn BasicSourceMap::get_display_name(Self, ModulePath) -> String?
 pub fn BasicSourceMap::get_source(Self, ModulePath) -> String?
 pub fn BasicSourceMap::new() -> Self
 pub fn BasicSourceMap::set_default_source(Self, String) -> Unit
+pub impl SourceMap for BasicSourceMap
 
 pub struct CodegenModule {
   name : String
@@ -384,5 +385,12 @@ pub(open) trait Resolver {
   resolve_module(Self, ModulePath) -> TranslationUnit raise ResolveError = _
   display_name(Self, ModulePath) -> String? = _
   fs_path(Self, ModulePath) -> String? = _
+}
+
+pub(open) trait SourceMap {
+  get_decl(Self, String) -> (ModulePath, String)?
+  get_source(Self, ModulePath) -> String?
+  get_display_name(Self, ModulePath) -> String?
+  get_default_source(Self) -> String? = _
 }
 
