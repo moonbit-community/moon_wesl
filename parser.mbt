@@ -583,6 +583,26 @@ fn parser_binary_operator_from_generated(
 }
 
 ///|
+fn parser_assignment_operator_from_text(
+  text : String,
+) -> AssignmentOperator raise WeslCompileError {
+  match text {
+    "=" => Equal
+    "+=" => PlusEqual
+    "-=" => MinusEqual
+    "*=" => TimesEqual
+    "/=" => DivisionEqual
+    "%=" => ModuloEqual
+    "&=" => AndEqual
+    "|=" => OrEqual
+    "^=" => XorEqual
+    "<<=" => ShiftLeftAssign
+    ">>=" => ShiftRightAssign
+    _ => raise WeslCompileError::Parse("invalid assignment operator `\{text}`")
+  }
+}
+
+///|
 fn parser_expression_from_generated(
   node : @expression_parse.ExpressionParseNode,
 ) -> Expression {
@@ -628,6 +648,68 @@ fn parser_expression_from_generated(
 }
 
 ///|
+fn parser_assignment_operator_at_top_level(
+  source : String,
+) -> (String, Int, Int)? {
+  let mut cursor = 0
+  let mut paren_depth = 0
+  let mut bracket_depth = 0
+  let mut brace_depth = 0
+  while cursor < source.length() {
+    let code = source.code_unit_at(cursor).to_int()
+    if code == 40 {
+      paren_depth += 1
+    } else if code == 41 {
+      paren_depth -= 1
+    } else if code == 91 {
+      bracket_depth += 1
+    } else if code == 93 {
+      bracket_depth -= 1
+    } else if code == 123 {
+      brace_depth += 1
+    } else if code == 125 {
+      brace_depth -= 1
+    }
+    if paren_depth == 0 && bracket_depth == 0 && brace_depth == 0 {
+      let next = if cursor + 1 < source.length() {
+        source.code_unit_at(cursor + 1).to_int()
+      } else {
+        -1
+      }
+      let after = if cursor + 2 < source.length() {
+        source.code_unit_at(cursor + 2).to_int()
+      } else {
+        -1
+      }
+      if code == 60 && next == 60 && after == 61 {
+        return Some(("<<=", cursor, cursor + 3))
+      }
+      if code == 62 && next == 62 && after == 61 {
+        return Some((">>=", cursor, cursor + 3))
+      }
+      if (
+          code == 43 ||
+          code == 45 ||
+          code == 42 ||
+          code == 47 ||
+          code == 37 ||
+          code == 38 ||
+          code == 124 ||
+          code == 94
+        ) &&
+        next == 61 {
+        return Some((source[cursor:cursor + 2].to_owned(), cursor, cursor + 2))
+      }
+      if code == 61 {
+        return Some(("=", cursor, cursor + 1))
+      }
+    }
+    cursor += 1
+  }
+  None
+}
+
+///|
 fn parser_parse_statement_expression(
   source : String,
   item_source : String,
@@ -648,6 +730,65 @@ fn parser_parse_statement_expression(
         "\{message} at byte \{diagnostic.offset}: \{item_source}",
       )
     }
+  }
+}
+
+///|
+fn parser_statement_assignment(
+  statement : @statement_parse.StatementParseNode,
+  item_source : String,
+) -> AssignmentStatement? raise WeslCompileError {
+  match statement.kind {
+    @statement_parse.Assignment | @statement_parse.CompoundAssignment => {
+      let source = parser_trim_statement_semicolon(
+        parser_strip_statement_attributes(statement.source),
+      )
+      match parser_assignment_operator_at_top_level(source) {
+        Some((operator, start, end_)) =>
+          Some(AssignmentStatement::{
+            operator: parser_assignment_operator_from_text(operator),
+            lhs: parser_parse_statement_expression(
+              source[:start].trim().to_owned(),
+              item_source,
+            ),
+            rhs: parser_parse_statement_expression(
+              source[end_:].trim().to_owned(),
+              item_source,
+            ),
+          })
+        None =>
+          raise WeslCompileError::Parse(
+            "expected assignment operator in statement: \{statement.source}",
+          )
+      }
+    }
+    _ => None
+  }
+}
+
+///|
+fn parser_statement_update_expression(
+  statement : @statement_parse.StatementParseNode,
+  item_source : String,
+) -> Expression? raise WeslCompileError {
+  match statement.kind {
+    @statement_parse.Increment | @statement_parse.Decrement => {
+      let source = parser_trim_statement_semicolon(
+        parser_strip_statement_attributes(statement.source),
+      )
+      if source.length() < 2 {
+        raise WeslCompileError::Parse(
+          "expected update expression in statement: \{statement.source}",
+        )
+      }
+      Some(
+        parser_parse_statement_expression(
+          source[:source.length() - 2].trim().to_owned(),
+          item_source,
+        ),
+      )
+    }
+    _ => None
   }
 }
 
@@ -828,6 +969,10 @@ fn parser_function_body_from_generated(
       source: statement.source,
       expression: parser_statement_expression(statement, item_source),
       declaration: parser_statement_declaration(statement, item_source),
+      assignment: parser_statement_assignment(statement, item_source),
+      update_expression: parser_statement_update_expression(
+        statement, item_source,
+      ),
     })
   }
   FunctionBody::{ statements: mapped }

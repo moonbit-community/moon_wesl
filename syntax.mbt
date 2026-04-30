@@ -315,6 +315,28 @@ pub(all) enum StatementDeclarationKind {
 } derive(Eq, Debug)
 
 ///|
+pub(all) enum AssignmentOperator {
+  Equal
+  PlusEqual
+  MinusEqual
+  TimesEqual
+  DivisionEqual
+  ModuloEqual
+  AndEqual
+  OrEqual
+  XorEqual
+  ShiftLeftAssign
+  ShiftRightAssign
+} derive(Eq, Debug)
+
+///|
+pub(all) struct AssignmentStatement {
+  operator : AssignmentOperator
+  lhs : Expression
+  rhs : Expression
+} derive(Eq, Debug)
+
+///|
 pub(all) struct StatementDeclaration {
   kind : StatementDeclarationKind
   name : String?
@@ -331,6 +353,8 @@ pub(all) struct Statement {
   source : String
   expression : Expression?
   declaration : StatementDeclaration?
+  assignment : AssignmentStatement?
+  update_expression : Expression?
 } derive(Eq, Debug)
 
 ///|

@@ -369,6 +369,8 @@ test "parser: generated function parser records signature" {
         #|    source: "return color;",
         #|    expression: Some(TypeOrIdentifier({ path: [], ident: "color", template_text: None, template_args: [] })),
         #|    declaration: None,
+        #|    assignment: None,
+        #|    update_expression: None,
         #|  },
         #|]
 
@@ -481,6 +483,22 @@ test "parser: generated statement parser classifies function body statements" {
       debug_inspect(
         header.body.statements[1].declaration,
         content=expected_const_declaration,
+      )
+      let expected_assignment =
+        #|Some(
+        #|  {
+        #|    operator: PlusEqual,
+        #|    lhs: TypeOrIdentifier({ path: [], ident: "value", template_text: None, template_args: [] }),
+        #|    rhs: Literal("1"),
+        #|  },
+        #|)
+      debug_inspect(
+        header.body.statements[4].assignment,
+        content=expected_assignment,
+      )
+      debug_inspect(
+        header.body.statements[5].update_expression,
+        content="Some(TypeOrIdentifier({ path: [], ident: \"value\", template_text: None, template_args: [] }))",
       )
       debug_inspect(header.body.statements[9].expression, content="None")
     }
