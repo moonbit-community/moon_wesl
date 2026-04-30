@@ -1133,6 +1133,70 @@ test "wesl: compile sourcemap unmangles imported diagnostics" {
 }
 
 ///|
+test "wesl: diagnostic renders source origin and snippets" {
+  let root_path = ModulePath::from_path("/shaders/root")
+  let source = "fn ok() {}\nfn bad() {\n  return;\n}\n"
+  let diagnostic = WeslCompileError::Validation("bad return")
+    .diagnostic()
+    .with_module_path(root_path, Some("root.wesl"))
+    .with_source(source)
+    .with_syntax_span(SyntaxSpan::{ start_line: 2, end_line: 2 })
+    .with_declaration("bad")
+  let rendered = diagnostic.to_string()
+
+  debug_inspect(rendered.contains("error: bad return"), content="true")
+  debug_inspect(rendered.contains("root.wesl:2:1"), content="true")
+  debug_inspect(rendered.contains("2 | fn bad() {"), content="true")
+  debug_inspect(
+    rendered.contains(
+      "note: in declaration of `bad` in package::shaders::root (root.wesl)",
+    ),
+    content="true",
+  )
+}
+
+///|
+test "wesl: diagnostic compile path attaches resolver source context" {
+  let resolver = VirtualResolver::new()
+  let root_path = ModulePath::from_path("/shaders/root")
+  resolver.add_module(root_path, "fn bad() {\n  var m: mat2x2<i32>;\n}\n")
+
+  let result = try? compile_sourcemap_diagnostic(
+    root_path,
+    resolver,
+    EscapeMangler::default(),
+    CompileOptions::default().with_strip(false),
+  )
+
+  match result {
+    Err(WeslDiagnosticError::Diagnostic(diagnostic)) => {
+      let rendered = diagnostic.to_string()
+      debug_inspect(
+        rendered.contains("matrix types must use floating scalar types"),
+        content="true",
+      )
+      debug_inspect(
+        rendered.contains("note: in package::shaders::root"),
+        content="true",
+      )
+      debug_inspect(
+        rendered.contains("package::shaders::root:1:1"),
+        content="true",
+      )
+      debug_inspect(rendered.contains("1 | fn bad() {"), content="true")
+      debug_inspect(
+        match diagnostic.detail.source {
+          Some(source) => source.contains("mat2x2<i32>")
+          None => false
+        },
+        content="true",
+      )
+    }
+    _ => fail("expected diagnostic validation error")
+  }
+}
+
+///|
 test "wesl: facade can select hash mangler" {
   let resolver = VirtualResolver::new()
   let util_path = ModulePath::from_path("/shaders/util")

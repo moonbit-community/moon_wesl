@@ -9,7 +9,11 @@ import {
 // Values
 pub fn[R : Resolver] compile(ModulePath, R, EscapeMangler, CompileOptions) -> CompileResult raise WeslCompileError
 
+pub fn[R : Resolver] compile_diagnostic(ModulePath, R, EscapeMangler, CompileOptions) -> CompileResult raise WeslDiagnosticError
+
 pub fn[R : Resolver] compile_sourcemap(ModulePath, R, EscapeMangler, CompileOptions) -> CompileResult raise WeslCompileError
+
+pub fn[R : Resolver] compile_sourcemap_diagnostic(ModulePath, R, EscapeMangler, CompileOptions) -> CompileResult raise WeslDiagnosticError
 
 pub fn eval_const(String, String) -> EvalResult raise WeslCompileError
 
@@ -47,7 +51,13 @@ pub(all) suberror WeslCompileError {
   MissingDecl(ModulePath, String)
   Private(String, ModulePath)
 }
+pub fn WeslCompileError::diagnostic(Self) -> Diagnostic
 pub fn WeslCompileError::message(Self) -> String
+
+pub(all) suberror WeslDiagnosticError {
+  Diagnostic(Diagnostic)
+}
+pub fn WeslDiagnosticError::message(Self) -> String
 
 // Types and methods
 pub(all) struct AliasDeclaration {
@@ -225,6 +235,37 @@ pub(all) enum ControlStatement {
   While(WhileStatement)
   Continuing(ContinuingStatement)
 } derive(Eq, @debug.Debug)
+
+pub(all) struct Diagnostic {
+  error : WeslCompileError
+  detail : DiagnosticDetail
+}
+pub fn Diagnostic::display_origin(Self) -> String
+pub fn Diagnostic::display_short_origin(Self) -> String?
+pub fn Diagnostic::infer_span_from_message(Self) -> Self
+pub fn Diagnostic::message(Self) -> String
+pub fn Diagnostic::new(WeslCompileError) -> Self
+pub fn Diagnostic::to_string(Self) -> String
+pub fn Diagnostic::unmangle_with_mangler(Self, ManglerKind) -> Self
+pub fn[S : SourceMap] Diagnostic::unmangle_with_sourcemap(Self, S) -> Self
+pub fn Diagnostic::with_declaration(Self, String) -> Self
+pub fn Diagnostic::with_module_path(Self, ModulePath, String?) -> Self
+pub fn Diagnostic::with_output(Self, String) -> Self
+pub fn Diagnostic::with_source(Self, String) -> Self
+pub fn[S : SourceMap] Diagnostic::with_sourcemap(Self, S) -> Self
+pub fn Diagnostic::with_span(Self, SourceSpan) -> Self
+pub fn Diagnostic::with_syntax_span(Self, SyntaxSpan) -> Self
+
+pub(all) struct DiagnosticDetail {
+  source : String?
+  output : String?
+  module_path : ModulePath?
+  display_name : String?
+  declaration : String?
+  span : SourceSpan?
+  message : String?
+} derive(Eq, @debug.Debug)
+pub fn DiagnosticDetail::default() -> Self
 
 pub(all) struct DiagnosticDirectiveDeclaration {
   arguments : Array[String]
@@ -486,6 +527,20 @@ pub fn Router::mount_standard_resolver(Self, ModulePath, StandardResolver) -> Un
 pub fn Router::new() -> Self
 pub impl Resolver for Router
 
+pub(all) struct SourcePosition {
+  line : Int
+  column : Int
+  offset : Int
+} derive(Eq, @debug.Debug)
+pub fn SourcePosition::new(Int, Int, Int) -> Self
+
+pub(all) struct SourceSpan {
+  start : SourcePosition
+  end : SourcePosition
+} derive(Eq, @debug.Debug)
+pub fn SourceSpan::from_line_range(String, Int, Int) -> Self
+pub fn SourceSpan::new(SourcePosition, SourcePosition) -> Self
+
 pub struct StandardResolver {
   pkg : PkgResolver
   files : FileResolver
@@ -637,6 +692,7 @@ pub fn Wesl::add_constants(Self[StandardResolver], Array[(String, Double)]) -> S
 pub fn Wesl::add_package(Self[StandardResolver], CodegenPkg) -> Self[StandardResolver]
 pub fn Wesl::add_packages(Self[StandardResolver], Array[CodegenPkg]) -> Self[StandardResolver]
 pub fn[R : Resolver] Wesl::compile(Self[R], ModulePath) -> CompileResult raise WeslCompileError
+pub fn[R : Resolver] Wesl::compile_diagnostic(Self[R], ModulePath) -> CompileResult raise WeslDiagnosticError
 pub fn[R] Wesl::keep_all_entrypoints(Self[R]) -> Self[R]
 pub fn[R] Wesl::keep_declarations(Self[R], Array[String]) -> Self[R]
 pub fn Wesl::new(String) -> Self[StandardResolver]

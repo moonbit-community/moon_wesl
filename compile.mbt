@@ -4143,3 +4143,70 @@ pub fn[R : Resolver] compile_sourcemap(
 ) -> CompileResult raise WeslCompileError {
   compile_with_mangler_kind(root, resolver, Escape, options, true)
 }
+
+///|
+fn[R : Resolver] wesl_diagnostic_from_compile_error(
+  root : ModulePath,
+  resolver : R,
+  mangler : ManglerKind,
+  error : WeslCompileError,
+  use_sourcemap : Bool,
+) -> Diagnostic {
+  let mut diagnostic = error
+    .diagnostic()
+    .with_module_path(root, R::display_name(resolver, root))
+    .unmangle_with_mangler(mangler)
+  if use_sourcemap {
+    let sourcemap = BasicSourceMap::{ ..BasicSourceMap::default(), root, }
+    let source_result = try? R::resolve_source(resolver, root)
+    match source_result {
+      Ok(source) => {
+        sourcemap.add_source(root, R::display_name(resolver, root), source)
+        sourcemap.set_default_source(source)
+        diagnostic = diagnostic
+          .with_sourcemap(sourcemap)
+          .infer_span_from_message()
+      }
+      Err(_) => ()
+    }
+  }
+  diagnostic
+}
+
+///|
+fn[R : Resolver] compile_diagnostic_with_mangler_kind(
+  root : ModulePath,
+  resolver : R,
+  mangler : ManglerKind,
+  options : CompileOptions,
+  use_sourcemap : Bool,
+) -> CompileResult raise WeslDiagnosticError {
+  compile_with_mangler_kind(root, resolver, mangler, options, use_sourcemap) catch {
+    err =>
+      raise WeslDiagnosticError::Diagnostic(
+        wesl_diagnostic_from_compile_error(
+          root, resolver, mangler, err, use_sourcemap,
+        ),
+      )
+  }
+}
+
+///|
+pub fn[R : Resolver] compile_diagnostic(
+  root : ModulePath,
+  resolver : R,
+  _mangler : EscapeMangler,
+  options : CompileOptions,
+) -> CompileResult raise WeslDiagnosticError {
+  compile_diagnostic_with_mangler_kind(root, resolver, Escape, options, false)
+}
+
+///|
+pub fn[R : Resolver] compile_sourcemap_diagnostic(
+  root : ModulePath,
+  resolver : R,
+  _mangler : EscapeMangler,
+  options : CompileOptions,
+) -> CompileResult raise WeslDiagnosticError {
+  compile_diagnostic_with_mangler_kind(root, resolver, Escape, options, true)
+}

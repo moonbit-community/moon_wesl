@@ -259,3 +259,17 @@ pub fn[R : Resolver] Wesl::compile(
     self.use_sourcemap,
   )
 }
+
+///|
+pub fn[R : Resolver] Wesl::compile_diagnostic(
+  self : Wesl[R],
+  root : ModulePath,
+) -> CompileResult raise WeslDiagnosticError {
+  compile_diagnostic_with_mangler_kind(
+    root,
+    self.resolver,
+    self.mangler,
+    self.options,
+    self.use_sourcemap,
+  )
+}
