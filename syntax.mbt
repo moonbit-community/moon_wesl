@@ -365,10 +365,34 @@ pub(all) struct ContinuingStatement {
 } derive(Eq, Debug)
 
 ///|
+pub(all) enum ForInitializer {
+  Declaration(StatementDeclaration)
+  Assignment(AssignmentStatement)
+  Expression(Expression)
+} derive(Eq, Debug)
+
+///|
+pub(all) enum ForUpdate {
+  Assignment(AssignmentStatement)
+  Increment(Expression)
+  Decrement(Expression)
+  Expression(Expression)
+} derive(Eq, Debug)
+
+///|
+pub(all) struct ForStatement {
+  initializer : ForInitializer?
+  condition : Expression?
+  update : ForUpdate?
+  body : FunctionBody
+} derive(Eq, Debug)
+
+///|
 pub(all) enum ControlStatement {
   Block(BlockStatement)
   If(IfStatement)
   Loop(LoopStatement)
+  For(ForStatement)
   While(WhileStatement)
   Continuing(ContinuingStatement)
 } derive(Eq, Debug)

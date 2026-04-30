@@ -393,6 +393,7 @@ test "parser: generated statement parser classifies function body statements" {
     #|  value++;
     #|  if (value > limit) { break; }
     #|  loop { continuing { break if value > 10; } }
+    #|  for (var i: u32 = 0u; i < 4u; i++) { value = value + 1; }
     #|  textureStore(tex, coord, vec4<f32>());
     #|  return;
     #|}
@@ -418,6 +419,7 @@ test "parser: generated statement parser classifies function body statements" {
         #|  Increment,
         #|  If,
         #|  Loop,
+        #|  For,
         #|  Call,
         #|  Return,
         #|]
@@ -450,7 +452,7 @@ test "parser: generated statement parser classifies function body statements" {
         #|    },
         #|  ),
         #|)
-      debug_inspect(header.body.statements[8].expression, content=expected_call)
+      debug_inspect(header.body.statements[9].expression, content=expected_call)
       let expected_conditional_call =
         #|Some(
         #|  FunctionCall(
@@ -579,7 +581,62 @@ test "parser: generated statement parser classifies function body statements" {
         header.body.statements[7].control,
         content=expected_loop_control,
       )
-      debug_inspect(header.body.statements[9].expression, content="None")
+      let expected_for_control =
+        #|Some(
+        #|  For(
+        #|    {
+        #|      initializer: Some(
+        #|        Declaration(
+        #|          {
+        #|            kind: Var,
+        #|            name: Some("i"),
+        #|            template_arguments: None,
+        #|            type_text: Some("u32"),
+        #|            type_expr: Some({ path: [], ident: "u32", template_text: None, template_args: [] }),
+        #|            initializer: Some("0u"),
+        #|            initializer_expr: Some(Literal("0u")),
+        #|          },
+        #|        ),
+        #|      ),
+        #|      condition: Some(
+        #|        Binary(
+        #|          LessThan,
+        #|          TypeOrIdentifier({ path: [], ident: "i", template_text: None, template_args: [] }),
+        #|          Literal("4u"),
+        #|        ),
+        #|      ),
+        #|      update: Some(Increment(TypeOrIdentifier({ path: [], ident: "i", template_text: None, template_args: [] }))),
+        #|      body: {
+        #|        statements: [
+        #|          {
+        #|            kind: Assignment,
+        #|            source: "value = value + 1;",
+        #|            expression: None,
+        #|            declaration: None,
+        #|            assignment: Some(
+        #|              {
+        #|                operator: Equal,
+        #|                lhs: TypeOrIdentifier({ path: [], ident: "value", template_text: None, template_args: [] }),
+        #|                rhs: Binary(
+        #|                  Addition,
+        #|                  TypeOrIdentifier({ path: [], ident: "value", template_text: None, template_args: [] }),
+        #|                  Literal("1"),
+        #|                ),
+        #|              },
+        #|            ),
+        #|            update_expression: None,
+        #|            control: None,
+        #|          },
+        #|        ],
+        #|      },
+        #|    },
+        #|  ),
+        #|)
+      debug_inspect(
+        header.body.statements[8].control,
+        content=expected_for_control,
+      )
+      debug_inspect(header.body.statements[10].expression, content="None")
     }
     _ => fail("expected function declaration")
   }

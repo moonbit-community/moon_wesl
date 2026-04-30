@@ -734,6 +734,31 @@ fn parser_parse_statement_expression(
 }
 
 ///|
+fn parser_parse_assignment_statement(
+  source : String,
+  item_source : String,
+) -> AssignmentStatement raise WeslCompileError {
+  match parser_assignment_operator_at_top_level(source) {
+    Some((operator, start, end_)) =>
+      AssignmentStatement::{
+        operator: parser_assignment_operator_from_text(operator),
+        lhs: parser_parse_statement_expression(
+          source[:start].trim().to_owned(),
+          item_source,
+        ),
+        rhs: parser_parse_statement_expression(
+          source[end_:].trim().to_owned(),
+          item_source,
+        ),
+      }
+    None =>
+      raise WeslCompileError::Parse(
+        "expected assignment operator in statement: \{source}",
+      )
+  }
+}
+
+///|
 fn parser_statement_assignment(
   statement : @statement_parse.StatementParseNode,
   item_source : String,
@@ -743,24 +768,7 @@ fn parser_statement_assignment(
       let source = parser_trim_statement_semicolon(
         parser_strip_statement_attributes(statement.source),
       )
-      match parser_assignment_operator_at_top_level(source) {
-        Some((operator, start, end_)) =>
-          Some(AssignmentStatement::{
-            operator: parser_assignment_operator_from_text(operator),
-            lhs: parser_parse_statement_expression(
-              source[:start].trim().to_owned(),
-              item_source,
-            ),
-            rhs: parser_parse_statement_expression(
-              source[end_:].trim().to_owned(),
-              item_source,
-            ),
-          })
-        None =>
-          raise WeslCompileError::Parse(
-            "expected assignment operator in statement: \{statement.source}",
-          )
-      }
+      Some(parser_parse_assignment_statement(source, item_source))
     }
     _ => None
   }
@@ -1028,6 +1036,151 @@ fn parser_parse_control_condition_and_body_start(
 }
 
 ///|
+fn parser_split_for_header(
+  source : String,
+) -> Array[String] raise WeslCompileError {
+  let parts : Array[String] = []
+  let mut cursor = 0
+  let mut part_start = 0
+  let mut paren_depth = 0
+  let mut bracket_depth = 0
+  let mut brace_depth = 0
+  while cursor < source.length() {
+    let code = source.code_unit_at(cursor).to_int()
+    if code == 47 && cursor + 1 < source.length() {
+      let next = source.code_unit_at(cursor + 1).to_int()
+      if next == 47 {
+        cursor += 2
+        while cursor < source.length() &&
+              source.code_unit_at(cursor).to_int() != 10 {
+          cursor += 1
+        }
+        continue
+      }
+      if next == 42 {
+        cursor += 2
+        while cursor + 1 < source.length() {
+          if source.code_unit_at(cursor).to_int() == 42 &&
+            source.code_unit_at(cursor + 1).to_int() == 47 {
+            cursor += 2
+            break
+          }
+          cursor += 1
+        }
+        continue
+      }
+    }
+    if code == 40 {
+      paren_depth += 1
+    } else if code == 41 {
+      paren_depth -= 1
+    } else if code == 91 {
+      bracket_depth += 1
+    } else if code == 93 {
+      bracket_depth -= 1
+    } else if code == 123 {
+      brace_depth += 1
+    } else if code == 125 {
+      brace_depth -= 1
+    } else if code == 59 &&
+      paren_depth == 0 &&
+      bracket_depth == 0 &&
+      brace_depth == 0 {
+      parts.push(source[part_start:cursor].trim().to_owned())
+      part_start = cursor + 1
+    }
+    cursor += 1
+  }
+  parts.push(source[part_start:].trim().to_owned())
+  if parts.length() != 3 {
+    raise WeslCompileError::Parse("expected three for-loop header segments")
+  }
+  parts
+}
+
+///|
+fn parser_for_initializer(
+  source : String,
+  item_source : String,
+) -> ForInitializer? raise WeslCompileError {
+  let text = source.trim().to_owned()
+  if text == "" {
+    return None
+  }
+  let stripped = parser_strip_statement_attributes(text)
+  if stripped.has_prefix("const ") ||
+    stripped.has_prefix("let ") ||
+    stripped.has_prefix("var ") {
+    return Some(
+      ForInitializer::Declaration(
+        parser_parse_statement_declaration(stripped, item_source),
+      ),
+    )
+  }
+  match parser_assignment_operator_at_top_level(stripped) {
+    Some(_) =>
+      Some(
+        ForInitializer::Assignment(
+          parser_parse_assignment_statement(stripped, item_source),
+        ),
+      )
+    None =>
+      Some(
+        ForInitializer::Expression(
+          parser_parse_statement_expression(stripped, item_source),
+        ),
+      )
+  }
+}
+
+///|
+fn parser_for_update(
+  source : String,
+  item_source : String,
+) -> ForUpdate? raise WeslCompileError {
+  let text = parser_trim_statement_semicolon(
+    parser_strip_statement_attributes(source),
+  )
+  if text == "" {
+    return None
+  }
+  if text.has_suffix("++") {
+    return Some(
+      ForUpdate::Increment(
+        parser_parse_statement_expression(
+          text[:text.length() - 2].trim().to_owned(),
+          item_source,
+        ),
+      ),
+    )
+  }
+  if text.has_suffix("--") {
+    return Some(
+      ForUpdate::Decrement(
+        parser_parse_statement_expression(
+          text[:text.length() - 2].trim().to_owned(),
+          item_source,
+        ),
+      ),
+    )
+  }
+  match parser_assignment_operator_at_top_level(text) {
+    Some(_) =>
+      Some(
+        ForUpdate::Assignment(
+          parser_parse_assignment_statement(text, item_source),
+        ),
+      )
+    None =>
+      Some(
+        ForUpdate::Expression(
+          parser_parse_statement_expression(text, item_source),
+        ),
+      )
+  }
+}
+
+///|
 fn parser_statement_block_control(
   source : String,
   item_source : String,
@@ -1049,6 +1202,40 @@ fn parser_statement_loop_control(
     source, body_start, item_source,
   )
   ControlStatement::Loop(LoopStatement::{ body, })
+}
+
+///|
+fn parser_statement_for_control(
+  source : String,
+  item_source : String,
+) -> ControlStatement raise WeslCompileError {
+  let header_start = parser_skip_layout_and_comments(source, 3)
+  match parser_find_matching_delimiter(source, header_start, 40, 41) {
+    Some(header_end) => {
+      let parts = parser_split_for_header(
+        source[header_start + 1:header_end].to_owned(),
+      )
+      let condition : Expression? = if parts[1] == "" {
+        None
+      } else {
+        Some(parser_parse_statement_expression(parts[1], item_source))
+      }
+      let body_start = parser_skip_layout_and_comments(source, header_end + 1)
+      let (body, _) = parser_parse_braced_statement_body(
+        source, body_start, item_source,
+      )
+      ControlStatement::For(ForStatement::{
+        initializer: parser_for_initializer(parts[0], item_source),
+        condition,
+        update: parser_for_update(parts[2], item_source),
+        body,
+      })
+    }
+    None =>
+      raise WeslCompileError::Parse(
+        "expected for-loop header closing parenthesis: \{item_source}",
+      )
+  }
 }
 
 ///|
@@ -1124,6 +1311,8 @@ fn parser_statement_control(
       Some(parser_statement_if_control(source, item_source))
     @statement_parse.Loop =>
       Some(parser_statement_loop_control(source, item_source))
+    @statement_parse.For =>
+      Some(parser_statement_for_control(source, item_source))
     @statement_parse.While =>
       Some(parser_statement_while_control(source, item_source))
     @statement_parse.Continuing =>

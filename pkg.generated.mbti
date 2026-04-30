@@ -196,6 +196,7 @@ pub(all) enum ControlStatement {
   Block(BlockStatement)
   If(IfStatement)
   Loop(LoopStatement)
+  For(ForStatement)
   While(WhileStatement)
   Continuing(ContinuingStatement)
 } derive(Eq, @debug.Debug)
@@ -250,6 +251,26 @@ pub fn FileResolver::file_path(Self, ModulePath) -> String raise ResolveError
 pub fn FileResolver::new(String) -> Self
 pub fn FileResolver::set_extension(Self, String) -> Self
 pub impl Resolver for FileResolver
+
+pub(all) enum ForInitializer {
+  Declaration(StatementDeclaration)
+  Assignment(AssignmentStatement)
+  Expression(Expression)
+} derive(Eq, @debug.Debug)
+
+pub(all) struct ForStatement {
+  initializer : ForInitializer?
+  condition : Expression?
+  update : ForUpdate?
+  body : FunctionBody
+} derive(Eq, @debug.Debug)
+
+pub(all) enum ForUpdate {
+  Assignment(AssignmentStatement)
+  Increment(Expression)
+  Decrement(Expression)
+  Expression(Expression)
+} derive(Eq, @debug.Debug)
 
 pub(all) struct FunctionBody {
   statements : Array[Statement]
