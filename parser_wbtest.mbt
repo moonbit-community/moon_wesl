@@ -445,7 +445,7 @@ test "parser: generated statement parser classifies function body statements" {
         #|              path: [],
         #|              ident: "vec4",
         #|              template_text: Some("f32"),
-        #|              template_args: [],
+        #|              template_args: [Type({ path: [], ident: "f32", template_text: None, template_args: [] })],
         #|            },
         #|            arguments: [],
         #|          },
@@ -735,6 +735,51 @@ test "parser: generated binding parser records type annotations and initializers
       debug_inspect(header.initializer, content="None")
     }
     _ => fail("expected var declaration")
+  }
+}
+
+///|
+test "parser: expression type templates are structured in root AST" {
+  let source =
+    #|fn templates() {
+    #|  let value = array<vec2<f32>, 2>(vec2<f32>(), vec2<f32>());
+    #|}
+    #|
+  let unit = try! parse_translation_unit(
+    try! parse_module_path("demo"),
+    source,
+    true,
+  )
+  match unit.global_declarations[0].header {
+    Function(header) =>
+      match header.body.statements[0].declaration {
+        Some(declaration) =>
+          match declaration.initializer_expr {
+            Some(FunctionCall(call)) => {
+              let expected_callee =
+                #|{
+                #|  path: [],
+                #|  ident: "array",
+                #|  template_text: Some("vec2<f32>, 2"),
+                #|  template_args: [
+                #|    Type(
+                #|      {
+                #|        path: [],
+                #|        ident: "vec2",
+                #|        template_text: None,
+                #|        template_args: [Type({ path: [], ident: "f32", template_text: None, template_args: [] })],
+                #|      },
+                #|    ),
+                #|    Literal("2"),
+                #|  ],
+                #|}
+              debug_inspect(call.callee, content=expected_callee)
+            }
+            _ => fail("expected function call initializer")
+          }
+        _ => fail("expected declaration statement")
+      }
+    _ => fail("expected function declaration")
   }
 }
 

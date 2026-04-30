@@ -472,14 +472,51 @@ fn parser_statement_declaration_kind_from_binding(
 }
 
 ///|
+fn parser_expression_type_source(
+  node : @expression_parse.ExpressionTypeParseNode,
+) -> String {
+  let mut source = ""
+  for segment in node.path {
+    if source == "" {
+      source = segment
+    } else {
+      source = source + "::" + segment
+    }
+  }
+  if source == "" {
+    source = node.ident
+  } else {
+    source = source + "::" + node.ident
+  }
+  match node.template_text {
+    Some(template_text) => source + "<" + template_text + ">"
+    None => source
+  }
+}
+
+///|
 fn parser_type_expression_from_generated(
   node : @expression_parse.ExpressionTypeParseNode,
-) -> TypeExpression {
-  TypeExpression::{
-    path: node.path,
-    ident: node.ident,
-    template_text: node.template_text,
-    template_args: [],
+) -> TypeExpression raise WeslCompileError {
+  match node.template_text {
+    Some(template_text) => {
+      let parsed = parser_parse_type_expression(
+        parser_expression_type_source(node),
+      )
+      TypeExpression::{
+        path: parsed.path,
+        ident: parsed.ident,
+        template_text: Some(template_text),
+        template_args: parsed.template_args,
+      }
+    }
+    None =>
+      TypeExpression::{
+        path: node.path,
+        ident: node.ident,
+        template_text: None,
+        template_args: [],
+      }
   }
 }
 
@@ -605,7 +642,7 @@ fn parser_assignment_operator_from_text(
 ///|
 fn parser_expression_from_generated(
   node : @expression_parse.ExpressionParseNode,
-) -> Expression {
+) -> Expression raise WeslCompileError {
   match node {
     @expression_parse.Literal(text) => Expression::Literal(text)
     @expression_parse.Bool(value) => Expression::Bool(value)
