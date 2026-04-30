@@ -195,6 +195,7 @@ pub(all) struct ContinuingStatement {
 pub(all) enum ControlStatement {
   Block(BlockStatement)
   If(IfStatement)
+  Switch(SwitchStatement)
   Loop(LoopStatement)
   For(ForStatement)
   While(WhileStatement)
@@ -513,6 +514,17 @@ pub(all) struct StructMember {
   name : String
   type_text : String
   type_expr : TypeExpression
+} derive(Eq, @debug.Debug)
+
+pub(all) struct SwitchCase {
+  selectors : Array[Expression]
+  is_default : Bool
+  body : FunctionBody
+} derive(Eq, @debug.Debug)
+
+pub(all) struct SwitchStatement {
+  selector : Expression
+  cases : Array[SwitchCase]
 } derive(Eq, @debug.Debug)
 
 pub(all) struct SyntaxSpan {

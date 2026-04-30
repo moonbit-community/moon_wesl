@@ -388,9 +388,23 @@ pub(all) struct ForStatement {
 } derive(Eq, Debug)
 
 ///|
+pub(all) struct SwitchCase {
+  selectors : Array[Expression]
+  is_default : Bool
+  body : FunctionBody
+} derive(Eq, Debug)
+
+///|
+pub(all) struct SwitchStatement {
+  selector : Expression
+  cases : Array[SwitchCase]
+} derive(Eq, Debug)
+
+///|
 pub(all) enum ControlStatement {
   Block(BlockStatement)
   If(IfStatement)
+  Switch(SwitchStatement)
   Loop(LoopStatement)
   For(ForStatement)
   While(WhileStatement)

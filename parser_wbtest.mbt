@@ -394,6 +394,7 @@ test "parser: generated statement parser classifies function body statements" {
     #|  if (value > limit) { break; }
     #|  loop { continuing { break if value > 10; } }
     #|  for (var i: u32 = 0u; i < 4u; i++) { value = value + 1; }
+    #|  switch value { case 0, 1: { value = 2; } default: { return; } }
     #|  textureStore(tex, coord, vec4<f32>());
     #|  return;
     #|}
@@ -420,6 +421,7 @@ test "parser: generated statement parser classifies function body statements" {
         #|  If,
         #|  Loop,
         #|  For,
+        #|  Switch,
         #|  Call,
         #|  Return,
         #|]
@@ -452,7 +454,10 @@ test "parser: generated statement parser classifies function body statements" {
         #|    },
         #|  ),
         #|)
-      debug_inspect(header.body.statements[9].expression, content=expected_call)
+      debug_inspect(
+        header.body.statements[10].expression,
+        content=expected_call,
+      )
       let expected_conditional_call =
         #|Some(
         #|  FunctionCall(
@@ -636,7 +641,24 @@ test "parser: generated statement parser classifies function body statements" {
         header.body.statements[8].control,
         content=expected_for_control,
       )
-      debug_inspect(header.body.statements[10].expression, content="None")
+      match header.body.statements[9].control {
+        Some(Switch(switch_)) => {
+          debug_inspect(
+            switch_.selector,
+            content="TypeOrIdentifier({ path: [], ident: \"value\", template_text: None, template_args: [] })",
+          )
+          debug_inspect(switch_.cases.length(), content="2")
+          debug_inspect(switch_.cases[0].selectors.length(), content="2")
+          debug_inspect(switch_.cases[0].is_default, content="false")
+          debug_inspect(switch_.cases[1].is_default, content="true")
+          debug_inspect(
+            switch_.cases[0].body.statements[0].kind,
+            content="Block",
+          )
+        }
+        _ => fail("expected switch control statement")
+      }
+      debug_inspect(header.body.statements[11].expression, content="None")
     }
     _ => fail("expected function declaration")
   }

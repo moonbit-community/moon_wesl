@@ -1181,6 +1181,293 @@ fn parser_for_update(
 }
 
 ///|
+fn parser_keyword_at(source : String, index : Int, keyword : String) -> Bool {
+  if index + keyword.length() > source.length() {
+    return false
+  }
+  if source[index:index + keyword.length()] != keyword {
+    return false
+  }
+  let before_ok = if index == 0 {
+    true
+  } else {
+    !parser_is_identifier_char(source.code_unit_at(index - 1).to_int())
+  }
+  let after = index + keyword.length()
+  let after_ok = if after >= source.length() {
+    true
+  } else {
+    !parser_is_identifier_char(source.code_unit_at(after).to_int())
+  }
+  before_ok && after_ok
+}
+
+///|
+fn parser_find_switch_clause_header_end(
+  source : String,
+  index : Int,
+) -> (Int, Int)? {
+  let mut cursor = index
+  let mut paren_depth = 0
+  let mut bracket_depth = 0
+  while cursor < source.length() {
+    let code = source.code_unit_at(cursor).to_int()
+    if code == 47 && cursor + 1 < source.length() {
+      let next = source.code_unit_at(cursor + 1).to_int()
+      if next == 47 {
+        cursor += 2
+        while cursor < source.length() &&
+              source.code_unit_at(cursor).to_int() != 10 {
+          cursor += 1
+        }
+        continue
+      }
+      if next == 42 {
+        cursor += 2
+        while cursor + 1 < source.length() {
+          if source.code_unit_at(cursor).to_int() == 42 &&
+            source.code_unit_at(cursor + 1).to_int() == 47 {
+            cursor += 2
+            break
+          }
+          cursor += 1
+        }
+        continue
+      }
+    }
+    if code == 40 {
+      paren_depth += 1
+    } else if code == 41 {
+      paren_depth -= 1
+    } else if code == 91 {
+      bracket_depth += 1
+    } else if code == 93 {
+      bracket_depth -= 1
+    } else if paren_depth == 0 && bracket_depth == 0 {
+      if code == 58 {
+        return Some(
+          (cursor, parser_skip_layout_and_comments(source, cursor + 1)),
+        )
+      }
+      if code == 123 {
+        return Some((cursor, cursor))
+      }
+    }
+    cursor += 1
+  }
+  None
+}
+
+///|
+fn parser_skip_switch_clause_attributes(source : String, index : Int) -> Int {
+  let mut cursor = parser_skip_layout_and_comments(source, index)
+  let mut running = true
+  while running && cursor < source.length() {
+    running = false
+    if source.code_unit_at(cursor).to_int() == 64 {
+      cursor += 1
+      if cursor >= source.length() ||
+        !parser_is_identifier_start(source.code_unit_at(cursor).to_int()) {
+        return index
+      }
+      cursor += 1
+      while cursor < source.length() &&
+            parser_is_identifier_char(source.code_unit_at(cursor).to_int()) {
+        cursor += 1
+      }
+      cursor = parser_skip_layout_and_comments(source, cursor)
+      if cursor < source.length() && source.code_unit_at(cursor).to_int() == 40 {
+        let (end_, ok) = parser_skip_balanced_attribute_arguments(
+          source,
+          cursor + 1,
+        )
+        if !ok {
+          return index
+        }
+        cursor = end_
+      }
+      cursor = parser_skip_layout_and_comments(source, cursor)
+      running = true
+    }
+  }
+  cursor
+}
+
+///|
+fn parser_switch_clause_header_at(source : String, index : Int) -> Int? {
+  let header = parser_skip_switch_clause_attributes(source, index)
+  if parser_keyword_at(source, header, "case") ||
+    parser_keyword_at(source, header, "default") {
+    Some(header)
+  } else {
+    None
+  }
+}
+
+///|
+fn parser_find_next_switch_clause(source : String, index : Int) -> Int {
+  let mut cursor = index
+  let mut paren_depth = 0
+  let mut bracket_depth = 0
+  let mut brace_depth = 0
+  while cursor < source.length() {
+    let code = source.code_unit_at(cursor).to_int()
+    if code == 47 && cursor + 1 < source.length() {
+      let next = source.code_unit_at(cursor + 1).to_int()
+      if next == 47 {
+        cursor += 2
+        while cursor < source.length() &&
+              source.code_unit_at(cursor).to_int() != 10 {
+          cursor += 1
+        }
+        continue
+      }
+      if next == 42 {
+        cursor += 2
+        while cursor + 1 < source.length() {
+          if source.code_unit_at(cursor).to_int() == 42 &&
+            source.code_unit_at(cursor + 1).to_int() == 47 {
+            cursor += 2
+            break
+          }
+          cursor += 1
+        }
+        continue
+      }
+    }
+    if code == 40 {
+      paren_depth += 1
+    } else if code == 41 {
+      paren_depth -= 1
+    } else if code == 91 {
+      bracket_depth += 1
+    } else if code == 93 {
+      bracket_depth -= 1
+    } else if code == 123 {
+      brace_depth += 1
+    } else if code == 125 {
+      brace_depth -= 1
+    }
+    if paren_depth == 0 && bracket_depth == 0 && brace_depth == 0 {
+      if parser_switch_clause_header_at(source, cursor) is Some(_) {
+        return cursor
+      }
+    }
+    cursor += 1
+  }
+  source.length()
+}
+
+///|
+fn parser_split_top_level_commas(source : String) -> Array[String] {
+  let parts : Array[String] = []
+  let mut cursor = 0
+  let mut part_start = 0
+  let mut paren_depth = 0
+  let mut bracket_depth = 0
+  let mut brace_depth = 0
+  while cursor < source.length() {
+    let code = source.code_unit_at(cursor).to_int()
+    if code == 40 {
+      paren_depth += 1
+    } else if code == 41 {
+      paren_depth -= 1
+    } else if code == 91 {
+      bracket_depth += 1
+    } else if code == 93 {
+      bracket_depth -= 1
+    } else if code == 123 {
+      brace_depth += 1
+    } else if code == 125 {
+      brace_depth -= 1
+    } else if code == 44 &&
+      paren_depth == 0 &&
+      bracket_depth == 0 &&
+      brace_depth == 0 {
+      parts.push(source[part_start:cursor].trim().to_owned())
+      part_start = cursor + 1
+    }
+    cursor += 1
+  }
+  let tail = source[part_start:].trim().to_owned()
+  if tail != "" {
+    parts.push(tail)
+  }
+  parts
+}
+
+///|
+fn parser_parse_switch_selectors(
+  source : String,
+  item_source : String,
+) -> Array[Expression] raise WeslCompileError {
+  let selectors : Array[Expression] = []
+  for selector in parser_split_top_level_commas(source) {
+    selectors.push(parser_parse_statement_expression(selector, item_source))
+  }
+  selectors
+}
+
+///|
+fn parser_parse_switch_cases(
+  source : String,
+  item_source : String,
+) -> Array[SwitchCase] raise WeslCompileError {
+  let cases : Array[SwitchCase] = []
+  let mut cursor = parser_skip_layout_and_comments(source, 0)
+  while cursor < source.length() {
+    let header = match parser_switch_clause_header_at(source, cursor) {
+      Some(header) => header
+      None =>
+        raise WeslCompileError::Parse(
+          "expected switch case or default clause: \{item_source}",
+        )
+    }
+    let is_default = parser_keyword_at(source, header, "default")
+    let keyword_len = if is_default {
+      7
+    } else if parser_keyword_at(source, header, "case") {
+      4
+    } else {
+      raise WeslCompileError::Parse(
+        "expected switch case or default clause: \{item_source}",
+      )
+    }
+    let header_start = parser_skip_layout_and_comments(
+      source,
+      header + keyword_len,
+    )
+    let (header_end, body_start) = match
+      parser_find_switch_clause_header_end(source, header_start) {
+      Some(result) => result
+      None =>
+        raise WeslCompileError::Parse(
+          "expected switch clause body: \{item_source}",
+        )
+    }
+    let selectors = if is_default {
+      []
+    } else {
+      parser_parse_switch_selectors(
+        source[header_start:header_end].trim().to_owned(),
+        item_source,
+      )
+    }
+    let body_end = parser_find_next_switch_clause(source, body_start)
+    cases.push(SwitchCase::{
+      selectors,
+      is_default,
+      body: parser_parse_embedded_function_body(
+        source[body_start:body_end].trim().to_owned(),
+        item_source,
+      ),
+    })
+    cursor = parser_skip_layout_and_comments(source, body_end)
+  }
+  cases
+}
+
+///|
 fn parser_statement_block_control(
   source : String,
   item_source : String,
@@ -1236,6 +1523,31 @@ fn parser_statement_for_control(
         "expected for-loop header closing parenthesis: \{item_source}",
       )
   }
+}
+
+///|
+fn parser_statement_switch_control(
+  source : String,
+  item_source : String,
+) -> ControlStatement raise WeslCompileError {
+  let (selector, body_start) = parser_parse_control_condition_and_body_start(
+    source, 6, item_source,
+  )
+  let body_end = match
+    parser_find_matching_delimiter(source, body_start, 123, 125) {
+    Some(body_end) => body_end
+    None =>
+      raise WeslCompileError::Parse(
+        "expected switch body closing brace: \{item_source}",
+      )
+  }
+  ControlStatement::Switch(SwitchStatement::{
+    selector,
+    cases: parser_parse_switch_cases(
+      source[body_start + 1:body_end].to_owned(),
+      item_source,
+    ),
+  })
 }
 
 ///|
@@ -1309,6 +1621,8 @@ fn parser_statement_control(
       Some(parser_statement_block_control(source, item_source))
     @statement_parse.If =>
       Some(parser_statement_if_control(source, item_source))
+    @statement_parse.Switch =>
+      Some(parser_statement_switch_control(source, item_source))
     @statement_parse.Loop =>
       Some(parser_statement_loop_control(source, item_source))
     @statement_parse.For =>
