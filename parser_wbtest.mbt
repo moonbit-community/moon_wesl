@@ -866,3 +866,43 @@ test "parser: generated directive parser records directive arguments" {
     _ => fail("expected diagnostic directive")
   }
 }
+
+///|
+test "parser: global const_assert records structured expression" {
+  let unit = try! parse_translation_unit(
+    try! parse_module_path("demo"),
+    "@if(true) const_assert Payload(1).value == expected;",
+    true,
+  )
+  match unit.global_declarations[0].header {
+    ConstAssert(header) => {
+      debug_inspect(
+        header.assertion,
+        content="\"Payload(1).value == expected\"",
+      )
+      let expected_expr =
+        #|Binary(
+        #|  Equality,
+        #|  NamedComponent(
+        #|    FunctionCall(
+        #|      {
+        #|        callee: { path: [], ident: "Payload", template_text: None, template_args: [] },
+        #|        arguments: [Literal("1")],
+        #|      },
+        #|    ),
+        #|    "value",
+        #|  ),
+        #|  TypeOrIdentifier(
+        #|    {
+        #|      path: [],
+        #|      ident: "expected",
+        #|      template_text: None,
+        #|      template_args: [],
+        #|    },
+        #|  ),
+        #|)
+      debug_inspect(header.assertion_expr, content=expected_expr)
+    }
+    _ => fail("expected const_assert declaration")
+  }
+}

@@ -181,6 +181,11 @@ pub struct CondCompPreprocessor {
 pub fn CondCompPreprocessor::new(Features) -> Self
 pub impl ModulePreprocessor for CondCompPreprocessor
 
+pub(all) struct ConstAssertDeclaration {
+  assertion : String
+  assertion_expr : Expression
+} derive(Eq, @debug.Debug)
+
 pub(all) struct ConstDeclaration {
   name : String
   type_text : String?
@@ -313,7 +318,7 @@ pub(all) enum GlobalDeclarationHeader {
   Override(OverrideDeclaration)
   Let(LetDeclaration)
   Var(VarDeclaration)
-  ConstAssert
+  ConstAssert(ConstAssertDeclaration)
   EnableDirective(EnableDirectiveDeclaration)
   RequiresDirective(RequiresDirectiveDeclaration)
   DiagnosticDirective(DiagnosticDirectiveDeclaration)

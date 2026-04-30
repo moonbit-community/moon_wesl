@@ -116,3 +116,16 @@ test "compile: AST reference collector respects local shadowing" {
   ])
   inspect(refs.length(), content="0")
 }
+
+///|
+test "compile: AST reference collector follows global const_assert refs" {
+  let source =
+    #|const expected = 1;
+    #|const_assert expected == 1;
+  let unit = compile_test_module(source)
+  let refs = compile_test_ast_refs(unit.global_declarations[1].header, [
+    "expected",
+  ])
+  inspect(refs.length(), content="1")
+  inspect(refs[0] == ModuleItemRef::Local("expected"), content="true")
+}

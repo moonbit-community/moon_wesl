@@ -2167,8 +2167,17 @@ fn wesl_collect_ast_item_references(
           current_path,
         )
       }
-    ConstAssert
-    | EnableDirective(_)
+    ConstAssert(assertion) =>
+      wesl_ast_collect_expression_references(
+        assertion.assertion_expr,
+        references,
+        scopes,
+        named_items,
+        import_by_local,
+        imports,
+        current_path,
+      )
+    EnableDirective(_)
     | RequiresDirective(_)
     | DiagnosticDirective(_)
     | Other => ()

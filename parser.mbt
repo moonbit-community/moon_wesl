@@ -592,6 +592,20 @@ fn parser_parse_optional_initializer_expression(
 }
 
 ///|
+fn parser_parse_const_assert_declaration(
+  item_source : String,
+) -> ConstAssertDeclaration raise WeslCompileError {
+  let source = parser_trim_statement_semicolon(
+    parser_strip_statement_attributes(item_source),
+  )
+  let assertion = source[12:].trim().to_owned()
+  ConstAssertDeclaration::{
+    assertion,
+    assertion_expr: parser_parse_statement_expression(assertion, item_source),
+  }
+}
+
+///|
 fn parser_unary_operator_from_generated(
   op : @expression_parse.ExpressionUnaryOperator,
 ) -> UnaryOperator {
@@ -2240,7 +2254,9 @@ fn Parser::parse_global_declaration(
       })
     }
     @global_parse.Parsed(@global_parse.ConstAssert) =>
-      GlobalDeclarationHeader::ConstAssert
+      GlobalDeclarationHeader::ConstAssert(
+        parser_parse_const_assert_declaration(item_source),
+      )
     @global_parse.Parsed(@global_parse.EnableDirective) => {
       let directive = self.parse_directive_with_yacc(item_source)
       GlobalDeclarationHeader::EnableDirective(EnableDirectiveDeclaration::{

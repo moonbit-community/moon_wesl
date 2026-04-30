@@ -523,6 +523,12 @@ pub(all) struct DiagnosticDirectiveDeclaration {
 } derive(Eq, Debug)
 
 ///|
+pub(all) struct ConstAssertDeclaration {
+  assertion : String
+  assertion_expr : Expression
+} derive(Eq, Debug)
+
+///|
 fn VarDeclaration::ident(self : VarDeclaration) -> String? {
   self.name
 }
@@ -541,7 +547,7 @@ pub(all) enum GlobalDeclarationHeader {
   Override(OverrideDeclaration)
   Let(LetDeclaration)
   Var(VarDeclaration)
-  ConstAssert
+  ConstAssert(ConstAssertDeclaration)
   EnableDirective(EnableDirectiveDeclaration)
   RequiresDirective(RequiresDirectiveDeclaration)
   DiagnosticDirective(DiagnosticDirectiveDeclaration)
@@ -569,7 +575,7 @@ fn GlobalDeclaration::ident(self : GlobalDeclaration) -> String? {
       ignore(header.template_args())
       header.ident()
     }
-    ConstAssert => None
+    ConstAssert(_) => None
     EnableDirective(_) => None
     RequiresDirective(_) => None
     DiagnosticDirective(_) => None
@@ -590,7 +596,7 @@ fn GlobalDeclaration::is_entrypoint(self : GlobalDeclaration) -> Bool {
 
 ///|
 fn GlobalDeclaration::is_const_assert(self : GlobalDeclaration) -> Bool {
-  self.header is GlobalDeclarationHeader::ConstAssert
+  self.header is GlobalDeclarationHeader::ConstAssert(_)
 }
 
 ///|
