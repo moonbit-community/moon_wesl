@@ -13,6 +13,828 @@
 // limitations under the License.
 
 ///|
+fn const_eval_clamp_type(
+  values : Array[ConstEvalValue],
+) -> ConstEvalType raise WeslCompileError {
+  let mut has_f32 = false
+  let mut has_abstract_float = false
+  let mut has_i32 = false
+  let mut has_u32 = false
+  for value in values {
+    match value.value_type() {
+      Bool =>
+        raise WeslCompileError::Validation(
+          "cannot use bool with clamp arguments",
+        )
+      F32 => has_f32 = true
+      AbstractFloat => has_abstract_float = true
+      I32 => has_i32 = true
+      U32 => has_u32 = true
+      AbstractInt => ()
+    }
+  }
+  if has_u32 && has_i32 {
+    raise WeslCompileError::Validation("ambiguous clamp argument types")
+  }
+  if has_f32 {
+    return ConstEvalType::F32
+  }
+  if has_abstract_float {
+    return ConstEvalType::F32
+  }
+  if has_u32 {
+    return ConstEvalType::U32
+  }
+  ConstEvalType::I32
+}
+
+///|
+fn const_eval_numeric_join_type(
+  values : Array[ConstEvalValue],
+  context : String,
+) -> ConstEvalType raise WeslCompileError {
+  let mut has_f32 = false
+  let mut has_abstract_float = false
+  let mut has_i32 = false
+  let mut has_u32 = false
+  for value in values {
+    match value.value_type() {
+      Bool =>
+        raise WeslCompileError::Validation(
+          "cannot use bool with \{context} arguments",
+        )
+      F32 => has_f32 = true
+      AbstractFloat => has_abstract_float = true
+      I32 => has_i32 = true
+      U32 => has_u32 = true
+      AbstractInt => ()
+    }
+  }
+  if has_u32 && has_i32 {
+    raise WeslCompileError::Validation("ambiguous \{context} argument types")
+  }
+  if has_f32 {
+    return ConstEvalType::F32
+  }
+  if has_abstract_float {
+    return ConstEvalType::AbstractFloat
+  }
+  if has_u32 {
+    return ConstEvalType::U32
+  }
+  if has_i32 {
+    return ConstEvalType::I32
+  }
+  ConstEvalType::AbstractInt
+}
+
+///|
+fn const_eval_select_join_type(
+  first : ConstEvalValue,
+  second : ConstEvalValue,
+) -> ConstEvalType raise WeslCompileError {
+  match (first.value_type(), second.value_type()) {
+    (Bool, Bool) => ConstEvalType::Bool
+    (Bool, _) | (_, Bool) =>
+      raise WeslCompileError::Validation(
+        "`select` 1st and 2nd arguments are incompatible",
+      )
+    _ => const_eval_numeric_join_type([first, second], "`select` 1st and 2nd")
+  }
+}
+
+///|
+fn const_eval_apply_clamp(
+  args : Array[ConstEvalValue],
+) -> ConstEvalValue raise WeslCompileError {
+  if args.length() != 3 {
+    raise WeslCompileError::Validation("clamp expects three arguments")
+  }
+  let target = const_eval_clamp_type(args)
+  match target {
+    F32 => {
+      let value = const_eval_require_f32(args[0], "clamp")
+      let min_value = const_eval_require_f32(args[1], "clamp")
+      let max_value = const_eval_require_f32(args[2], "clamp")
+      ConstEvalValue::F32(Float::clamp(value, min=min_value, max=max_value))
+    }
+    U32 => {
+      let value = const_eval_require_u32(args[0], "clamp")
+      let min_value = const_eval_require_u32(args[1], "clamp")
+      let max_value = const_eval_require_u32(args[2], "clamp")
+      ConstEvalValue::U32(Int64::clamp(value, min=min_value, max=max_value))
+    }
+    _ => {
+      let value = const_eval_require_i32(args[0], "clamp")
+      let min_value = const_eval_require_i32(args[1], "clamp")
+      let max_value = const_eval_require_i32(args[2], "clamp")
+      ConstEvalValue::I32(Int64::clamp(value, min=min_value, max=max_value))
+    }
+  }
+}
+
+///|
+fn const_eval_apply_saturate(
+  args : Array[ConstEvalValue],
+) -> ConstEvalValue raise WeslCompileError {
+  if args.length() != 1 {
+    let signature = const_eval_format_call_signature("saturate", args)
+    raise WeslCompileError::Validation(
+      "invalid function call signature: `\{signature}`",
+    )
+  }
+  match args[0] {
+    Bool(_) | I32(_) | U32(_) =>
+      raise WeslCompileError::Validation("`clamp` arguments are incompatible")
+    AbstractInt(number) =>
+      ConstEvalValue::AbstractFloat(
+        Double::clamp(number.to_double(), min=0.0, max=1.0),
+        true,
+      )
+    AbstractFloat(number, _) =>
+      ConstEvalValue::AbstractFloat(
+        Double::clamp(number, min=0.0, max=1.0),
+        true,
+      )
+    F32(number) =>
+      ConstEvalValue::F32(
+        Float::clamp(
+          number,
+          min=Float::from_double(0.0),
+          max=Float::from_double(1.0),
+        ),
+      )
+  }
+}
+
+///|
+fn const_eval_apply_min_or_max(
+  name : String,
+  args : Array[ConstEvalValue],
+  choose_min : Bool,
+) -> ConstEvalValue raise WeslCompileError {
+  if args.length() != 2 {
+    raise WeslCompileError::Validation("`\{name}` expects two arguments")
+  }
+  let target = const_eval_numeric_join_type(args, "`\{name}`")
+  match target {
+    AbstractFloat => {
+      let left = const_eval_to_abstract_float(args[0], name)
+      let right = const_eval_to_abstract_float(args[1], name)
+      ConstEvalValue::AbstractFloat(
+        if choose_min {
+          if left <= right {
+            left
+          } else {
+            right
+          }
+        } else if left >= right {
+          left
+        } else {
+          right
+        },
+        true,
+      )
+    }
+    F32 => {
+      let left = const_eval_require_f32(args[0], name)
+      let right = const_eval_require_f32(args[1], name)
+      ConstEvalValue::F32(
+        if choose_min {
+          if left <= right {
+            left
+          } else {
+            right
+          }
+        } else if left >= right {
+          left
+        } else {
+          right
+        },
+      )
+    }
+    U32 => {
+      let left = const_eval_require_u32(args[0], name)
+      let right = const_eval_require_u32(args[1], name)
+      ConstEvalValue::U32(
+        if choose_min {
+          if left <= right {
+            left
+          } else {
+            right
+          }
+        } else if left >= right {
+          left
+        } else {
+          right
+        },
+      )
+    }
+    I32 => {
+      let left = const_eval_require_i32(args[0], name)
+      let right = const_eval_require_i32(args[1], name)
+      ConstEvalValue::I32(
+        if choose_min {
+          if left <= right {
+            left
+          } else {
+            right
+          }
+        } else if left >= right {
+          left
+        } else {
+          right
+        },
+      )
+    }
+    AbstractInt => {
+      let left = const_eval_require_abstract_int(args[0], name)
+      let right = const_eval_require_abstract_int(args[1], name)
+      ConstEvalValue::AbstractInt(
+        if choose_min {
+          if left <= right {
+            left
+          } else {
+            right
+          }
+        } else if left >= right {
+          left
+        } else {
+          right
+        },
+      )
+    }
+    Bool =>
+      raise WeslCompileError::Validation(
+        "cannot use bool with `\{name}` arguments",
+      )
+  }
+}
+
+///|
+fn const_eval_abs_i64(value : Int64) -> Int64 {
+  if value < 0 {
+    -value
+  } else {
+    value
+  }
+}
+
+///|
+fn const_eval_abs_double(value : Double) -> Double {
+  if value < 0.0 {
+    -value
+  } else {
+    value
+  }
+}
+
+///|
+fn const_eval_abs_float(value : Float) -> Float {
+  if value < 0.0 {
+    -value
+  } else {
+    value
+  }
+}
+
+///|
+fn const_eval_apply_abs(
+  args : Array[ConstEvalValue],
+) -> ConstEvalValue raise WeslCompileError {
+  if args.length() != 1 {
+    raise WeslCompileError::Validation("`abs` expects one argument")
+  }
+  match args[0] {
+    Bool(_) =>
+      raise WeslCompileError::Validation(
+        "`abs` expects a scalar or vector of scalar argument",
+      )
+    AbstractInt(number) =>
+      ConstEvalValue::AbstractInt(const_eval_abs_i64(number))
+    I32(number) => ConstEvalValue::I32(const_eval_abs_i64(number))
+    U32(number) => ConstEvalValue::U32(number)
+    AbstractFloat(number, f32_lossless) =>
+      ConstEvalValue::AbstractFloat(const_eval_abs_double(number), f32_lossless)
+    F32(number) => ConstEvalValue::F32(const_eval_abs_float(number))
+  }
+}
+
+///|
+fn const_eval_apply_select(
+  args : Array[ConstEvalValue],
+) -> ConstEvalValue raise WeslCompileError {
+  if args.length() != 3 {
+    raise WeslCompileError::Validation("`select` expects three arguments")
+  }
+  let condition = match args[2] {
+    Bool(value) => value
+    _ =>
+      raise WeslCompileError::Validation(
+        "`select` 3rd argument must be a boolean or vector of boolean",
+      )
+  }
+  let target = const_eval_select_join_type(args[0], args[1])
+  let chosen = if condition { args[1] } else { args[0] }
+  const_eval_convert_to_type(chosen, target, "select")
+}
+
+///|
+fn const_eval_apply_bool_builtin(
+  name : String,
+  args : Array[ConstEvalValue],
+) -> ConstEvalValue raise WeslCompileError {
+  if args.length() != 1 {
+    raise WeslCompileError::Validation("`\{name}` expects one argument")
+  }
+  ConstEvalValue::Bool(const_eval_require_bool(args[0], name))
+}
+
+///|
+fn const_eval_require_float_builtin_arg(
+  name : String,
+  args : Array[ConstEvalValue],
+) -> ConstEvalValue raise WeslCompileError {
+  if args.length() != 1 {
+    raise WeslCompileError::Validation("`\{name}` expects one argument")
+  }
+  match args[0] {
+    Bool(_) | I32(_) | U32(_) =>
+      raise WeslCompileError::Validation(
+        "`\{name}` expects a float or vector of float argument",
+      )
+    value => value
+  }
+}
+
+///|
+fn const_eval_apply_float_unary_builtin(
+  name : String,
+  args : Array[ConstEvalValue],
+) -> ConstEvalValue raise WeslCompileError {
+  let value = const_eval_require_float_builtin_arg(name, args)
+  match value {
+    AbstractInt(number) =>
+      ConstEvalValue::AbstractFloat(
+        match name {
+          "floor" => number.to_double().floor()
+          "ceil" => number.to_double().ceil()
+          "round" => number.to_double().round()
+          "trunc" => number.to_double().trunc()
+          "fract" => number.to_double() - number.to_double().floor()
+          "sqrt" => number.to_double().sqrt()
+          "inverseSqrt" => 1.0 / number.to_double().sqrt()
+          "exp" => @math.exp(number.to_double())
+          "exp2" => @math.pow(2.0, number.to_double())
+          "log" => @math.ln(number.to_double())
+          "log2" => @math.log2(number.to_double())
+          "sin" => @math.sin(number.to_double())
+          "cos" => @math.cos(number.to_double())
+          "tan" => @math.tan(number.to_double())
+          "asin" => @math.asin(number.to_double())
+          "acos" => @math.acos(number.to_double())
+          "atan" => @math.atan(number.to_double())
+          "sinh" => @math.sinh(number.to_double())
+          "cosh" => @math.cosh(number.to_double())
+          "tanh" => @math.tanh(number.to_double())
+          "radians" => number.to_double() * @math.acos(-1.0) / 180.0
+          "degrees" => number.to_double() * 180.0 / @math.acos(-1.0)
+          _ =>
+            raise WeslCompileError::Validation(
+              "unsupported float builtin `\{name}`",
+            )
+        },
+        true,
+      )
+    AbstractFloat(number, _) =>
+      ConstEvalValue::AbstractFloat(
+        match name {
+          "floor" => number.floor()
+          "ceil" => number.ceil()
+          "round" => number.round()
+          "trunc" => number.trunc()
+          "fract" => number - number.floor()
+          "sqrt" => number.sqrt()
+          "inverseSqrt" => 1.0 / number.sqrt()
+          "exp" => @math.exp(number)
+          "exp2" => @math.pow(2.0, number)
+          "log" => @math.ln(number)
+          "log2" => @math.log2(number)
+          "sin" => @math.sin(number)
+          "cos" => @math.cos(number)
+          "tan" => @math.tan(number)
+          "asin" => @math.asin(number)
+          "acos" => @math.acos(number)
+          "atan" => @math.atan(number)
+          "sinh" => @math.sinh(number)
+          "cosh" => @math.cosh(number)
+          "tanh" => @math.tanh(number)
+          "radians" => number * @math.acos(-1.0) / 180.0
+          "degrees" => number * 180.0 / @math.acos(-1.0)
+          _ =>
+            raise WeslCompileError::Validation(
+              "unsupported float builtin `\{name}`",
+            )
+        },
+        true,
+      )
+    F32(number) =>
+      ConstEvalValue::F32(
+        match name {
+          "floor" => number.floor()
+          "ceil" => number.ceil()
+          "round" => number.round()
+          "trunc" => number.trunc()
+          "fract" => number - number.floor()
+          "sqrt" => number.sqrt()
+          "inverseSqrt" => Float::from_double(1.0) / number.sqrt()
+          "exp" => Float::from_double(@math.exp(number.to_double()))
+          "exp2" => Float::from_double(@math.pow(2.0, number.to_double()))
+          "log" => Float::from_double(@math.ln(number.to_double()))
+          "log2" => Float::from_double(@math.log2(number.to_double()))
+          "sin" => Float::from_double(@math.sin(number.to_double()))
+          "cos" => Float::from_double(@math.cos(number.to_double()))
+          "tan" => Float::from_double(@math.tan(number.to_double()))
+          "asin" => Float::from_double(@math.asin(number.to_double()))
+          "acos" => Float::from_double(@math.acos(number.to_double()))
+          "atan" => Float::from_double(@math.atan(number.to_double()))
+          "sinh" => Float::from_double(@math.sinh(number.to_double()))
+          "cosh" => Float::from_double(@math.cosh(number.to_double()))
+          "tanh" => Float::from_double(@math.tanh(number.to_double()))
+          "radians" =>
+            Float::from_double(number.to_double() * @math.acos(-1.0) / 180.0)
+          "degrees" =>
+            Float::from_double(number.to_double() * 180.0 / @math.acos(-1.0))
+          _ =>
+            raise WeslCompileError::Validation(
+              "unsupported float builtin `\{name}`",
+            )
+        },
+      )
+    Bool(_) | I32(_) | U32(_) =>
+      raise WeslCompileError::Validation(
+        "`\{name}` expects a float or vector of float argument",
+      )
+  }
+}
+
+///|
+fn const_eval_float_binary_type(
+  name : String,
+  args : Array[ConstEvalValue],
+) -> ConstEvalType raise WeslCompileError {
+  if args.length() != 2 {
+    raise WeslCompileError::Validation("`\{name}` expects two arguments")
+  }
+  let mut has_f32 = false
+  for arg in args {
+    match arg {
+      Bool(_) | I32(_) | U32(_) =>
+        raise WeslCompileError::Validation(
+          "`\{name}` expects a float or vector of float argument",
+        )
+      F32(_) => has_f32 = true
+      AbstractInt(_) | AbstractFloat(_, _) => ()
+    }
+  }
+  if has_f32 {
+    ConstEvalType::F32
+  } else {
+    ConstEvalType::AbstractFloat
+  }
+}
+
+///|
+fn const_eval_apply_float_binary_builtin(
+  name : String,
+  args : Array[ConstEvalValue],
+) -> ConstEvalValue raise WeslCompileError {
+  let target = const_eval_float_binary_type(name, args)
+  match target {
+    F32 => {
+      let left = const_eval_require_f32(args[0], name)
+      let right = const_eval_require_f32(args[1], name)
+      ConstEvalValue::F32(
+        Float::from_double(
+          match name {
+            "pow" => @math.pow(left.to_double(), right.to_double())
+            "atan2" => @math.atan2(left.to_double(), right.to_double())
+            _ =>
+              raise WeslCompileError::Validation(
+                "unsupported float builtin `\{name}`",
+              )
+          },
+        ),
+      )
+    }
+    _ => {
+      let left = const_eval_to_abstract_float(args[0], name)
+      let right = const_eval_to_abstract_float(args[1], name)
+      ConstEvalValue::AbstractFloat(
+        match name {
+          "pow" => @math.pow(left, right)
+          "atan2" => @math.atan2(left, right)
+          _ =>
+            raise WeslCompileError::Validation(
+              "unsupported float builtin `\{name}`",
+            )
+        },
+        true,
+      )
+    }
+  }
+}
+
+///|
+fn const_eval_ldexp_factor(exponent : Int64) -> Double {
+  @math.pow(2.0, exponent.to_double())
+}
+
+///|
+fn const_eval_apply_ldexp(
+  args : Array[ConstEvalValue],
+) -> ConstEvalValue raise WeslCompileError {
+  if args.length() != 2 {
+    let signature = const_eval_format_call_signature("ldexp", args)
+    raise WeslCompileError::Validation(
+      "invalid function call signature: `\{signature}`",
+    )
+  }
+  let exponent = match args[1] {
+    AbstractInt(number) => number
+    I32(number) => number
+    _ =>
+      raise WeslCompileError::Validation(
+        "`ldexp` with scalar arguments expects a float and a i32 arguments",
+      )
+  }
+  match args[0] {
+    Bool(_) | I32(_) | U32(_) =>
+      raise WeslCompileError::Validation(
+        "`ldexp` with scalar arguments expects a float and a i32 arguments",
+      )
+    F32(number) =>
+      ConstEvalValue::F32(
+        Float::from_double(
+          number.to_double() * const_eval_ldexp_factor(exponent),
+        ),
+      )
+    AbstractInt(number) =>
+      match args[1] {
+        I32(_) =>
+          ConstEvalValue::F32(
+            Float::from_double(
+              number.to_double() * const_eval_ldexp_factor(exponent),
+            ),
+          )
+        _ =>
+          ConstEvalValue::AbstractFloat(
+            number.to_double() * const_eval_ldexp_factor(exponent),
+            true,
+          )
+      }
+    AbstractFloat(number, _) =>
+      match args[1] {
+        I32(_) =>
+          ConstEvalValue::F32(
+            Float::from_double(number * const_eval_ldexp_factor(exponent)),
+          )
+        _ =>
+          ConstEvalValue::AbstractFloat(
+            number * const_eval_ldexp_factor(exponent),
+            true,
+          )
+      }
+  }
+}
+
+///|
+fn const_eval_require_float_builtin_double(
+  value : ConstEvalValue,
+  name : String,
+) -> Double raise WeslCompileError {
+  match value {
+    Bool(_) | I32(_) | U32(_) =>
+      raise WeslCompileError::Validation(
+        "`\{name}` expects a float or vector of float argument",
+      )
+    AbstractInt(number) => number.to_double()
+    AbstractFloat(number, _) => number
+    F32(number) => number.to_double()
+  }
+}
+
+///|
+fn const_eval_apply_step(
+  args : Array[ConstEvalValue],
+) -> ConstEvalValue raise WeslCompileError {
+  if args.length() != 2 {
+    raise WeslCompileError::Validation("`step` expects two arguments")
+  }
+  let edge = const_eval_require_float_builtin_double(args[0], "step")
+  let value = const_eval_require_float_builtin_double(args[1], "step")
+  ConstEvalValue::AbstractFloat(if value < edge { 0.0 } else { 1.0 }, true)
+}
+
+///|
+fn const_eval_mix_type(
+  args : Array[ConstEvalValue],
+) -> ConstEvalType raise WeslCompileError {
+  if args.length() != 3 {
+    raise WeslCompileError::Validation("`mix` expects three arguments")
+  }
+  let mut has_f32 = false
+  for arg in args {
+    match arg {
+      Bool(_) | I32(_) | U32(_) =>
+        raise WeslCompileError::Validation("`mix` arguments are incompatible")
+      F32(_) => has_f32 = true
+      AbstractInt(_) | AbstractFloat(_, _) => ()
+    }
+  }
+  if has_f32 {
+    ConstEvalType::F32
+  } else {
+    ConstEvalType::AbstractFloat
+  }
+}
+
+///|
+fn const_eval_apply_mix(
+  args : Array[ConstEvalValue],
+) -> ConstEvalValue raise WeslCompileError {
+  let target = const_eval_mix_type(args)
+  match target {
+    F32 => {
+      let first = const_eval_require_f32(args[0], "mix")
+      let second = const_eval_require_f32(args[1], "mix")
+      let factor = const_eval_require_f32(args[2], "mix")
+      ConstEvalValue::F32(
+        first * (Float::from_double(1.0) - factor) + second * factor,
+      )
+    }
+    _ => {
+      let first = const_eval_to_abstract_float(args[0], "mix")
+      let second = const_eval_to_abstract_float(args[1], "mix")
+      let factor = const_eval_to_abstract_float(args[2], "mix")
+      ConstEvalValue::AbstractFloat(
+        first * (1.0 - factor) + second * factor,
+        true,
+      )
+    }
+  }
+}
+
+///|
+fn const_eval_sign_i64(value : Int64) -> Int64 {
+  if value < 0 {
+    -1L
+  } else if value > 0 {
+    1L
+  } else {
+    0L
+  }
+}
+
+///|
+fn const_eval_sign_double(value : Double) -> Double {
+  if value < 0.0 {
+    -1.0
+  } else if value > 0.0 {
+    1.0
+  } else {
+    0.0
+  }
+}
+
+///|
+fn const_eval_sign_float(value : Float) -> Float {
+  if value < 0.0 {
+    -1.0
+  } else if value > 0.0 {
+    1.0
+  } else {
+    0.0
+  }
+}
+
+///|
+fn const_eval_apply_sign(
+  args : Array[ConstEvalValue],
+) -> ConstEvalValue raise WeslCompileError {
+  if args.length() != 1 {
+    raise WeslCompileError::Validation("`sign` expects one argument")
+  }
+  match args[0] {
+    Bool(_) =>
+      raise WeslCompileError::Validation(
+        "`sign` expects a float or vector of float argument",
+      )
+    AbstractInt(number) =>
+      ConstEvalValue::AbstractInt(const_eval_sign_i64(number))
+    I32(number) => ConstEvalValue::I32(const_eval_sign_i64(number))
+    U32(number) => ConstEvalValue::U32(if number == 0 { 0L } else { 1L })
+    AbstractFloat(number, _) =>
+      ConstEvalValue::AbstractFloat(const_eval_sign_double(number), true)
+    F32(number) => ConstEvalValue::F32(const_eval_sign_float(number))
+  }
+}
+
+///|
+fn const_eval_count_one_bits_width(value : Int64, width : Int) -> Int64 {
+  let mut bits = value
+  let mut count = 0L
+  for _ in 0..<width {
+    if (bits & 1L) != 0L {
+      count += 1L
+    }
+    bits = bits >> 1
+  }
+  count
+}
+
+///|
+fn const_eval_count_leading_zeros_width(value : Int64, width : Int) -> Int64 {
+  let mut count = 0L
+  let mut done = false
+  for offset in 0..<width {
+    if done {
+      continue
+    }
+    let shift = width - 1 - offset
+    if ((value >> shift) & 1L) == 0L {
+      count += 1L
+    } else {
+      done = true
+    }
+  }
+  count
+}
+
+///|
+fn const_eval_count_trailing_zeros_width(value : Int64, width : Int) -> Int64 {
+  let mut bits = value
+  let mut count = 0L
+  let mut done = false
+  for _ in 0..<width {
+    if done {
+      continue
+    }
+    if (bits & 1L) == 0L {
+      count += 1L
+      bits = bits >> 1
+    } else {
+      done = true
+    }
+  }
+  count
+}
+
+///|
+fn const_eval_format_call_signature(
+  name : String,
+  args : Array[ConstEvalValue],
+) -> String {
+  let parts : Array[String] = []
+  for arg in args {
+    parts.push(arg.value_type().label())
+  }
+  let joined = parts.join(", ")
+  "\{name}(\{joined})"
+}
+
+///|
+fn const_eval_require_one_bit_count_arg(
+  name : String,
+  args : Array[ConstEvalValue],
+) -> ConstEvalValue raise WeslCompileError {
+  if args.length() != 1 {
+    raise WeslCompileError::Validation(
+      "invalid function call signature: `\{const_eval_format_call_signature(name, args)}`",
+    )
+  }
+  args[0]
+}
+
+///|
+fn const_eval_apply_integer_bit_count(
+  name : String,
+  args : Array[ConstEvalValue],
+  count : (Int64, Int) -> Int64,
+) -> ConstEvalValue raise WeslCompileError {
+  let arg = const_eval_require_one_bit_count_arg(name, args)
+  match arg {
+    Bool(_) | AbstractFloat(_, _) | F32(_) =>
+      raise WeslCompileError::Validation(
+        "`\{name}` expects a float or vector of float argument",
+      )
+    AbstractInt(number) => ConstEvalValue::AbstractInt(count(number, 64))
+    I32(number) => ConstEvalValue::I32(count(number, 32))
+    U32(number) => ConstEvalValue::U32(count(number, 32))
+  }
+}
+
+///|
 fn const_eval_dispatch_builtin(
   name : String,
   values : Array[ConstEvalValue],
