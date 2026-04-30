@@ -1498,6 +1498,7 @@ fn parser_parse_switch_cases(
         source[body_start:body_end].trim().to_owned(),
         item_source,
       ),
+      attributes: parser_statement_attributes(source[cursor:header].to_owned()),
     })
     cursor = parser_skip_layout_and_comments(source, body_end)
   }

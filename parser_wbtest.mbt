@@ -395,7 +395,7 @@ test "parser: generated statement parser classifies function body statements" {
     #|  if (value > limit) { break; }
     #|  loop { continuing { break if value > 10; } }
     #|  for (var i: u32 = 0u; i < 4u; i++) { value = value + 1; }
-    #|  switch value { case 0, 1: { value = 2; } default: { return; } }
+    #|  switch value { @if(true) case 0, 1: { value = 2; } @else default: { return; } }
     #|  textureStore(tex, coord, vec4<f32>());
     #|  return;
     #|}
@@ -668,6 +668,30 @@ test "parser: generated statement parser classifies function body statements" {
           debug_inspect(switch_.cases[0].selectors.length(), content="2")
           debug_inspect(switch_.cases[0].is_default, content="false")
           debug_inspect(switch_.cases[1].is_default, content="true")
+          let expected_switch_case_attrs =
+            #|[
+            #|  {
+            #|    name: "if",
+            #|    arguments: Some("true"),
+            #|    span: { start_line: 1, end_line: 1 },
+            #|  },
+            #|]
+          debug_inspect(
+            switch_.cases[0].attributes,
+            content=expected_switch_case_attrs,
+          )
+          let expected_switch_default_attrs =
+            #|[
+            #|  {
+            #|    name: "else",
+            #|    arguments: None,
+            #|    span: { start_line: 1, end_line: 1 },
+            #|  },
+            #|]
+          debug_inspect(
+            switch_.cases[1].attributes,
+            content=expected_switch_default_attrs,
+          )
           debug_inspect(
             switch_.cases[0].body.statements[0].kind,
             content="Block",

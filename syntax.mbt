@@ -392,6 +392,7 @@ pub(all) struct SwitchCase {
   selectors : Array[Expression]
   is_default : Bool
   body : FunctionBody
+  attributes : Array[Attribute]
 } derive(Eq, Debug)
 
 ///|
