@@ -508,6 +508,27 @@ test "wesl: keep conditional feature preserves unresolved attributes" {
 }
 
 ///|
+test "wesl: conditional expression parser rejects malformed expressions" {
+  let resolver = VirtualResolver::new()
+  let root_path = ModulePath::from_path("/shaders/root")
+  resolver.add_module(root_path, "@if(true &&)\nfn bad() {}\n")
+  let result = try? compile(
+    root_path,
+    resolver,
+    EscapeMangler::default(),
+    CompileOptions::default(),
+  )
+  match result {
+    Err(WeslCompileError::InvalidExpression(expr)) =>
+      debug_inspect(
+        expr,
+        content="\"invalid if attribute expression: `true &&`\"",
+      )
+    _ => fail("expected invalid conditional expression")
+  }
+}
+
+///|
 test "wesl: conditional translation handles top-level elif chains" {
   let resolver = VirtualResolver::new()
   let root_path = ModulePath::from_path("/shaders/root")

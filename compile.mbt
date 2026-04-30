@@ -533,94 +533,24 @@ fn wesl_find_matching_delim(
 }
 
 ///|
-fn wesl_parse_if_primary(
-  source : String,
+fn wesl_eval_cond_expr_node(
+  node : @cond_expr_parse.CondExprNode,
   features : Features,
-  index : Int,
-) -> (CondValue, Int) raise WeslCompileError {
-  let i = wesl_skip_whitespace(source, index)
-  if i >= source.length() {
-    raise WeslCompileError::InvalidExpression(source)
+) -> CondValue raise WeslCompileError {
+  match node {
+    @cond_expr_parse.Literal(value) => Known(value)
+    @cond_expr_parse.Feature(name) => features.eval_cond(name)
+    @cond_expr_parse.Not(inner) =>
+      wesl_eval_cond_expr_node(inner, features).not()
+    @cond_expr_parse.And(left, right) =>
+      wesl_eval_cond_expr_node(left, features).and_value(
+        wesl_eval_cond_expr_node(right, features),
+      )
+    @cond_expr_parse.Or(left, right) =>
+      wesl_eval_cond_expr_node(left, features).or_value(
+        wesl_eval_cond_expr_node(right, features),
+      )
   }
-  if source.code_unit_at(i).to_int() == 40 { // '('
-    let (value, next_index) = wesl_parse_if_or(source, features, i + 1)
-    let end_index = wesl_skip_whitespace(source, next_index)
-    if end_index >= source.length() ||
-      source.code_unit_at(end_index).to_int() != 41 {
-      raise WeslCompileError::InvalidExpression(source)
-    }
-    return (value, end_index + 1)
-  }
-  let mut end_index = i
-  while end_index < source.length() &&
-        wesl_is_identifier_char(source.code_unit_at(end_index).to_int()) {
-    end_index = end_index + 1
-  }
-  if end_index == i {
-    raise WeslCompileError::InvalidExpression(source)
-  }
-  let ident = source[i:end_index].to_owned()
-  let value = if ident == "true" {
-    Known(true)
-  } else if ident == "false" {
-    Known(false)
-  } else {
-    features.eval_cond(ident)
-  }
-  (value, end_index)
-}
-
-///|
-fn wesl_parse_if_not(
-  source : String,
-  features : Features,
-  index : Int,
-) -> (CondValue, Int) raise WeslCompileError {
-  let i = wesl_skip_whitespace(source, index)
-  if i < source.length() && source.code_unit_at(i).to_int() == 33 { // '!'
-    let (value, next_index) = wesl_parse_if_not(source, features, i + 1)
-    (value.not(), next_index)
-  } else {
-    wesl_parse_if_primary(source, features, i)
-  }
-}
-
-///|
-fn wesl_parse_if_and(
-  source : String,
-  features : Features,
-  index : Int,
-) -> (CondValue, Int) raise WeslCompileError {
-  let (initial, initial_index) = wesl_parse_if_not(source, features, index)
-  let mut lhs = initial
-  let mut next_index = initial_index
-  let mut i = wesl_skip_whitespace(source, next_index)
-  while i + 1 < source.length() && wesl_starts_with_at(source, i, "&&") {
-    let (rhs, rhs_index) = wesl_parse_if_not(source, features, i + 2)
-    lhs = lhs.and_value(rhs)
-    next_index = rhs_index
-    i = wesl_skip_whitespace(source, next_index)
-  }
-  (lhs, next_index)
-}
-
-///|
-fn wesl_parse_if_or(
-  source : String,
-  features : Features,
-  index : Int,
-) -> (CondValue, Int) raise WeslCompileError {
-  let (initial, initial_index) = wesl_parse_if_and(source, features, index)
-  let mut lhs = initial
-  let mut next_index = initial_index
-  let mut i = wesl_skip_whitespace(source, next_index)
-  while i + 1 < source.length() && wesl_starts_with_at(source, i, "||") {
-    let (rhs, rhs_index) = wesl_parse_if_and(source, features, i + 2)
-    lhs = lhs.or_value(rhs)
-    next_index = rhs_index
-    i = wesl_skip_whitespace(source, next_index)
-  }
-  (lhs, next_index)
 }
 
 ///|
@@ -629,15 +559,11 @@ fn wesl_parse_if_value(
   features : Features,
 ) -> CondValue raise WeslCompileError {
   let source = expr.trim().to_owned()
-  if source == "" {
-    raise WeslCompileError::InvalidExpression(expr)
+  match @cond_expr_parse.parse_cond_expr_source(source) {
+    @cond_expr_parse.Parsed(node) => wesl_eval_cond_expr_node(node, features)
+    @cond_expr_parse.Failed(_) =>
+      raise WeslCompileError::InvalidExpression(expr)
   }
-  let (value, next_index) = wesl_parse_if_or(source, features, 0)
-  let end_index = wesl_skip_whitespace(source, next_index)
-  if end_index != source.length() {
-    raise WeslCompileError::InvalidExpression(expr)
-  }
-  value
 }
 
 ///|
