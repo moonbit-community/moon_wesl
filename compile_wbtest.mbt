@@ -45,6 +45,34 @@ fn compile_test_ast_refs(
 }
 
 ///|
+fn compile_test_ast_refs_with_import(
+  header : GlobalDeclarationHeader,
+  namespace_path : ModulePath,
+  local_name : String,
+) -> Array[ModuleItemRef] {
+  let imports = [
+    ImportItem::{
+      export_module_path: None,
+      export_name: None,
+      namespace_path,
+      local_name,
+      public: false,
+      start_line: 1,
+      end_line: 1,
+    },
+  ]
+  let import_by_local : @hashmap.HashMap[String, Int] = @hashmap.HashMap::new()
+  import_by_local.set(local_name, 0)
+  wesl_collect_ast_item_references(
+    header,
+    @hashmap.HashMap::new(),
+    import_by_local,
+    imports,
+    try! parse_module_path("root"),
+  )
+}
+
+///|
 test "compile: AST reference collector follows structured expression and type refs" {
   let source =
     #|struct Payload {
@@ -128,4 +156,29 @@ test "compile: AST reference collector follows global const_assert refs" {
   ])
   inspect(refs.length(), content="1")
   inspect(refs[0] == ModuleItemRef::Local("expected"), content="true")
+}
+
+///|
+test "compile: AST reference collector follows qualified import paths" {
+  let source =
+    #|fn make_payload() -> util::Payload {
+    #|  let item: util::Payload = util::Payload();
+    #|  return item;
+    #|}
+  let unit = compile_test_module(source)
+  let refs = compile_test_ast_refs_with_import(
+    unit.global_declarations[0].header,
+    try! parse_module_path("/pkg/util"),
+    "util",
+  )
+  inspect(refs.length(), content="1")
+  inspect(
+    refs[0] ==
+    ModuleItemRef::Qualified(
+      "util::Payload",
+      try! parse_module_path("/pkg/util"),
+      "Payload",
+    ),
+    content="true",
+  )
 }

@@ -1434,7 +1434,7 @@ fn wesl_import_named_target(import_item : ImportItem) -> (ModulePath, String)? {
 }
 
 ///|
-fn wesl_collect_item_references(
+fn wesl_collect_legacy_item_references(
   source : String,
   item_name : String?,
   named_items : @hashmap.HashMap[String, Int],
@@ -2186,6 +2186,35 @@ fn wesl_collect_ast_item_references(
 }
 
 ///|
+fn wesl_collect_module_item_references(
+  item : ModuleItem,
+  named_items : @hashmap.HashMap[String, Int],
+  import_by_local : @hashmap.HashMap[String, Int],
+  imports : Array[ImportItem],
+  current_path : ModulePath,
+) -> Array[ModuleItemRef] {
+  let references = wesl_collect_ast_item_references(
+    item.header,
+    named_items,
+    import_by_local,
+    imports,
+    current_path,
+  )
+  for
+    reference in wesl_collect_legacy_item_references(
+      item.source,
+      item.name,
+      named_items,
+      import_by_local,
+      imports,
+      current_path,
+    ) {
+    wesl_push_unique_item_ref(references, reference)
+  }
+  references
+}
+
+///|
 fn wesl_replace_identifier(
   source : String,
   old_name : String,
@@ -2597,24 +2626,9 @@ fn[R : Resolver] wesl_load_module(
       }
       for i in 0..<parsed_items.length() {
         let parsed = parsed_items[i]
-        let references = wesl_collect_item_references(
-          parsed.source,
-          parsed.name,
-          named_items,
-          import_by_local,
-          imports,
-          path,
+        let references = wesl_collect_module_item_references(
+          parsed, named_items, import_by_local, imports, path,
         )
-        for
-          reference in wesl_collect_ast_item_references(
-            parsed.header,
-            named_items,
-            import_by_local,
-            imports,
-            path,
-          ) {
-          wesl_push_unique_item_ref(references, reference)
-        }
         parsed_items[i] = ModuleItem::{ ..parsed, references, }
       }
       let parsed_module = ParsedModule::{
