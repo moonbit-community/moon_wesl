@@ -1371,6 +1371,20 @@ fn const_eval_require_bool(
 }
 
 ///|
+fn const_eval_require_abstract_int(
+  value : ConstEvalValue,
+  context : String,
+) -> Int64 raise WeslCompileError {
+  match value {
+    AbstractInt(number) => number
+    _ =>
+      raise WeslCompileError::Validation(
+        "cannot convert non-abstract-int to abstract int in \{context}",
+      )
+  }
+}
+
+///|
 fn const_eval_convert_to_type(
   value : ConstEvalValue,
   target : ConstEvalType,
@@ -1987,6 +2001,61 @@ fn const_eval_clamp_type(
 }
 
 ///|
+fn const_eval_numeric_join_type(
+  values : Array[ConstEvalValue],
+  context : String,
+) -> ConstEvalType raise WeslCompileError {
+  let mut has_f32 = false
+  let mut has_abstract_float = false
+  let mut has_i32 = false
+  let mut has_u32 = false
+  for value in values {
+    match value.value_type() {
+      Bool =>
+        raise WeslCompileError::Validation(
+          "cannot use bool with \{context} arguments",
+        )
+      F32 => has_f32 = true
+      AbstractFloat => has_abstract_float = true
+      I32 => has_i32 = true
+      U32 => has_u32 = true
+      AbstractInt => ()
+    }
+  }
+  if has_u32 && has_i32 {
+    raise WeslCompileError::Validation("ambiguous \{context} argument types")
+  }
+  if has_f32 {
+    return ConstEvalType::F32
+  }
+  if has_abstract_float {
+    return ConstEvalType::AbstractFloat
+  }
+  if has_u32 {
+    return ConstEvalType::U32
+  }
+  if has_i32 {
+    return ConstEvalType::I32
+  }
+  ConstEvalType::AbstractInt
+}
+
+///|
+fn const_eval_select_join_type(
+  first : ConstEvalValue,
+  second : ConstEvalValue,
+) -> ConstEvalType raise WeslCompileError {
+  match (first.value_type(), second.value_type()) {
+    (Bool, Bool) => ConstEvalType::Bool
+    (Bool, _) | (_, Bool) =>
+      raise WeslCompileError::Validation(
+        "`select` 1st and 2nd arguments are incompatible",
+      )
+    _ => const_eval_numeric_join_type([first, second], "`select` 1st and 2nd")
+  }
+}
+
+///|
 fn const_eval_apply_clamp(
   args : Array[ConstEvalValue],
 ) -> ConstEvalValue raise WeslCompileError {
@@ -2014,6 +2083,188 @@ fn const_eval_apply_clamp(
       ConstEvalValue::I32(Int64::clamp(value, min=min_value, max=max_value))
     }
   }
+}
+
+///|
+fn const_eval_apply_min_or_max(
+  name : String,
+  args : Array[ConstEvalValue],
+  choose_min : Bool,
+) -> ConstEvalValue raise WeslCompileError {
+  if args.length() != 2 {
+    raise WeslCompileError::Validation("`\{name}` expects two arguments")
+  }
+  let target = const_eval_numeric_join_type(args, "`\{name}`")
+  match target {
+    AbstractFloat => {
+      let left = const_eval_to_abstract_float(args[0], name)
+      let right = const_eval_to_abstract_float(args[1], name)
+      ConstEvalValue::AbstractFloat(
+        if choose_min {
+          if left <= right {
+            left
+          } else {
+            right
+          }
+        } else if left >= right {
+          left
+        } else {
+          right
+        },
+      )
+    }
+    F32 => {
+      let left = const_eval_require_f32(args[0], name)
+      let right = const_eval_require_f32(args[1], name)
+      ConstEvalValue::F32(
+        if choose_min {
+          if left <= right {
+            left
+          } else {
+            right
+          }
+        } else if left >= right {
+          left
+        } else {
+          right
+        },
+      )
+    }
+    U32 => {
+      let left = const_eval_require_u32(args[0], name)
+      let right = const_eval_require_u32(args[1], name)
+      ConstEvalValue::U32(
+        if choose_min {
+          if left <= right {
+            left
+          } else {
+            right
+          }
+        } else if left >= right {
+          left
+        } else {
+          right
+        },
+      )
+    }
+    I32 => {
+      let left = const_eval_require_i32(args[0], name)
+      let right = const_eval_require_i32(args[1], name)
+      ConstEvalValue::I32(
+        if choose_min {
+          if left <= right {
+            left
+          } else {
+            right
+          }
+        } else if left >= right {
+          left
+        } else {
+          right
+        },
+      )
+    }
+    AbstractInt => {
+      let left = const_eval_require_abstract_int(args[0], name)
+      let right = const_eval_require_abstract_int(args[1], name)
+      ConstEvalValue::AbstractInt(
+        if choose_min {
+          if left <= right {
+            left
+          } else {
+            right
+          }
+        } else if left >= right {
+          left
+        } else {
+          right
+        },
+      )
+    }
+    Bool =>
+      raise WeslCompileError::Validation(
+        "cannot use bool with `\{name}` arguments",
+      )
+  }
+}
+
+///|
+fn const_eval_abs_i64(value : Int64) -> Int64 {
+  if value < 0 {
+    -value
+  } else {
+    value
+  }
+}
+
+///|
+fn const_eval_abs_double(value : Double) -> Double {
+  if value < 0.0 {
+    -value
+  } else {
+    value
+  }
+}
+
+///|
+fn const_eval_abs_float(value : Float) -> Float {
+  if value < 0.0 {
+    -value
+  } else {
+    value
+  }
+}
+
+///|
+fn const_eval_apply_abs(
+  args : Array[ConstEvalValue],
+) -> ConstEvalValue raise WeslCompileError {
+  if args.length() != 1 {
+    raise WeslCompileError::Validation("`abs` expects one argument")
+  }
+  match args[0] {
+    Bool(_) =>
+      raise WeslCompileError::Validation(
+        "`abs` expects a scalar or vector of scalar argument",
+      )
+    AbstractInt(number) =>
+      ConstEvalValue::AbstractInt(const_eval_abs_i64(number))
+    I32(number) => ConstEvalValue::I32(const_eval_abs_i64(number))
+    U32(number) => ConstEvalValue::U32(number)
+    AbstractFloat(number) =>
+      ConstEvalValue::AbstractFloat(const_eval_abs_double(number))
+    F32(number) => ConstEvalValue::F32(const_eval_abs_float(number))
+  }
+}
+
+///|
+fn const_eval_apply_select(
+  args : Array[ConstEvalValue],
+) -> ConstEvalValue raise WeslCompileError {
+  if args.length() != 3 {
+    raise WeslCompileError::Validation("`select` expects three arguments")
+  }
+  let condition = match args[2] {
+    Bool(value) => value
+    _ =>
+      raise WeslCompileError::Validation(
+        "`select` 3rd argument must be a boolean or vector of boolean",
+      )
+  }
+  let target = const_eval_select_join_type(args[0], args[1])
+  let chosen = if condition { args[1] } else { args[0] }
+  const_eval_convert_to_type(chosen, target, "select")
+}
+
+///|
+fn const_eval_apply_bool_builtin(
+  name : String,
+  args : Array[ConstEvalValue],
+) -> ConstEvalValue raise WeslCompileError {
+  if args.length() != 1 {
+    raise WeslCompileError::Validation("`\{name}` expects one argument")
+  }
+  ConstEvalValue::Bool(const_eval_require_bool(args[0], name))
 }
 
 ///|
@@ -2066,6 +2317,12 @@ fn const_eval_eval_expr(
       }
       match name {
         "clamp" => const_eval_apply_clamp(values)
+        "min" => const_eval_apply_min_or_max("min", values, true)
+        "max" => const_eval_apply_min_or_max("max", values, false)
+        "abs" => const_eval_apply_abs(values)
+        "select" => const_eval_apply_select(values)
+        "all" => const_eval_apply_bool_builtin("all", values)
+        "any" => const_eval_apply_bool_builtin("any", values)
         _ =>
           match ctx.functions.get(name) {
             Some(function_) =>
