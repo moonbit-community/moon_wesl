@@ -18,6 +18,7 @@ pub(all) suberror WeslCompileError {
   Parse(String)
   Validation(String)
   InvalidExpression(String)
+  Artifact(String)
   DuplicateSymbol(String)
   CircularDecl(String)
   MissingDecl(ModulePath, String)
@@ -31,6 +32,7 @@ pub fn WeslCompileError::message(self : WeslCompileError) -> String {
     Parse(reason) => reason
     Validation(reason) => reason
     InvalidExpression(expr) => "invalid if attribute expression: `\{expr}`"
+    Artifact(reason) => reason
     DuplicateSymbol(symbol) => "duplicate declaration of `\{symbol}`"
     CircularDecl(symbol) => "circular declaration of `\{symbol}`"
     MissingDecl(path, item) =>

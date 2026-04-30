@@ -56,6 +56,19 @@ impl Resolver with fs_path(_self, _path) {
 }
 
 ///|
+pub fn[R : Resolver] emit_rerun_if_changed(
+  modules : Array[ModulePath],
+  resolver : R,
+) -> Unit {
+  for module_path in modules {
+    match R::fs_path(resolver, module_path) {
+      Some(path) => println("cargo::rerun-if-changed=\{path}")
+      None => ()
+    }
+  }
+}
+
+///|
 pub struct NoResolver {}
 
 ///|

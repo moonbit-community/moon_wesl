@@ -270,6 +270,18 @@ pub fn[R : Resolver] Wesl::compile(
 }
 
 ///|
+pub fn[R : Resolver] Wesl::build_artifact(
+  self : Wesl[R],
+  root : ModulePath,
+  artifact_name : String,
+  out_dir? : String? = None,
+) -> Unit raise WeslCompileError {
+  let compiled = self.compile(root)
+  emit_rerun_if_changed(compiled.modules, self.resolver)
+  compiled.write_artifact(artifact_name, out_dir~)
+}
+
+///|
 pub fn[R : Resolver] Wesl::compile_diagnostic(
   self : Wesl[R],
   root : ModulePath,

@@ -11,7 +11,7 @@ intentionally small and centered on:
 - `Resolver` for loading source from any backing store
 - `EscapeMangler` for turning module-local names into emitted global symbols
 - `CompileOptions` for import resolution, stripping, lowering, and feature flags
-- `compile(...)` as the main entry point
+- `compile(...)` and `Wesl::build_artifact(...)` as the main entry points
 
 ## Features
 
@@ -78,6 +78,11 @@ test {
 The result contains the final emitted syntax tree in `result.syntax`; call
 `result.to_string()` for the WGSL text. Loaded module order is available in
 `result.modules`.
+
+For build-script style workflows, `CompileResult::write_artifact(...)` and
+`Wesl::build_artifact(...)` write `<artifact>.wgsl` into `OUT_DIR` by default,
+matching the upstream `include_wesl!` artifact convention. Tests and MoonBit
+build tools can pass an explicit `out_dir`.
 
 ## Core Concepts
 

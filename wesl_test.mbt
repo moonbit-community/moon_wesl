@@ -398,6 +398,31 @@ test "wesl: compile result eval uses compiled const functions" {
 }
 
 ///|
+test "wesl: compile result writes build artifacts" {
+  let out_dir = "_build/compile_result_artifact"
+  wesl_test_ensure_dir("_build")
+  wesl_test_ensure_dir(out_dir)
+  let resolver = VirtualResolver::new()
+  let root = ModulePath::from_path("/artifact")
+  resolver.add_module(root, "fn artifact() {}\n")
+  let result = Wesl::new_barebones()
+    .set_custom_resolver(resolver)
+    .set_options(CompileOptions::default().with_strip(false))
+    .compile(root)
+  result.write_artifact("artifact_shader", out_dir=Some(out_dir))
+  let artifact = try! @fs.read_file_to_string(out_dir + "/artifact_shader.wgsl")
+  inspect(artifact.contains("fn artifact() {}"), content="true")
+  let invalid = try? result.write_artifact(
+    "nested/artifact",
+    out_dir=Some(out_dir),
+  )
+  match invalid {
+    Err(WeslCompileError::Artifact(_)) => ()
+    _ => fail("expected invalid artifact names to be rejected")
+  }
+}
+
+///|
 test "wesl: compile result eval sees global const context" {
   let resolver = VirtualResolver::new()
   let root_path = ModulePath::from_path("/shaders/root")
@@ -1250,6 +1275,28 @@ test "wesl: facade can select hash mangler" {
     content="false",
   )
   debug_inspect(compiled_text.contains("make_value_"), content="true")
+}
+
+///|
+test "wesl: facade build_artifact compiles and writes wgsl output" {
+  let base = "_build/facade_build_artifact"
+  let out_dir = base + "/out"
+  wesl_test_ensure_dir("_build")
+  wesl_test_ensure_dir(base)
+  wesl_test_ensure_dir(out_dir)
+  try! @fs.write_string_to_file(
+    base + "/main.wesl",
+    "@fragment\nfn fragment() -> i32 { return 7; }\n",
+  )
+
+  Wesl::new(base).build_artifact(
+    ModulePath::from_path("/main"),
+    "main_shader",
+    out_dir=Some(out_dir),
+  )
+  let artifact = try! @fs.read_file_to_string(out_dir + "/main_shader.wgsl")
+  inspect(artifact.contains("@fragment"), content="true")
+  inspect(artifact.contains("return 7;"), content="true")
 }
 
 ///|

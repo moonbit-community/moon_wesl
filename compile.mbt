@@ -595,6 +595,62 @@ pub fn CompileResult::has_sourcemap(self : CompileResult) -> Bool {
 }
 
 ///|
+pub fn CompileResult::write_to_file(
+  self : CompileResult,
+  path : String,
+) -> Unit raise WeslCompileError {
+  @fs.write_string_to_file(path, self.to_string()) catch {
+    err =>
+      raise WeslCompileError::Artifact(
+        "failed to write output shader `\{path}`: \{err}",
+      )
+  }
+}
+
+///|
+fn wesl_artifact_output_path(
+  artifact_name : String,
+  out_dir : String?,
+) -> String raise WeslCompileError {
+  if artifact_name == "" {
+    raise WeslCompileError::Artifact("artifact name cannot be empty")
+  }
+  for i in 0..<artifact_name.length() {
+    let code = artifact_name.code_unit_at(i).to_int()
+    if code == 47 || code == 92 || code == 46 {
+      raise WeslCompileError::Artifact(
+        "`artifact_name` cannot contain path separators or file extension",
+      )
+    }
+  }
+  let dirname = match out_dir {
+    Some(value) => value
+    None =>
+      match @env.get_env_var("OUT_DIR") {
+        Some(value) => value
+        None =>
+          raise WeslCompileError::Artifact(
+            "OUT_DIR environment variable is not defined",
+          )
+      }
+  }
+  if dirname == "" {
+    "\{artifact_name}.wgsl"
+  } else {
+    "\{dirname}/\{artifact_name}.wgsl"
+  }
+}
+
+///|
+pub fn CompileResult::write_artifact(
+  self : CompileResult,
+  artifact_name : String,
+  out_dir? : String? = None,
+) -> Unit raise WeslCompileError {
+  self.write_to_file(wesl_artifact_output_path(artifact_name, out_dir))
+}
+
+///|
 pub fn CompileResult::unmangle_text(
   self : CompileResult,
   text : String,

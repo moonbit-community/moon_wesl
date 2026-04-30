@@ -13,6 +13,7 @@ import {
   "Milky2018/moon_wesl/internal/struct_parse",
   "Milky2018/moon_wesl/internal/type_parse",
   "moonbitlang/core/hashmap",
+  "moonbitlang/core/env",
   "moonbitlang/core/math",
   "moonbitlang/core/string",
   "moonbitlang/x/fs",
