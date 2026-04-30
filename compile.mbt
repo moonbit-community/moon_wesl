@@ -3010,6 +3010,275 @@ fn wesl_is_float_scalar_name(name : String) -> Bool {
 }
 
 ///|
+fn wesl_validate_matrix_scalar_template(
+  path : ModulePath,
+  item : ModuleItem,
+  argument : TypeTemplateArgument,
+) -> Unit raise WeslCompileError {
+  let valid = match argument {
+    Type(ty) =>
+      ty.path.length() == 0 &&
+      ty.template_args.length() == 0 &&
+      wesl_is_float_scalar_name(ty.ident)
+    Literal(_) => false
+  }
+  if !valid {
+    raise WeslCompileError::Validation(
+      "matrix types must use floating scalar types (\{wesl_item_context(path, item)})",
+    )
+  }
+}
+
+///|
+fn wesl_validate_matrix_type_expr(
+  path : ModulePath,
+  item : ModuleItem,
+  ty : TypeExpression,
+) -> Unit raise WeslCompileError {
+  if wesl_is_matrix_type_name(ty.ident) && ty.template_args.length() > 0 {
+    wesl_validate_matrix_scalar_template(path, item, ty.template_args[0])
+  }
+  for argument in ty.template_args {
+    match argument {
+      Type(nested) => wesl_validate_matrix_type_expr(path, item, nested)
+      Literal(_) => ()
+    }
+  }
+}
+
+///|
+fn wesl_validate_matrix_expression_types(
+  path : ModulePath,
+  item : ModuleItem,
+  expr : Expression,
+) -> Unit raise WeslCompileError {
+  match expr {
+    Literal(_) | Bool(_) => ()
+    TypeOrIdentifier(ty) => wesl_validate_matrix_type_expr(path, item, ty)
+    Parenthesized(inner) | NamedComponent(inner, _) | Indexing(inner, _) =>
+      wesl_validate_matrix_expression_types(path, item, inner)
+    Unary(_, inner) => wesl_validate_matrix_expression_types(path, item, inner)
+    Binary(_, left, right) => {
+      wesl_validate_matrix_expression_types(path, item, left)
+      wesl_validate_matrix_expression_types(path, item, right)
+    }
+    FunctionCall(call) => {
+      wesl_validate_matrix_type_expr(path, item, call.callee)
+      for argument in call.arguments {
+        wesl_validate_matrix_expression_types(path, item, argument)
+      }
+    }
+  }
+}
+
+///|
+fn wesl_validate_matrix_statement_declaration_types(
+  path : ModulePath,
+  item : ModuleItem,
+  declaration : StatementDeclaration,
+) -> Unit raise WeslCompileError {
+  match declaration.type_expr {
+    Some(ty) => wesl_validate_matrix_type_expr(path, item, ty)
+    None => ()
+  }
+  match declaration.initializer_expr {
+    Some(expr) => wesl_validate_matrix_expression_types(path, item, expr)
+    None => ()
+  }
+}
+
+///|
+fn wesl_validate_matrix_assignment_types(
+  path : ModulePath,
+  item : ModuleItem,
+  assignment : AssignmentStatement,
+) -> Unit raise WeslCompileError {
+  wesl_validate_matrix_expression_types(path, item, assignment.lhs)
+  wesl_validate_matrix_expression_types(path, item, assignment.rhs)
+}
+
+///|
+fn wesl_validate_matrix_statement_types(
+  path : ModulePath,
+  item : ModuleItem,
+  statement : Statement,
+) -> Unit raise WeslCompileError {
+  match statement.expression {
+    Some(expr) => wesl_validate_matrix_expression_types(path, item, expr)
+    None => ()
+  }
+  match statement.declaration {
+    Some(declaration) =>
+      wesl_validate_matrix_statement_declaration_types(path, item, declaration)
+    None => ()
+  }
+  match statement.assignment {
+    Some(assignment) =>
+      wesl_validate_matrix_assignment_types(path, item, assignment)
+    None => ()
+  }
+  match statement.update_expression {
+    Some(expr) => wesl_validate_matrix_expression_types(path, item, expr)
+    None => ()
+  }
+  match statement.control {
+    Some(control) => wesl_validate_matrix_control_types(path, item, control)
+    None => ()
+  }
+}
+
+///|
+fn wesl_validate_matrix_body_types(
+  path : ModulePath,
+  item : ModuleItem,
+  body : FunctionBody,
+) -> Unit raise WeslCompileError {
+  for statement in body.statements {
+    wesl_validate_matrix_statement_types(path, item, statement)
+  }
+}
+
+///|
+fn wesl_validate_matrix_control_types(
+  path : ModulePath,
+  item : ModuleItem,
+  control : ControlStatement,
+) -> Unit raise WeslCompileError {
+  match control {
+    Block(block) => wesl_validate_matrix_body_types(path, item, block.body)
+    If(if_) => {
+      wesl_validate_matrix_expression_types(path, item, if_.condition)
+      wesl_validate_matrix_body_types(path, item, if_.body)
+      match if_.else_body {
+        Some(body) => wesl_validate_matrix_body_types(path, item, body)
+        None => ()
+      }
+    }
+    Switch(switch_) => {
+      wesl_validate_matrix_expression_types(path, item, switch_.selector)
+      for case_ in switch_.cases {
+        for selector in case_.selectors {
+          wesl_validate_matrix_expression_types(path, item, selector)
+        }
+        wesl_validate_matrix_body_types(path, item, case_.body)
+      }
+    }
+    Loop(loop_) => wesl_validate_matrix_body_types(path, item, loop_.body)
+    For(for_) => {
+      match for_.initializer {
+        Some(Declaration(declaration)) =>
+          wesl_validate_matrix_statement_declaration_types(
+            path, item, declaration,
+          )
+        Some(Assignment(assignment)) =>
+          wesl_validate_matrix_assignment_types(path, item, assignment)
+        Some(Expression(expr)) =>
+          wesl_validate_matrix_expression_types(path, item, expr)
+        None => ()
+      }
+      match for_.condition {
+        Some(expr) => wesl_validate_matrix_expression_types(path, item, expr)
+        None => ()
+      }
+      match for_.update {
+        Some(ForUpdate::Assignment(assignment)) =>
+          wesl_validate_matrix_assignment_types(path, item, assignment)
+        Some(Increment(expr))
+        | Some(Decrement(expr))
+        | Some(ForUpdate::Expression(expr)) =>
+          wesl_validate_matrix_expression_types(path, item, expr)
+        None => ()
+      }
+      wesl_validate_matrix_body_types(path, item, for_.body)
+    }
+    While(while_) => {
+      wesl_validate_matrix_expression_types(path, item, while_.condition)
+      wesl_validate_matrix_body_types(path, item, while_.body)
+    }
+    Continuing(continuing) =>
+      wesl_validate_matrix_body_types(path, item, continuing.body)
+  }
+}
+
+///|
+fn wesl_validate_matrix_header_types(
+  path : ModulePath,
+  item : ModuleItem,
+) -> Unit raise WeslCompileError {
+  match item.header {
+    Alias(alias_decl) =>
+      match alias_decl.target_type {
+        Some(ty) => wesl_validate_matrix_type_expr(path, item, ty)
+        None => ()
+      }
+    Const(const_) => {
+      match const_.type_expr {
+        Some(ty) => wesl_validate_matrix_type_expr(path, item, ty)
+        None => ()
+      }
+      match const_.initializer_expr {
+        Some(expr) => wesl_validate_matrix_expression_types(path, item, expr)
+        None => ()
+      }
+    }
+    Override(override_) => {
+      match override_.type_expr {
+        Some(ty) => wesl_validate_matrix_type_expr(path, item, ty)
+        None => ()
+      }
+      match override_.initializer_expr {
+        Some(expr) => wesl_validate_matrix_expression_types(path, item, expr)
+        None => ()
+      }
+    }
+    Let(let_) => {
+      match let_.type_expr {
+        Some(ty) => wesl_validate_matrix_type_expr(path, item, ty)
+        None => ()
+      }
+      match let_.initializer_expr {
+        Some(expr) => wesl_validate_matrix_expression_types(path, item, expr)
+        None => ()
+      }
+    }
+    Var(var_) => {
+      match var_.type_expr {
+        Some(ty) => wesl_validate_matrix_type_expr(path, item, ty)
+        None => ()
+      }
+      match var_.initializer_expr {
+        Some(expr) => wesl_validate_matrix_expression_types(path, item, expr)
+        None => ()
+      }
+    }
+    Function(function_) => {
+      for parameter in function_.parameters {
+        wesl_validate_matrix_type_expr(path, item, parameter.type_expr)
+      }
+      match function_.return_type_expr {
+        Some(ty) => wesl_validate_matrix_type_expr(path, item, ty)
+        None => ()
+      }
+      wesl_validate_matrix_body_types(path, item, function_.body)
+    }
+    Struct(struct_) =>
+      for field in struct_.members {
+        wesl_validate_matrix_type_expr(path, item, field.type_expr)
+      }
+    ConstAssert(assertion) =>
+      wesl_validate_matrix_expression_types(
+        path,
+        item,
+        assertion.assertion_expr,
+      )
+    EnableDirective(_)
+    | RequiresDirective(_)
+    | DiagnosticDirective(_)
+    | Other => ()
+  }
+}
+
+///|
 fn wesl_skip_angle_tokens(
   tokens : Array[ParserToken],
   start_index : Int,
@@ -3185,40 +3454,6 @@ fn wesl_binding_is_matrix_type(
 }
 
 ///|
-fn wesl_validate_matrix_type_templates(
-  path : ModulePath,
-  item : ModuleItem,
-) -> Unit raise WeslCompileError {
-  let tokens = parser_lex(item.source)
-  let context = wesl_item_context(path, item)
-  for index in 0..<tokens.length() {
-    match tokens[index] {
-      Ident(type_name, _, _, _) =>
-        if wesl_is_matrix_type_name(type_name) &&
-          index + 1 < tokens.length() &&
-          tokens[index + 1] is Lt(start_offset, end_offset, _) {
-          let close_offset = wesl_find_matching_delim(
-            item.source,
-            start_offset,
-            60,
-            62,
-          )
-          let scalar = item.source[end_offset:close_offset]
-            .to_owned()
-            .trim()
-            .to_owned()
-          if scalar != "" && !wesl_is_float_scalar_name(scalar) {
-            raise WeslCompileError::Validation(
-              "matrix types must use floating scalar types (\{context})",
-            )
-          }
-        }
-      _ => ()
-    }
-  }
-}
-
-///|
 fn wesl_validate_matrix_constructors(
   path : ModulePath,
   item : ModuleItem,
@@ -3345,7 +3580,7 @@ fn wesl_validate_item_types(
   path : ModulePath,
   item : ModuleItem,
 ) -> Unit raise WeslCompileError {
-  wesl_validate_matrix_type_templates(path, item)
+  wesl_validate_matrix_header_types(path, item)
   wesl_validate_matrix_constructors(path, item)
   wesl_validate_matrix_assignments(path, item)
 }

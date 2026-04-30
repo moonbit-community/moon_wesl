@@ -612,6 +612,31 @@ test "wesl: validate option controls semantic validation pass" {
 }
 
 ///|
+test "wesl: validation checks matrix templates through AST type expressions" {
+  let root_path = ModulePath::from_path("/shaders/root")
+  let resolver = VirtualResolver::new()
+  resolver.add_module(
+    root_path, "fn main() {\n  var m: array<mat2x2<i32>, 1>;\n}\n",
+  )
+
+  let result = try? compile(
+    root_path,
+    resolver,
+    EscapeMangler::default(),
+    CompileOptions::default().with_strip(false),
+  )
+
+  match result {
+    Err(WeslCompileError::Validation(message)) =>
+      debug_inspect(
+        message.contains("matrix types must use floating scalar types"),
+        content="true",
+      )
+    _ => fail("expected matrix validation error")
+  }
+}
+
+///|
 test "wesl: compile options expose lazy resolution control" {
   let options = CompileOptions::default()
 
