@@ -2114,6 +2114,40 @@ fn const_eval_apply_clamp(
 }
 
 ///|
+fn const_eval_apply_saturate(
+  args : Array[ConstEvalValue],
+) -> ConstEvalValue raise WeslCompileError {
+  if args.length() != 1 {
+    let signature = const_eval_format_call_signature("saturate", args)
+    raise WeslCompileError::Validation(
+      "invalid function call signature: `\{signature}`",
+    )
+  }
+  match args[0] {
+    Bool(_) | I32(_) | U32(_) =>
+      raise WeslCompileError::Validation("`clamp` arguments are incompatible")
+    AbstractInt(number) =>
+      ConstEvalValue::AbstractFloat(
+        Double::clamp(number.to_double(), min=0.0, max=1.0),
+        true,
+      )
+    AbstractFloat(number, _) =>
+      ConstEvalValue::AbstractFloat(
+        Double::clamp(number, min=0.0, max=1.0),
+        true,
+      )
+    F32(number) =>
+      ConstEvalValue::F32(
+        Float::clamp(
+          number,
+          min=Float::from_double(0.0),
+          max=Float::from_double(1.0),
+        ),
+      )
+  }
+}
+
+///|
 fn const_eval_apply_min_or_max(
   name : String,
   args : Array[ConstEvalValue],
@@ -2492,6 +2526,69 @@ fn const_eval_apply_float_binary_builtin(
 }
 
 ///|
+fn const_eval_ldexp_factor(exponent : Int64) -> Double {
+  @math.pow(2.0, exponent.to_double())
+}
+
+///|
+fn const_eval_apply_ldexp(
+  args : Array[ConstEvalValue],
+) -> ConstEvalValue raise WeslCompileError {
+  if args.length() != 2 {
+    let signature = const_eval_format_call_signature("ldexp", args)
+    raise WeslCompileError::Validation(
+      "invalid function call signature: `\{signature}`",
+    )
+  }
+  let exponent = match args[1] {
+    AbstractInt(number) => number
+    I32(number) => number
+    _ =>
+      raise WeslCompileError::Validation(
+        "`ldexp` with scalar arguments expects a float and a i32 arguments",
+      )
+  }
+  match args[0] {
+    Bool(_) | I32(_) | U32(_) =>
+      raise WeslCompileError::Validation(
+        "`ldexp` with scalar arguments expects a float and a i32 arguments",
+      )
+    F32(number) =>
+      ConstEvalValue::F32(
+        Float::from_double(
+          number.to_double() * const_eval_ldexp_factor(exponent),
+        ),
+      )
+    AbstractInt(number) =>
+      match args[1] {
+        I32(_) =>
+          ConstEvalValue::F32(
+            Float::from_double(
+              number.to_double() * const_eval_ldexp_factor(exponent),
+            ),
+          )
+        _ =>
+          ConstEvalValue::AbstractFloat(
+            number.to_double() * const_eval_ldexp_factor(exponent),
+            true,
+          )
+      }
+    AbstractFloat(number, _) =>
+      match args[1] {
+        I32(_) =>
+          ConstEvalValue::F32(
+            Float::from_double(number * const_eval_ldexp_factor(exponent)),
+          )
+        _ =>
+          ConstEvalValue::AbstractFloat(
+            number * const_eval_ldexp_factor(exponent),
+            true,
+          )
+      }
+  }
+}
+
+///|
 fn const_eval_require_float_builtin_double(
   value : ConstEvalValue,
   name : String,
@@ -2796,8 +2893,10 @@ fn const_eval_eval_expr(
         "tanh" => const_eval_apply_float_unary_builtin("tanh", values)
         "radians" => const_eval_apply_float_unary_builtin("radians", values)
         "degrees" => const_eval_apply_float_unary_builtin("degrees", values)
+        "saturate" => const_eval_apply_saturate(values)
         "pow" => const_eval_apply_float_binary_builtin("pow", values)
         "atan2" => const_eval_apply_float_binary_builtin("atan2", values)
+        "ldexp" => const_eval_apply_ldexp(values)
         "step" => const_eval_apply_step(values)
         "mix" => const_eval_apply_mix(values)
         "sign" => const_eval_apply_sign(values)
