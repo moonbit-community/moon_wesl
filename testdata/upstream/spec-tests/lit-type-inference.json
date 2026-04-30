@@ -25,7 +25,7 @@
     "kind": "eval",
     "code": "@const fn test() -> f32 { var f32_1 = 1f; return f32_1; }",
     "eval": "test()",
-    "result": "1.0f",
+    "result": "1f",
     "expect": "pass",
     "stage": "const"
   },
@@ -74,7 +74,7 @@
     "kind": "eval",
     "code": "@const fn test() -> f32 { var f32_promotion : f32 = 1; return f32_promotion; }",
     "eval": "test()",
-    "result": "1.0f",
+    "result": "1f",
     "expect": "pass",
     "stage": "const"
   },
@@ -228,7 +228,7 @@
     "kind": "eval",
     "code": "@const fn test() -> f32 { let f32_promotion3 = 1f + ((2 + 3) + 4); return f32_promotion3; }",
     "eval": "test()",
-    "result": "10.0f",
+    "result": "10f",
     "expect": "pass",
     "stage": "const"
   },

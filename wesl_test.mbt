@@ -151,6 +151,7 @@ test "wesl: public const eval supports typed function parameters" {
 test "wesl: eval_str evaluates standalone const expressions" {
   inspect(eval_str("1 + 2").to_string(), content="3")
   inspect(eval_str("1u + 2u").to_string(), content="3u")
+  inspect(eval_str("6u * 7u").to_string(), content="42u")
   inspect(eval_str("1.0 + 2.0").to_string(), content="3.0")
 }
 
@@ -203,6 +204,23 @@ test "wesl: compile result eval passes arguments into const functions" {
   )
 
   inspect(compiled.eval("add(BASE, 2u)").to_string(), content="42u")
+}
+
+///|
+test "wesl: compile result eval handles multiplied global constants" {
+  let resolver = VirtualResolver::new()
+  let root_path = ModulePath::from_path("/shaders/root")
+  resolver.add_module(
+    root_path, "const PI: f32 = 3.0;\nconst TAU: f32 = PI * 2.0;\n",
+  )
+  let compiled = compile(
+    root_path,
+    resolver,
+    EscapeMangler::default(),
+    CompileOptions::default().keep_declarations(["PI", "TAU"]),
+  )
+
+  inspect(compiled.eval("TAU").to_string(), content="6f")
 }
 
 ///|

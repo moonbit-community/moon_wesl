@@ -34,6 +34,7 @@ priv enum ConstEvalToken {
   Equal
   Plus
   Minus
+  Star
   Slash
   Arrow
   Ident(String)
@@ -125,6 +126,10 @@ fn const_eval_lex(
       }
       43 => {
         tokens.push(ConstEvalToken::Plus)
+        index += 1
+      }
+      42 => {
+        tokens.push(ConstEvalToken::Star)
         index += 1
       }
       45 =>
@@ -223,6 +228,7 @@ priv enum ConstEvalExpr {
 priv enum ConstEvalBinaryOp {
   Add
   Sub
+  Mul
   Div
 }
 
@@ -336,12 +342,21 @@ fn ConstEvalParser::parse_unary(
 }
 
 ///|
-fn ConstEvalParser::parse_division(
+fn ConstEvalParser::parse_multiplicative(
   self : ConstEvalParser,
 ) -> ConstEvalExpr raise WeslCompileError {
   let mut expr = self.parse_unary()
   for rest = self.view() {
     match rest {
+      [Star, .. next] => {
+        self.update_view(next)
+        expr = ConstEvalExpr::Binary(
+          ConstEvalBinaryOp::Mul,
+          expr,
+          self.parse_unary(),
+        )
+        continue self.view()
+      }
       [Slash, .. next] => {
         self.update_view(next)
         expr = ConstEvalExpr::Binary(
@@ -364,7 +379,7 @@ fn ConstEvalParser::parse_division(
 fn ConstEvalParser::parse_additive(
   self : ConstEvalParser,
 ) -> ConstEvalExpr raise WeslCompileError {
-  let mut expr = self.parse_division()
+  let mut expr = self.parse_multiplicative()
   for rest = self.view() {
     match rest {
       [Plus, .. next] => {
@@ -372,7 +387,7 @@ fn ConstEvalParser::parse_additive(
         expr = ConstEvalExpr::Binary(
           ConstEvalBinaryOp::Add,
           expr,
-          self.parse_division(),
+          self.parse_multiplicative(),
         )
         continue self.view()
       }
@@ -381,7 +396,7 @@ fn ConstEvalParser::parse_additive(
         expr = ConstEvalExpr::Binary(
           ConstEvalBinaryOp::Sub,
           expr,
-          self.parse_division(),
+          self.parse_multiplicative(),
         )
         continue self.view()
       }
@@ -966,6 +981,7 @@ fn const_eval_binary_int(
   match op {
     Add => lhs + rhs
     Sub => lhs - rhs
+    Mul => lhs * rhs
     Div => lhs / rhs
   }
 }
@@ -979,6 +995,7 @@ fn const_eval_binary_float(
   match op {
     Add => lhs + rhs
     Sub => lhs - rhs
+    Mul => lhs * rhs
     Div => lhs / rhs
   }
 }
@@ -992,6 +1009,7 @@ fn const_eval_binary_abstract_float(
   match op {
     Add => lhs + rhs
     Sub => lhs - rhs
+    Mul => lhs * rhs
     Div => lhs / rhs
   }
 }
@@ -1208,11 +1226,7 @@ fn const_eval_eval_expr(
 ///|
 fn const_eval_format_f32(value : Float) -> String {
   let text = value.to_double().to_string()
-  if text.contains(".") || text.contains("e") || text.contains("E") {
-    "\{text}f"
-  } else {
-    "\{text}.0f"
-  }
+  "\{text}f"
 }
 
 ///|
