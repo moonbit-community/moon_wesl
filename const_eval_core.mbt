@@ -45,6 +45,7 @@ priv enum ConstEvalToken {
   Minus
   Star
   Slash
+  Percent
   Arrow
   Ident(String)
   Number(String)
@@ -202,6 +203,10 @@ fn const_eval_lex(
         tokens.push(ConstEvalToken::Slash)
         index += 1
       }
+      37 => {
+        tokens.push(ConstEvalToken::Percent)
+        index += 1
+      }
       _ =>
         if const_eval_is_identifier_start(code) {
           let start = index
@@ -289,6 +294,7 @@ priv enum ConstEvalBinaryOp {
   Sub
   Mul
   Div
+  Mod
   Eq
   Ne
   Lt
@@ -444,6 +450,15 @@ fn ConstEvalParser::parse_multiplicative(
         self.update_view(next)
         expr = ConstEvalExpr::Binary(
           ConstEvalBinaryOp::Div,
+          expr,
+          self.parse_unary(),
+        )
+        continue self.view()
+      }
+      [Percent, .. next] => {
+        self.update_view(next)
+        expr = ConstEvalExpr::Binary(
+          ConstEvalBinaryOp::Mod,
           expr,
           self.parse_unary(),
         )
@@ -874,6 +889,7 @@ fn ConstEvalBinaryOp::symbol(self : ConstEvalBinaryOp) -> String {
     Sub => "-"
     Mul => "*"
     Div => "/"
+    Mod => "%"
     Eq => "=="
     Ne => "!="
     Lt => "<"
@@ -1278,6 +1294,7 @@ fn const_eval_binary_int(
     Sub => lhs - rhs
     Mul => lhs * rhs
     Div => lhs / rhs
+    Mod => lhs % rhs
     _ =>
       raise WeslCompileError::Validation(
         "unsupported integer arithmetic operator `\{op.symbol()}`",
@@ -1296,6 +1313,7 @@ fn const_eval_binary_float(
     Sub => lhs - rhs
     Mul => lhs * rhs
     Div => lhs / rhs
+    Mod => lhs - (lhs / rhs).trunc() * rhs
     _ =>
       raise WeslCompileError::Validation(
         "unsupported f32 arithmetic operator `\{op.symbol()}`",
@@ -1314,6 +1332,7 @@ fn const_eval_binary_abstract_float(
     Sub => lhs - rhs
     Mul => lhs * rhs
     Div => lhs / rhs
+    Mod => lhs - (lhs / rhs).trunc() * rhs
     _ =>
       raise WeslCompileError::Validation(
         "unsupported abstract float arithmetic operator `\{op.symbol()}`",
