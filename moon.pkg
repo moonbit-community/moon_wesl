@@ -4,3 +4,7 @@ import {
   "moonbitlang/core/hashmap",
   "moonbitlang/core/string",
 }
+
+import {
+  "Milky2018/moon_wesl/internal/expression_parse",
+} for "wbtest"

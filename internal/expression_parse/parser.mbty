@@ -1,0 +1,180 @@
+%derive<Debug> Token
+%derive<Debug> ParseError
+%position<Int>
+%start<Unit> parse_expression
+
+%token<String> IDENT
+%token<String> NUMBER
+%token<String> TEMPLATE
+%token TRUE        "true"
+%token FALSE       "false"
+%token LEFT_PAREN  "("
+%token RIGHT_PAREN ")"
+%token LEFT_BRACKET  "["
+%token RIGHT_BRACKET "]"
+%token DOT         "."
+%token COMMA       ","
+%token DOUBLE_COLON "::"
+%token LESS        "<"
+%token LESS_EQUAL  "<="
+%token SHIFT_LEFT  "<<"
+%token GREATER     ">"
+%token GREATER_EQUAL ">="
+%token SHIFT_RIGHT ">>"
+%token PLUS        "+"
+%token MINUS       "-"
+%token MINUS_MINUS "--"
+%token STAR        "*"
+%token SLASH       "/"
+%token PERCENT     "%"
+%token BANG        "!"
+%token TILDE       "~"
+%token AMP         "&"
+%token AMP_AMP     "&&"
+%token PIPE        "|"
+%token PIPE_PIPE   "||"
+%token CARET       "^"
+%token EQUAL_EQUAL "=="
+%token BANG_EQUAL  "!="
+
+%type<Unit> expression
+%type<Unit> short_circuit_or
+%type<Unit> short_circuit_and
+%type<Unit> bitwise_or
+%type<Unit> bitwise_xor
+%type<Unit> bitwise_and
+%type<Unit> equality
+%type<Unit> relational
+%type<Unit> shift
+%type<Unit> additive
+%type<Unit> multiplicative
+%type<Unit> unary
+%type<Unit> postfix
+%type<Unit> postfix_suffix
+%type<Unit> primary
+%type<Unit> path_ident
+%type<Unit> argument_list
+%type<Unit> opt_arguments
+%type<Unit> literal
+
+%%
+
+parse_expression
+  : expression                    { () }
+  ;
+
+expression
+  : short_circuit_or              { () }
+  ;
+
+short_circuit_or
+  : short_circuit_and             { () }
+  | short_circuit_or "||" short_circuit_and
+                                  { () }
+  ;
+
+short_circuit_and
+  : bitwise_or                    { () }
+  | short_circuit_and "&&" bitwise_or
+                                  { () }
+  ;
+
+bitwise_or
+  : bitwise_xor                   { () }
+  | bitwise_or "|" bitwise_xor    { () }
+  ;
+
+bitwise_xor
+  : bitwise_and                   { () }
+  | bitwise_xor "^" bitwise_and   { () }
+  ;
+
+bitwise_and
+  : equality                      { () }
+  | bitwise_and "&" equality      { () }
+  ;
+
+equality
+  : relational                    { () }
+  | equality "==" relational      { () }
+  | equality "!=" relational      { () }
+  ;
+
+relational
+  : shift                         { () }
+  | relational "<" shift          { () }
+  | relational "<=" shift         { () }
+  | relational ">" shift          { () }
+  | relational ">=" shift         { () }
+  ;
+
+shift
+  : additive                      { () }
+  | shift "<<" additive           { () }
+  | shift ">>" additive           { () }
+  ;
+
+additive
+  : multiplicative                { () }
+  | additive "+" multiplicative   { () }
+  | additive "-" multiplicative   { () }
+  | additive "--" multiplicative  { () }
+  ;
+
+multiplicative
+  : unary                         { () }
+  | multiplicative "*" unary      { () }
+  | multiplicative "/" unary      { () }
+  | multiplicative "%" unary      { () }
+  ;
+
+unary
+  : postfix                       { () }
+  | "-" unary                     { () }
+  | "!" unary                     { () }
+  | "~" unary                     { () }
+  | "*" unary                     { () }
+  | "&" unary                     { () }
+  ;
+
+postfix
+  : primary                       { () }
+  | postfix postfix_suffix        { () }
+  ;
+
+postfix_suffix
+  : "[" expression "]"            { () }
+  | "." IDENT                     { () }
+  ;
+
+primary
+  : literal                       { () }
+  | path_ident                    { () }
+  | path_ident "(" opt_arguments ")"
+                                  { () }
+  | path_ident TEMPLATE "(" opt_arguments ")"
+                                  { () }
+  | "(" expression ")"            { () }
+  ;
+
+path_ident
+  : IDENT                         { () }
+  | path_ident "::" IDENT         { () }
+  ;
+
+opt_arguments
+  :                              { () }
+  | argument_list                { () }
+  | argument_list ","            { () }
+  ;
+
+argument_list
+  : expression                   { () }
+  | argument_list "," expression { () }
+  ;
+
+literal
+  : NUMBER                       { () }
+  | "true"                       { () }
+  | "false"                      { () }
+  ;

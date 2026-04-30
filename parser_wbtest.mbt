@@ -13,71 +13,46 @@
 // limitations under the License.
 
 ///|
-fn parser_is_digit(code : Int) -> Bool {
-  code >= 48 && code <= 57
+fn parse_expression(source : String) -> Unit raise WeslCompileError {
+  match @expression_parse.parse_expression_source(source) {
+    @expression_parse.Parsed => ()
+    @expression_parse.Failed(diagnostic) => {
+      let message = match diagnostic.message {
+        Some(message) => message
+        None =>
+          if diagnostic.incomplete {
+            "incomplete expression"
+          } else {
+            "unsupported expression syntax"
+          }
+      }
+      raise WeslCompileError::Parse("\{message}: `\{source}`")
+    }
+  }
 }
 
 ///|
-fn parse_expression(source : String) -> Unit raise WeslCompileError {
-  let expr = source.trim().to_owned()
-  if expr == "" {
-    raise WeslCompileError::Parse("empty expression")
-  }
-  let mut index = 0
-  if expr.code_unit_at(index).to_int() == 45 {
-    index += 1
-  }
-  if index >= expr.length() ||
-    !parser_is_digit(expr.code_unit_at(index).to_int()) {
-    raise WeslCompileError::Parse("unsupported expression syntax: `\{expr}`")
-  }
-  let digit_start = index
-  while index < expr.length() &&
-        parser_is_digit(expr.code_unit_at(index).to_int()) {
-    index += 1
-  }
-  let has_leading_zero = index - digit_start > 1 &&
-    expr.code_unit_at(digit_start).to_int() == 48
-  if index == expr.length() {
-    if has_leading_zero {
-      raise WeslCompileError::Parse("invalid numeric literal: `\{expr}`")
+test "parser: generated expression parser handles WGSL operator and template forms" {
+  let valid_cases = [
+    "vec2<f32>(1.0, 2.0)", "array<vec2<f32>, 2>(vec2<f32>(1, 2), vec2(3, 4))", "a < b || c > d",
+    "textureSample(t, s, uv).rgba[0]", "&buffer[index + 1u]", "foo(1, 2,)", "!(a == b) && (c != d)",
+    "value--7",
+  ]
+  for expr in valid_cases {
+    let result = try? parse_expression(expr)
+    match result {
+      Ok(_) => ()
+      Err(err) => fail("\{expr}: \{err.message()}")
     }
-    return
   }
-  match expr.code_unit_at(index).to_int() {
-    46 => { // '.'
-      index += 1
-      if index >= expr.length() ||
-        !parser_is_digit(expr.code_unit_at(index).to_int()) {
-        raise WeslCompileError::Parse(
-          "unsupported expression syntax: `\{expr}`",
-        )
-      }
-      while index < expr.length() &&
-            parser_is_digit(expr.code_unit_at(index).to_int()) {
-        index += 1
-      }
-      if index < expr.length() && expr.code_unit_at(index).to_int() == 102 {
-        index += 1
-      }
-      if index != expr.length() {
-        raise WeslCompileError::Parse(
-          "unsupported expression syntax: `\{expr}`",
-        )
-      }
+  let invalid_cases = [
+    "07", "foo(", "vec2<f32>(", "a +", "textureSample(t,, uv)",
+  ]
+  for expr in invalid_cases {
+    let result = try? parse_expression(expr)
+    match result {
+      Ok(_) => fail("\{expr}: expected parse failure")
+      Err(_) => ()
     }
-    117 => { // 'u'
-      if has_leading_zero {
-        raise WeslCompileError::Parse("invalid numeric literal: `\{expr}`")
-      }
-      index += 1
-      if index != expr.length() {
-        raise WeslCompileError::Parse(
-          "unsupported expression syntax: `\{expr}`",
-        )
-      }
-    }
-    _ =>
-      raise WeslCompileError::Parse("unsupported expression syntax: `\{expr}`")
   }
 }
