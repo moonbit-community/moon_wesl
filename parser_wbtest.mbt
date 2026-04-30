@@ -237,11 +237,36 @@ test "parser: generated attribute parser preserves leading attributes" {
     #|  {
     #|    name: "group",
     #|    arguments: Some("0"),
+    #|    argument_exprs: [Literal("0")],
     #|    span: { start_line: 1, end_line: 1 },
     #|  },
     #|  {
     #|    name: "binding",
     #|    arguments: Some("textureIndex(1 + foo(2))"),
+    #|    argument_exprs: [
+    #|      FunctionCall(
+    #|        {
+    #|          callee: {
+    #|            path: [],
+    #|            ident: "textureIndex",
+    #|            template_text: None,
+    #|            template_args: [],
+    #|          },
+    #|          arguments: [
+    #|            Binary(
+    #|              Addition,
+    #|              Literal("1"),
+    #|              FunctionCall(
+    #|                {
+    #|                  callee: { path: [], ident: "foo", template_text: None, template_args: [] },
+    #|                  arguments: [Literal("2")],
+    #|                },
+    #|              ),
+    #|            ),
+    #|          ],
+    #|        },
+    #|      ),
+    #|    ],
     #|    span: { start_line: 2, end_line: 2 },
     #|  },
     #|]
@@ -283,6 +308,16 @@ test "parser: generated struct parser records member names and types" {
         #|      {
         #|        name: "builtin",
         #|        arguments: Some("position"),
+        #|        argument_exprs: [
+        #|          TypeOrIdentifier(
+        #|            {
+        #|              path: [],
+        #|              ident: "position",
+        #|              template_text: None,
+        #|              template_args: [],
+        #|            },
+        #|          ),
+        #|        ],
         #|        span: { start_line: 1, end_line: 1 },
         #|      },
         #|    ],
@@ -357,6 +392,7 @@ test "parser: generated function parser records signature" {
         #|      {
         #|        name: "location",
         #|        arguments: Some("0"),
+        #|        argument_exprs: [Literal("0")],
         #|        span: { start_line: 1, end_line: 1 },
         #|      },
         #|    ],
@@ -384,6 +420,7 @@ test "parser: generated function parser records signature" {
         #|  {
         #|    name: "location",
         #|    arguments: Some("0"),
+        #|    argument_exprs: [Literal("0")],
         #|    span: { start_line: 1, end_line: 1 },
         #|  },
         #|]
@@ -521,6 +558,7 @@ test "parser: generated statement parser classifies function body statements" {
         #|  {
         #|    name: "if",
         #|    arguments: Some("true"),
+        #|    argument_exprs: [],
         #|    span: { start_line: 1, end_line: 1 },
         #|  },
         #|]
@@ -712,6 +750,7 @@ test "parser: generated statement parser classifies function body statements" {
             #|  {
             #|    name: "if",
             #|    arguments: Some("true"),
+            #|    argument_exprs: [],
             #|    span: { start_line: 1, end_line: 1 },
             #|  },
             #|]
@@ -724,6 +763,7 @@ test "parser: generated statement parser classifies function body statements" {
             #|  {
             #|    name: "else",
             #|    arguments: None,
+            #|    argument_exprs: [],
             #|    span: { start_line: 1, end_line: 1 },
             #|  },
             #|]

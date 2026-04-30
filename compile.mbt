@@ -1043,6 +1043,7 @@ fn wesl_transform_condcomp_node(
                     ..cond_attr,
                     name: "else",
                     arguments: None,
+                    argument_exprs: [],
                   })
                   replacement_source = Some("@else")
                 }

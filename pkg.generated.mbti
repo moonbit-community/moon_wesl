@@ -75,6 +75,7 @@ pub(all) struct AssignmentStatement {
 pub(all) struct Attribute {
   name : String
   arguments : String?
+  argument_exprs : Array[Expression]
   span : SyntaxSpan
 } derive(Eq, @debug.Debug)
 

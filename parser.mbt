@@ -361,6 +361,11 @@ fn Parser::parse_attributes(
     attrs.push(Attribute::{
       name: attr.name,
       arguments: attr.arguments,
+      argument_exprs: parser_parse_attribute_argument_exprs(
+        attr.name,
+        attr.arguments,
+        item_source,
+      ),
       span: SyntaxSpan::{
         start_line: line_base + attr.start_line,
         end_line: line_base + attr.end_line,
@@ -369,6 +374,27 @@ fn Parser::parse_attributes(
   }
   self.update_view_after_offset(first_token.start() + success.consumed_offset)
   attrs
+}
+
+///|
+fn parser_parse_attribute_argument_exprs(
+  name : String,
+  arguments : String?,
+  item_source : String,
+) -> Array[Expression] raise WeslCompileError {
+  if name == "if" || name == "elif" || name == "else" {
+    return []
+  }
+  match arguments {
+    Some(text) => {
+      let expressions : Array[Expression] = []
+      for part in parser_split_top_level_commas(text) {
+        expressions.push(parser_parse_statement_expression(part, item_source))
+      }
+      expressions
+    }
+    None => []
+  }
 }
 
 ///|
@@ -1806,6 +1832,11 @@ fn parser_statement_attributes(
         attrs.push(Attribute::{
           name: attr.name,
           arguments: attr.arguments,
+          argument_exprs: parser_parse_attribute_argument_exprs(
+            attr.name,
+            attr.arguments,
+            source,
+          ),
           span: SyntaxSpan::{
             start_line: attr.start_line,
             end_line: attr.end_line,

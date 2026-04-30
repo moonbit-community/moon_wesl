@@ -40,6 +40,7 @@ fn SyntaxSpan::symbol_context(
 pub(all) struct Attribute {
   name : String
   arguments : String?
+  argument_exprs : Array[Expression]
   span : SyntaxSpan
 } derive(Eq, Debug)
 
