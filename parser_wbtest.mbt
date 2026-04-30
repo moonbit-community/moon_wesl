@@ -887,11 +887,14 @@ test "parser: generated directive parser records directive arguments" {
     _ => fail("expected requires directive")
   }
   match unit.global_declarations[2].header {
-    DiagnosticDirective(header) =>
+    DiagnosticDirective(header) => {
       debug_inspect(
         header.arguments,
         content="[\"off\", \"derivative_uniformity\"]",
       )
+      debug_inspect(header.severity, content="Some(\"off\")")
+      debug_inspect(header.rule_name, content="Some(\"derivative_uniformity\")")
+    }
     _ => fail("expected diagnostic directive")
   }
 }

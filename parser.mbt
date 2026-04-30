@@ -664,6 +664,17 @@ fn parser_parse_const_assert_declaration(
 }
 
 ///|
+fn parser_diagnostic_directive_from_arguments(
+  arguments : Array[String],
+) -> DiagnosticDirectiveDeclaration {
+  DiagnosticDirectiveDeclaration::{
+    arguments,
+    severity: arguments.get(0),
+    rule_name: arguments.get(1),
+  }
+}
+
+///|
 fn parser_unary_operator_from_generated(
   op : @expression_parse.ExpressionUnaryOperator,
 ) -> UnaryOperator {
@@ -2330,9 +2341,9 @@ fn Parser::parse_global_declaration(
     }
     @global_parse.Parsed(@global_parse.DiagnosticDirective) => {
       let directive = self.parse_directive_with_yacc(item_source)
-      GlobalDeclarationHeader::DiagnosticDirective(DiagnosticDirectiveDeclaration::{
-        arguments: directive.arguments,
-      })
+      GlobalDeclarationHeader::DiagnosticDirective(
+        parser_diagnostic_directive_from_arguments(directive.arguments),
+      )
     }
     @global_parse.Parsed(@global_parse.Other) => GlobalDeclarationHeader::Other
     @global_parse.Failed(diagnostic) => {

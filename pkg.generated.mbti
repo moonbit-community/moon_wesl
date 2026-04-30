@@ -210,6 +210,8 @@ pub(all) enum ControlStatement {
 
 pub(all) struct DiagnosticDirectiveDeclaration {
   arguments : Array[String]
+  severity : String?
+  rule_name : String?
 } derive(Eq, @debug.Debug)
 
 pub(all) struct EnableDirectiveDeclaration {

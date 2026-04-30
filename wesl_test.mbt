@@ -381,7 +381,13 @@ test "wesl: parser classifies global directives" {
     #|[
     #|  EnableDirective({ names: ["f16"] }),
     #|  RequiresDirective({ names: ["readonly_and_readwrite_storage_textures"] }),
-    #|  DiagnosticDirective({ arguments: ["error", "derivative_uniformity"] }),
+    #|  DiagnosticDirective(
+    #|    {
+    #|      arguments: ["error", "derivative_uniformity"],
+    #|      severity: Some("error"),
+    #|      rule_name: Some("derivative_uniformity"),
+    #|    },
+    #|  ),
     #|]
   debug_inspect(headers, content=expected_headers)
 }

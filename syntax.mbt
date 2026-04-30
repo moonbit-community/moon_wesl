@@ -523,6 +523,8 @@ pub(all) struct RequiresDirectiveDeclaration {
 ///|
 pub(all) struct DiagnosticDirectiveDeclaration {
   arguments : Array[String]
+  severity : String?
+  rule_name : String?
 } derive(Eq, Debug)
 
 ///|
