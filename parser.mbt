@@ -276,6 +276,16 @@ fn Parser::update_view(self : Parser, view : ArrayView[ParserToken]) -> Unit {
 }
 
 ///|
+fn Parser::update_view_after_offset(self : Parser, offset : Int) -> Unit {
+  let mut position = self.position
+  while position < self.tokens.length() &&
+        self.tokens[position].start() < offset {
+    position += 1
+  }
+  self.position = position
+}
+
+///|
 fn[A] Parser::error(
   self : Parser,
   message : String,
@@ -335,83 +345,42 @@ fn Parser::item_span(self : Parser) -> SyntaxSpan raise WeslCompileError {
 }
 
 ///|
-fn Parser::consume_balanced_parens(
-  self : Parser,
-) -> ParserToken raise WeslCompileError {
-  let mut depth = 1
-  let rest = for current = self.view() {
-    match current {
-      [token, .. rest] =>
-        match token {
-          LParen(_, _, _) => {
-            depth += 1
-            continue rest
-          }
-          RParen(_, _, _) => {
-            depth -= 1
-            if depth == 0 {
-              break rest
-            }
-            continue rest
-          }
-          _ => continue rest
-        }
-      [] => self.error("unclosed attribute arguments")
-    }
-  }
-  let closing_index = rest.start() - 1
-  let closing_token = self.tokens[closing_index]
-  self.update_view(rest)
-  closing_token
-}
-
-///|
 fn Parser::parse_attributes(
   self : Parser,
 ) -> Array[Attribute] raise WeslCompileError {
+  let first_token = match self.view() {
+    [token, ..] => token
+    [] => return []
+  }
+  let item_source = self.item_source()
+  let parsed = @attribute_parse.parse_attributes_source(item_source)
   let attrs : Array[Attribute] = []
-  for current = self.view() {
-    match current {
-      [At(_, _, _) as at_token, Ident(name, _, _, _), .. rest] => {
-        self.update_view(rest)
-        match self.view() {
-          [LParen(_, _, _) as lparen_token, .. after_lparen] => {
-            self.update_view(after_lparen)
-            let closing_token = self.consume_balanced_parens()
-            attrs.push(Attribute::{
-              name,
-              arguments: Some(
-                self.trim_source_slice(
-                  lparen_token.end(),
-                  closing_token.start(),
-                ),
-              ),
-              span: SyntaxSpan::{
-                start_line: at_token.line(),
-                end_line: closing_token.line(),
-              },
-            })
-            continue self.view()
-          }
-          _ => {
-            attrs.push(Attribute::{
-              name,
-              arguments: None,
-              span: SyntaxSpan::{
-                start_line: at_token.line(),
-                end_line: at_token.line(),
-              },
-            })
-            continue self.view()
-          }
-        }
+  let success = match parsed {
+    @attribute_parse.Parsed(success) => success
+    @attribute_parse.Failed(diagnostic) => {
+      let byte_offset = first_token.start() + diagnostic.offset
+      if diagnostic.incomplete {
+        raise WeslCompileError::Parse(
+          "incomplete attribute list at byte \{byte_offset}",
+        )
       }
-      rest => {
-        self.update_view(rest)
-        break
-      }
+      raise WeslCompileError::Parse(
+        "invalid attribute list at byte \{byte_offset}",
+      )
     }
   }
+  let line_base = first_token.line() - 1
+  for attr in success.attributes {
+    attrs.push(Attribute::{
+      name: attr.name,
+      arguments: attr.arguments,
+      span: SyntaxSpan::{
+        start_line: line_base + attr.start_line,
+        end_line: line_base + attr.end_line,
+      },
+    })
+  }
+  self.update_view_after_offset(first_token.start() + success.consumed_offset)
   attrs
 }
 

@@ -100,3 +100,45 @@ test "parser: generated type parser handles nested WGSL type specifiers" {
     }
   }
 }
+
+///|
+test "parser: generated attribute parser preserves leading attributes" {
+  let source =
+    #|@group(0)
+    #|@binding(textureIndex(1 + foo(2)))
+    #|var color_texture: texture_2d<f32>;
+    #|
+
+  let unit = try! parse_translation_unit(
+    try! parse_module_path("demo"),
+    source,
+    true,
+  )
+  debug_inspect(unit.global_declarations.length(), content="1")
+  let declaration = unit.global_declarations[0]
+  let expected_attributes =
+    #|[
+    #|  {
+    #|    name: "group",
+    #|    arguments: Some("0"),
+    #|    span: { start_line: 1, end_line: 1 },
+    #|  },
+    #|  {
+    #|    name: "binding",
+    #|    arguments: Some("textureIndex(1 + foo(2))"),
+    #|    span: { start_line: 2, end_line: 2 },
+    #|  },
+    #|]
+
+  debug_inspect(declaration.attributes, content=expected_attributes)
+  debug_inspect(declaration.ident(), content="Some(\"color_texture\")")
+  let result = try? parse_translation_unit(
+    try! parse_module_path("demo"),
+    "@group(0\nvar value: i32;",
+    true,
+  )
+  match result {
+    Ok(_) => fail("expected unclosed attribute failure")
+    Err(_) => ()
+  }
+}
