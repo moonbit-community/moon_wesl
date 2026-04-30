@@ -140,6 +140,14 @@ test "wesl: public const eval returns upstream literal result" {
 }
 
 ///|
+test "wesl: public const eval supports typed function parameters" {
+  let result = eval_const(
+    "@const fn add(base: u32, extra: u32) -> u32 {\n  return base + extra;\n}", "add(40u, 2u)",
+  )
+  inspect(result.to_string(), content="42u")
+}
+
+///|
 test "wesl: eval_str evaluates standalone const expressions" {
   inspect(eval_str("1 + 2").to_string(), content="3")
   inspect(eval_str("1u + 2u").to_string(), content="3u")
@@ -178,6 +186,23 @@ test "wesl: compile result eval sees global const context" {
   )
 
   inspect(compiled.eval("BASE + add_two()").to_string(), content="82u")
+}
+
+///|
+test "wesl: compile result eval passes arguments into const functions" {
+  let resolver = VirtualResolver::new()
+  let root_path = ModulePath::from_path("/shaders/root")
+  resolver.add_module(
+    root_path, "const BASE: u32 = 40u;\n\n@const\nfn add(base: u32, extra: u32) -> u32 {\n  return base + extra;\n}\n",
+  )
+  let compiled = compile(
+    root_path,
+    resolver,
+    EscapeMangler::default(),
+    CompileOptions::default().keep_declarations(["BASE", "add"]),
+  )
+
+  inspect(compiled.eval("add(BASE, 2u)").to_string(), content="42u")
 }
 
 ///|

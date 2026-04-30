@@ -234,6 +234,12 @@ priv struct ConstEvalBinding {
 }
 
 ///|
+priv struct ConstEvalParam {
+  name : String
+  declared_type : ConstEvalType
+}
+
+///|
 priv enum ConstEvalStatement {
   Binding(ConstEvalBinding)
   Return(ConstEvalExpr)
@@ -242,6 +248,7 @@ priv enum ConstEvalStatement {
 ///|
 priv struct ConstEvalFunction {
   name : String
+  params : Array[ConstEvalParam]
   return_type : ConstEvalType
   statements : Array[ConstEvalStatement]
 }
@@ -425,6 +432,55 @@ fn ConstEvalParser::parse_binding_statement(
 }
 
 ///|
+fn ConstEvalParser::parse_param(
+  self : ConstEvalParser,
+) -> ConstEvalParam raise WeslCompileError {
+  let name = match self.view() {
+    [Ident(name), .. rest] => {
+      self.update_view(rest)
+      name
+    }
+    _ => self.error("expected const-eval parameter name")
+  }
+  match self.view() {
+    [Colon, .. rest] => self.update_view(rest)
+    _ => self.error("expected `:` in const-eval parameter")
+  }
+  ConstEvalParam::{ name, declared_type: self.parse_type() }
+}
+
+///|
+fn ConstEvalParser::parse_params(
+  self : ConstEvalParser,
+) -> Array[ConstEvalParam] raise WeslCompileError {
+  match self.view() {
+    [LeftParen, .. rest] => self.update_view(rest)
+    _ => self.error("expected `(` in const-eval function")
+  }
+  let params : Array[ConstEvalParam] = []
+  if self.view() is [RightParen, .. after_empty] {
+    self.update_view(after_empty)
+    return params
+  }
+  while true {
+    params.push(self.parse_param())
+    match self.view() {
+      [Comma, RightParen, .. after_trailing] => {
+        self.update_view(after_trailing)
+        break
+      }
+      [Comma, .. after_comma] => self.update_view(after_comma)
+      [RightParen, .. after_paren] => {
+        self.update_view(after_paren)
+        break
+      }
+      _ => self.error("expected `,` or `)` in const-eval parameter list")
+    }
+  }
+  params
+}
+
+///|
 fn ConstEvalParser::parse_statement(
   self : ConstEvalParser,
 ) -> ConstEvalStatement raise WeslCompileError {
@@ -483,10 +539,7 @@ fn ConstEvalParser::parse_function(
     }
     _ => self.error("expected const-eval function name")
   }
-  match self.view() {
-    [LeftParen, RightParen, .. rest] => self.update_view(rest)
-    _ => self.error("expected empty parameter list in const-eval function")
-  }
+  let params = self.parse_params()
   match self.view() {
     [Arrow, .. rest] => self.update_view(rest)
     _ => self.error("expected `->` in const-eval function")
@@ -507,7 +560,7 @@ fn ConstEvalParser::parse_function(
   if !self.view().is_empty() {
     self.error("unexpected trailing const-eval tokens")
   }
-  ConstEvalFunction::{ name, return_type, statements }
+  ConstEvalFunction::{ name, params, return_type, statements }
 }
 
 ///|
@@ -1137,16 +1190,11 @@ fn const_eval_eval_expr(
         _ =>
           match ctx.functions.get(name) {
             Some(function_) =>
-              if values.length() == 0 {
-                const_eval_execute_function_value(
-                  function_,
-                  ctx.new_call_scope(),
-                )
-              } else {
-                raise WeslCompileError::Validation(
-                  "unsupported const-eval call `\{name}`",
-                )
-              }
+              const_eval_execute_function_value(
+                function_,
+                values,
+                ctx.new_call_scope(),
+              )
             None =>
               raise WeslCompileError::Validation(
                 "unsupported const-eval call `\{name}`",
@@ -1191,8 +1239,21 @@ fn const_eval_render_value(value : ConstEvalValue) -> String {
 ///|
 fn const_eval_execute_function_value(
   function : ConstEvalFunction,
+  args : Array[ConstEvalValue],
   ctx : ConstEvalContext,
 ) -> ConstEvalValue raise WeslCompileError {
+  if args.length() != function.params.length() {
+    raise WeslCompileError::Validation(
+      "const-eval function `\{function.name}` expects \{function.params.length()} arguments, got \{args.length()}",
+    )
+  }
+  for index = 0; index < function.params.length(); index = index + 1 {
+    let param = function.params[index]
+    ctx.bindings.set(
+      param.name,
+      const_eval_convert_to_type(args[index], param.declared_type, param.name),
+    )
+  }
   for statement in function.statements {
     match statement {
       Binding(binding) => {
@@ -1221,21 +1282,22 @@ fn const_eval_execute_function_value(
 fn const_eval_validate_target(
   source : String,
   function_name : String,
-) -> Unit raise WeslCompileError {
+) -> Array[ConstEvalExpr] raise WeslCompileError {
   let tokens = const_eval_lex(source)
   let parser = ConstEvalParser::new(tokens)
-  match parser.view() {
-    [Ident(name), LeftParen, RightParen, .. rest] if name == function_name => {
-      parser.update_view(rest)
-      if parser.view().is_empty() {
-        return
-      }
-    }
-    _ => ()
+  let expr = parser.parse_expression()
+  if !parser.view().is_empty() {
+    raise WeslCompileError::Validation(
+      "unsupported const-eval target `\{source}`",
+    )
   }
-  raise WeslCompileError::Validation(
-    "unsupported const-eval target `\{source}`",
-  )
+  match expr {
+    Call(name, args) if name == function_name => args
+    _ =>
+      raise WeslCompileError::Validation(
+        "unsupported const-eval target `\{source}`",
+      )
+  }
 }
 
 ///|
