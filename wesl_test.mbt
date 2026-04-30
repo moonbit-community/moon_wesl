@@ -275,6 +275,32 @@ test "wesl: eval_str evaluates standalone const expressions" {
 }
 
 ///|
+test "wesl: eval_str reports known unimplemented builtins like upstream" {
+  let result = try? eval_str("fma(2.0, 0.5, 0.5)")
+  match result {
+    Ok(_) => fail("expected fma to be a known unimplemented builtin")
+    Err(err) =>
+      debug_inspect(
+        err.message().contains("not implemented: `fma`"),
+        content="true",
+      )
+  }
+  let arity_result = try? eval_str("fma(1.0, 2.0)")
+  match arity_result {
+    Ok(_) => fail("expected fma arity mismatch to remain a signature error")
+    Err(err) =>
+      debug_inspect(
+        err
+        .message()
+        .contains(
+          "invalid function call signature: `fma(AbstractFloat, AbstractFloat)`",
+        ),
+        content="true",
+      )
+  }
+}
+
+///|
 test "wesl: compile result eval uses compiled const functions" {
   let resolver = VirtualResolver::new()
   let root_path = ModulePath::from_path("/shaders/root")

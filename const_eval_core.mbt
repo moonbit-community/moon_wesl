@@ -2862,57 +2862,9 @@ fn const_eval_eval_expr(
       for arg in args {
         values.push(const_eval_eval_expr(arg, ctx))
       }
-      match name {
-        "clamp" => const_eval_apply_clamp(values)
-        "min" => const_eval_apply_min_or_max("min", values, true)
-        "max" => const_eval_apply_min_or_max("max", values, false)
-        "abs" => const_eval_apply_abs(values)
-        "select" => const_eval_apply_select(values)
-        "all" => const_eval_apply_bool_builtin("all", values)
-        "any" => const_eval_apply_bool_builtin("any", values)
-        "floor" => const_eval_apply_float_unary_builtin("floor", values)
-        "ceil" => const_eval_apply_float_unary_builtin("ceil", values)
-        "round" => const_eval_apply_float_unary_builtin("round", values)
-        "trunc" => const_eval_apply_float_unary_builtin("trunc", values)
-        "fract" => const_eval_apply_float_unary_builtin("fract", values)
-        "sqrt" => const_eval_apply_float_unary_builtin("sqrt", values)
-        "inverseSqrt" =>
-          const_eval_apply_float_unary_builtin("inverseSqrt", values)
-        "exp" => const_eval_apply_float_unary_builtin("exp", values)
-        "exp2" => const_eval_apply_float_unary_builtin("exp2", values)
-        "log" => const_eval_apply_float_unary_builtin("log", values)
-        "log2" => const_eval_apply_float_unary_builtin("log2", values)
-        "sin" => const_eval_apply_float_unary_builtin("sin", values)
-        "cos" => const_eval_apply_float_unary_builtin("cos", values)
-        "tan" => const_eval_apply_float_unary_builtin("tan", values)
-        "asin" => const_eval_apply_float_unary_builtin("asin", values)
-        "acos" => const_eval_apply_float_unary_builtin("acos", values)
-        "atan" => const_eval_apply_float_unary_builtin("atan", values)
-        "sinh" => const_eval_apply_float_unary_builtin("sinh", values)
-        "cosh" => const_eval_apply_float_unary_builtin("cosh", values)
-        "tanh" => const_eval_apply_float_unary_builtin("tanh", values)
-        "radians" => const_eval_apply_float_unary_builtin("radians", values)
-        "degrees" => const_eval_apply_float_unary_builtin("degrees", values)
-        "saturate" => const_eval_apply_saturate(values)
-        "pow" => const_eval_apply_float_binary_builtin("pow", values)
-        "atan2" => const_eval_apply_float_binary_builtin("atan2", values)
-        "ldexp" => const_eval_apply_ldexp(values)
-        "step" => const_eval_apply_step(values)
-        "mix" => const_eval_apply_mix(values)
-        "sign" => const_eval_apply_sign(values)
-        "countOneBits" =>
-          const_eval_apply_integer_bit_count(
-            "countOneBits", values, const_eval_count_one_bits_width,
-          )
-        "countLeadingZeros" =>
-          const_eval_apply_integer_bit_count(
-            "countLeadingZeros", values, const_eval_count_leading_zeros_width,
-          )
-        "countTrailingZeros" =>
-          const_eval_apply_integer_bit_count(
-            "countTrailingZeros", values, const_eval_count_trailing_zeros_width,
-          )
-        _ =>
+      match const_eval_dispatch_builtin(name, values) {
+        Some(value) => value
+        None =>
           match ctx.functions.get(name) {
             Some(function_) =>
               const_eval_execute_function_value(
