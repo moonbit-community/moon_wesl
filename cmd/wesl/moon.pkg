@@ -1,0 +1,9 @@
+import {
+  "Milky2018/moon_wesl",
+  "moonbitlang/x/fs",
+  "moonbitlang/x/sys",
+}
+
+options(
+  "is-main": true,
+)

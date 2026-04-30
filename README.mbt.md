@@ -1,7 +1,7 @@
 # moon_wesl
 
-`Milky2018/moon_wesl` is a MoonBit library for compiling WESL shader modules
-into one emitted source string.
+`Milky2018/moon_wesl` is a MoonBit library and baseline CLI for compiling WESL
+shader modules into one emitted source string.
 
 This package was extracted from `mgstudio` and preserves the former
 `mgstudio/wesl` root-package surface for downstream users. The public API is
@@ -24,6 +24,8 @@ intentionally small and centered on:
   emitted code
 - Lets callers provide source code from memory, files, asset systems, or editor
   buffers through the `Resolver` trait
+- Provides a `cmd/wesl` command with `check`, `compile`, `eval`, `exec`, and
+  `package` subcommands aligned to the upstream `wesl-rs` command matrix
 
 ## Install
 
@@ -204,9 +206,27 @@ The public error surface is:
 
 Each error type exposes `message()` for user-facing diagnostics.
 
+## CLI
+
+The repository includes a MoonBit-native `wesl` command package:
+
+```bash
+moon run cmd/wesl -- compile --base src/shaders src/shaders/main.wesl
+moon run cmd/wesl -- check --kind wesl src/shaders/main.wesl
+moon run cmd/wesl -- eval "abs(3 - 5)"
+moon run cmd/wesl -- package shader-lib src/shaders/lib
+```
+
+The `compile` command supports the upstream option shape for mangling,
+conditional compilation, stripping, lowering, validation toggles, keep lists,
+feature flags, and base-directory selection. `package` emits the same
+MoonBit-native codegen artifact produced by `PkgBuilder`. `exec` is present in
+the command matrix but returns an explicit runtime gap until the CPU execution
+layer is ported.
+
 ## Scope and Current Behavior
 
-This library currently focuses on the mechanics required to compose WESL
+This package currently focuses on the mechanics required to compose WESL
 modules:
 
 - module-path resolution
@@ -216,9 +236,12 @@ modules:
 - reachability-based stripping
 - symbol mangling
 - simple lowering of top-level aliases and constants
+- filesystem package scanning and artifact generation
+- baseline CLI compile/check/eval/package workflows
 
-The implementation is intentionally lightweight and text-oriented. It is not a
-full WGSL/WESL semantic validator or formatter.
+The parser and syntax layer are materially richer than the original
+text-oriented implementation, but this package is still not a full source-level
+port of `wgsl-parse`, `wgsl-types`, semantic lowering, or CPU execution.
 
 ## Design Constraints
 
