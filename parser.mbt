@@ -602,6 +602,54 @@ fn parser_parse_optional_initializer_expression(
 }
 
 ///|
+fn parser_function_return_attributes(
+  source : String,
+) -> Array[Attribute] raise WeslCompileError {
+  let mut arrow = -1
+  let mut index = 0
+  while index + 1 < source.length() {
+    let code = source.code_unit_at(index).to_int()
+    if code == 123 {
+      break
+    }
+    if code == 45 && source.code_unit_at(index + 1).to_int() == 62 {
+      arrow = index
+      break
+    }
+    index += 1
+  }
+  if arrow < 0 {
+    return []
+  }
+  let attr_start = parser_skip_layout_and_comments(source, arrow + 2)
+  let mut cursor = attr_start
+  while cursor < source.length() && source.code_unit_at(cursor).to_int() == 64 {
+    cursor += 1
+    while cursor < source.length() &&
+          parser_is_identifier_char(source.code_unit_at(cursor).to_int()) {
+      cursor += 1
+    }
+    cursor = parser_skip_layout_and_comments(source, cursor)
+    if cursor < source.length() && source.code_unit_at(cursor).to_int() == 40 {
+      let close = match parser_find_matching_delimiter(source, cursor, 40, 41) {
+        Some(end_) => end_
+        None =>
+          raise WeslCompileError::Parse(
+            "incomplete function return attribute list",
+          )
+      }
+      cursor = close + 1
+    }
+    cursor = parser_skip_layout_and_comments(source, cursor)
+  }
+  if cursor == attr_start {
+    []
+  } else {
+    parser_statement_attributes(source[attr_start:cursor].to_owned())
+  }
+}
+
+///|
 fn parser_parse_const_assert_declaration(
   item_source : String,
 ) -> ConstAssertDeclaration raise WeslCompileError {
@@ -2165,6 +2213,7 @@ fn Parser::parse_global_declaration(
         return_type_expr: parser_parse_optional_type_expression(
           function_node.return_type,
         ),
+        return_attributes: parser_function_return_attributes(item_source),
         body: self.parse_function_body_with_yacc(
           function_node.body_text,
           item_source,

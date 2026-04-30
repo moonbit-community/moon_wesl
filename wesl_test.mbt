@@ -830,6 +830,7 @@ impl ModulePreprocessor for AppendDeclPreprocessor with preprocess_module(
         template_text: None,
         template_args: [],
       }),
+      return_attributes: [],
       body: FunctionBody::{ statements: [] },
     }),
     attributes: Array::new(),
@@ -860,6 +861,7 @@ impl ModulePreprocessor for ConditionalAppendPreprocessor with preprocess_module
         template_text: None,
         template_args: [],
       }),
+      return_attributes: [],
       body: FunctionBody::{ statements: [] },
     }),
     attributes: [

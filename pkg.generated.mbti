@@ -294,6 +294,7 @@ pub(all) struct FunctionDeclaration {
   parameters : Array[FunctionParameter]
   return_type : String?
   return_type_expr : TypeExpression?
+  return_attributes : Array[Attribute]
   body : FunctionBody
 } derive(Eq, @debug.Debug)
 
