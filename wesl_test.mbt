@@ -662,6 +662,33 @@ test "wesl: validation checks matrix constructors through AST calls" {
 }
 
 ///|
+test "wesl: validation checks matrix assignments through AST lhs scopes" {
+  let root_path = ModulePath::from_path("/shaders/root")
+  let resolver = VirtualResolver::new()
+  resolver.add_module(
+    root_path, "fn main() {\n  var m = mat2x2(0.0, 0.0, 0.0, 0.0);\n  m[0] = vec2(1i, 0.0);\n}\n",
+  )
+
+  let result = try? compile(
+    root_path,
+    resolver,
+    EscapeMangler::default(),
+    CompileOptions::default().with_strip(false),
+  )
+
+  match result {
+    Err(WeslCompileError::Validation(message)) =>
+      debug_inspect(
+        message.contains(
+          "matrix assignments must not use explicit integer literals",
+        ),
+        content="true",
+      )
+    _ => fail("expected matrix assignment validation error")
+  }
+}
+
+///|
 test "wesl: compile options expose lazy resolution control" {
   let options = CompileOptions::default()
 

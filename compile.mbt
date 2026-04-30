@@ -3160,6 +3160,240 @@ fn wesl_validate_matrix_assignment_types(
 }
 
 ///|
+fn wesl_type_expr_is_matrix(ty : TypeExpression) -> Bool {
+  ty.path.length() == 0 && wesl_is_matrix_type_name(ty.ident)
+}
+
+///|
+fn wesl_expression_is_matrix_value(expr : Expression) -> Bool {
+  match expr {
+    FunctionCall(call) => wesl_type_expr_is_matrix(call.callee)
+    Parenthesized(inner) => wesl_expression_is_matrix_value(inner)
+    _ => false
+  }
+}
+
+///|
+fn wesl_statement_declaration_is_matrix(
+  declaration : StatementDeclaration,
+) -> Bool {
+  match declaration.type_expr {
+    Some(ty) if wesl_type_expr_is_matrix(ty) => true
+    _ =>
+      match declaration.initializer_expr {
+        Some(expr) => wesl_expression_is_matrix_value(expr)
+        None => false
+      }
+  }
+}
+
+///|
+fn wesl_indexed_lhs_root_identifier(expr : Expression) -> String? {
+  match expr {
+    Indexing(base, _) => wesl_lhs_root_identifier(base)
+    Parenthesized(inner) => wesl_indexed_lhs_root_identifier(inner)
+    _ => None
+  }
+}
+
+///|
+fn wesl_lhs_root_identifier(expr : Expression) -> String? {
+  match expr {
+    TypeOrIdentifier(ty) =>
+      if ty.path.length() == 0 && ty.template_args.length() == 0 {
+        Some(ty.ident)
+      } else {
+        None
+      }
+    Indexing(base, _) => wesl_lhs_root_identifier(base)
+    Parenthesized(inner) => wesl_lhs_root_identifier(inner)
+    _ => None
+  }
+}
+
+///|
+fn wesl_validate_matrix_index_assignment(
+  path : ModulePath,
+  item : ModuleItem,
+  assignment : AssignmentStatement,
+  matrix_scopes : Array[Array[String]],
+  scope_depth : Int,
+) -> Unit raise WeslCompileError {
+  match wesl_indexed_lhs_root_identifier(assignment.lhs) {
+    Some(name) =>
+      if wesl_scopes_contain(matrix_scopes, scope_depth, name) &&
+        wesl_expression_has_explicit_int_literal(assignment.rhs) {
+        raise WeslCompileError::Validation(
+          "matrix assignments must not use explicit integer literals (\{wesl_item_context(path, item)})",
+        )
+      }
+    None => ()
+  }
+}
+
+///|
+fn wesl_bind_matrix_declaration(
+  declaration : StatementDeclaration,
+  matrix_scopes : Array[Array[String]],
+  scope_depth : Int,
+) -> Unit {
+  match declaration.name {
+    Some(name) if wesl_statement_declaration_is_matrix(declaration) =>
+      wesl_bind_scope(matrix_scopes, scope_depth, name)
+    _ => ()
+  }
+}
+
+///|
+fn wesl_validate_matrix_statement_assignments(
+  path : ModulePath,
+  item : ModuleItem,
+  statement : Statement,
+  matrix_scopes : Array[Array[String]],
+  scope_depth : Int,
+) -> Unit raise WeslCompileError {
+  match statement.assignment {
+    Some(assignment) =>
+      wesl_validate_matrix_index_assignment(
+        path, item, assignment, matrix_scopes, scope_depth,
+      )
+    None => ()
+  }
+  match statement.declaration {
+    Some(declaration) =>
+      wesl_bind_matrix_declaration(declaration, matrix_scopes, scope_depth)
+    None => ()
+  }
+  match statement.control {
+    Some(control) =>
+      wesl_validate_matrix_control_assignments(
+        path, item, control, matrix_scopes, scope_depth,
+      )
+    None => ()
+  }
+}
+
+///|
+fn wesl_validate_matrix_body_assignments(
+  path : ModulePath,
+  item : ModuleItem,
+  body : FunctionBody,
+  matrix_scopes : Array[Array[String]],
+  scope_depth : Int,
+) -> Unit raise WeslCompileError {
+  let child_depth = scope_depth + 1
+  if child_depth < matrix_scopes.length() {
+    matrix_scopes[child_depth] = []
+  } else {
+    matrix_scopes.push([])
+  }
+  for statement in body.statements {
+    wesl_validate_matrix_statement_assignments(
+      path, item, statement, matrix_scopes, child_depth,
+    )
+  }
+}
+
+///|
+fn wesl_validate_matrix_control_assignments(
+  path : ModulePath,
+  item : ModuleItem,
+  control : ControlStatement,
+  matrix_scopes : Array[Array[String]],
+  scope_depth : Int,
+) -> Unit raise WeslCompileError {
+  match control {
+    Block(block) =>
+      wesl_validate_matrix_body_assignments(
+        path,
+        item,
+        block.body,
+        matrix_scopes,
+        scope_depth,
+      )
+    If(if_) => {
+      wesl_validate_matrix_body_assignments(
+        path,
+        item,
+        if_.body,
+        matrix_scopes,
+        scope_depth,
+      )
+      match if_.else_body {
+        Some(body) =>
+          wesl_validate_matrix_body_assignments(
+            path, item, body, matrix_scopes, scope_depth,
+          )
+        None => ()
+      }
+    }
+    Switch(switch_) =>
+      for case_ in switch_.cases {
+        wesl_validate_matrix_body_assignments(
+          path,
+          item,
+          case_.body,
+          matrix_scopes,
+          scope_depth,
+        )
+      }
+    Loop(loop_) =>
+      wesl_validate_matrix_body_assignments(
+        path,
+        item,
+        loop_.body,
+        matrix_scopes,
+        scope_depth,
+      )
+    For(for_) => {
+      let child_depth = scope_depth + 1
+      if child_depth < matrix_scopes.length() {
+        matrix_scopes[child_depth] = []
+      } else {
+        matrix_scopes.push([])
+      }
+      match for_.initializer {
+        Some(Declaration(declaration)) =>
+          wesl_bind_matrix_declaration(declaration, matrix_scopes, child_depth)
+        Some(Assignment(assignment)) =>
+          wesl_validate_matrix_index_assignment(
+            path, item, assignment, matrix_scopes, child_depth,
+          )
+        Some(Expression(_)) | None => ()
+      }
+      match for_.update {
+        Some(ForUpdate::Assignment(assignment)) =>
+          wesl_validate_matrix_index_assignment(
+            path, item, assignment, matrix_scopes, child_depth,
+          )
+        _ => ()
+      }
+      for statement in for_.body.statements {
+        wesl_validate_matrix_statement_assignments(
+          path, item, statement, matrix_scopes, child_depth,
+        )
+      }
+    }
+    While(while_) =>
+      wesl_validate_matrix_body_assignments(
+        path,
+        item,
+        while_.body,
+        matrix_scopes,
+        scope_depth,
+      )
+    Continuing(continuing) =>
+      wesl_validate_matrix_body_assignments(
+        path,
+        item,
+        continuing.body,
+        matrix_scopes,
+        scope_depth,
+      )
+  }
+}
+
+///|
 fn wesl_validate_matrix_statement_types(
   path : ModulePath,
   item : ModuleItem,
@@ -3341,268 +3575,21 @@ fn wesl_validate_matrix_header_types(
 }
 
 ///|
-fn wesl_skip_angle_tokens(
-  tokens : Array[ParserToken],
-  start_index : Int,
-) -> Int {
-  let mut depth = 0
-  let mut index = start_index
-  while index < tokens.length() {
-    match tokens[index] {
-      Lt(_, _, _) => depth += 1
-      Gt(_, _, _) => {
-        depth -= 1
-        if depth == 0 {
-          return index + 1
-        }
-      }
-      _ => ()
-    }
-    index += 1
-  }
-  tokens.length()
-}
-
-///|
-fn wesl_find_binding_name_index(
-  tokens : Array[ParserToken],
-  keyword_index : Int,
-) -> Int? {
-  let mut index = keyword_index + 1
-  if index < tokens.length() && tokens[index] is Lt(_, _, _) {
-    index = wesl_skip_angle_tokens(tokens, index)
-  }
-  if index < tokens.length() {
-    match tokens[index] {
-      Ident(_, _, _, _) => Some(index)
-      _ => None
-    }
-  } else {
-    None
-  }
-}
-
-///|
-fn wesl_source_has_explicit_int_literal(source : String) -> Bool {
-  let mut index = 0
-  while index < source.length() {
-    let code = source.code_unit_at(index).to_int()
-    if code == 47 &&
-      index + 1 < source.length() &&
-      source.code_unit_at(index + 1).to_int() == 47 {
-      index += 2
-      while index < source.length() && source.code_unit_at(index).to_int() != 10 {
-        index += 1
-      }
-      continue
-    }
-    if code == 47 &&
-      index + 1 < source.length() &&
-      source.code_unit_at(index + 1).to_int() == 42 {
-      index += 2
-      while index + 1 < source.length() {
-        if source.code_unit_at(index).to_int() == 42 &&
-          source.code_unit_at(index + 1).to_int() == 47 {
-          index += 2
-          break
-        }
-        index += 1
-      }
-      continue
-    }
-    let digit_start = if code == 45 &&
-      index + 1 < source.length() &&
-      wesl_is_digit(source.code_unit_at(index + 1).to_int()) {
-      index + 1
-    } else if wesl_is_digit(code) {
-      index
-    } else {
-      index += 1
-      continue
-    }
-    let mut end_index = digit_start
-    while end_index < source.length() &&
-          wesl_is_digit(source.code_unit_at(end_index).to_int()) {
-      end_index += 1
-    }
-    if end_index < source.length() &&
-      source.code_unit_at(end_index).to_int() == 105 {
-      let after = if end_index + 1 < source.length() {
-        source.code_unit_at(end_index + 1).to_int()
-      } else {
-        -1
-      }
-      if after < 0 || !wesl_is_identifier_char(after) {
-        return true
-      }
-    }
-    index = end_index
-  }
-  false
-}
-
-///|
-fn wesl_find_statement_end(
-  tokens : Array[ParserToken],
-  start_index : Int,
-) -> Int {
-  let mut paren_depth = 0
-  let mut bracket_depth = 0
-  let mut brace_depth = 0
-  let mut index = start_index
-  while index < tokens.length() {
-    match tokens[index] {
-      LParen(_, _, _) => paren_depth += 1
-      RParen(_, _, _) => if paren_depth > 0 { paren_depth -= 1 }
-      LBracket(_, _, _) => bracket_depth += 1
-      RBracket(_, _, _) => if bracket_depth > 0 { bracket_depth -= 1 }
-      LBrace(_, _, _) => brace_depth += 1
-      RBrace(_, _, _) =>
-        if brace_depth == 0 {
-          return index
-        } else {
-          brace_depth -= 1
-        }
-      Semi(_, _, _) if paren_depth == 0 &&
-        bracket_depth == 0 &&
-        brace_depth == 0 => return index
-      _ => ()
-    }
-    index += 1
-  }
-  tokens.length()
-}
-
-///|
-fn wesl_binding_is_matrix_type(
-  source : String,
-  tokens : Array[ParserToken],
-  name_index : Int,
-) -> Bool {
-  let mut index = name_index + 1
-  while index < tokens.length() {
-    match tokens[index] {
-      Other(_, _, _) if wesl_token_text(source, tokens[index]) == ":" => {
-        let mut type_index = index + 1
-        while type_index < tokens.length() {
-          match tokens[type_index] {
-            Ident(type_name, _, _, _) =>
-              return wesl_is_matrix_type_name(type_name)
-            Eq(_, _, _) => break
-            Semi(_, _, _) => break
-            _ => type_index += 1
-          }
-        }
-      }
-      Eq(_, _, _) => {
-        let mut value_index = index + 1
-        while value_index < tokens.length() {
-          match tokens[value_index] {
-            Ident(type_name, _, _, _) =>
-              return wesl_is_matrix_type_name(type_name) &&
-                value_index + 1 < tokens.length() &&
-                tokens[value_index + 1] is LParen(_, _, _)
-            Semi(_, _, _) => break
-            _ => value_index += 1
-          }
-        }
-      }
-      Semi(_, _, _) => break
-      _ => ()
-    }
-    index += 1
-  }
-  false
-}
-
-///|
 fn wesl_validate_matrix_assignments(
   path : ModulePath,
   item : ModuleItem,
 ) -> Unit raise WeslCompileError {
-  let tokens = parser_lex(item.source)
   let matrix_scopes : Array[Array[String]] = [[]]
-  let mut scope_depth = 0
-  let context = wesl_item_context(path, item)
-  let mut index = 0
-  while index < tokens.length() {
-    match tokens[index] {
-      LBrace(_, _, _) => {
-        scope_depth += 1
-        if scope_depth < matrix_scopes.length() {
-          matrix_scopes[scope_depth] = []
-        } else {
-          matrix_scopes.push([])
-        }
-      }
-      RBrace(_, _, _) => if scope_depth > 0 { scope_depth -= 1 }
-      Ident(keyword, _, _, _) =>
-        if keyword == "const" || keyword == "let" || keyword == "var" {
-          match wesl_find_binding_name_index(tokens, index) {
-            Some(name_index) =>
-              match tokens[name_index] {
-                Ident(name, _, _, _) =>
-                  if wesl_binding_is_matrix_type(
-                      item.source,
-                      tokens,
-                      name_index,
-                    ) {
-                    wesl_bind_scope(matrix_scopes, scope_depth, name)
-                  }
-                _ => ()
-              }
-            None => ()
-          }
-        } else if wesl_scopes_contain(matrix_scopes, scope_depth, keyword) {
-          let mut lookahead = index + 1
-          let mut saw_index_access = false
-          while lookahead < tokens.length() {
-            match tokens[lookahead] {
-              LBracket(_, _, _) => {
-                saw_index_access = true
-                let mut bracket_depth = 1
-                lookahead += 1
-                while lookahead < tokens.length() {
-                  match tokens[lookahead] {
-                    LBracket(_, _, _) => bracket_depth += 1
-                    RBracket(_, _, _) => {
-                      bracket_depth -= 1
-                      if bracket_depth == 0 {
-                        lookahead += 1
-                        break
-                      }
-                    }
-                    _ => ()
-                  }
-                  lookahead += 1
-                }
-                continue
-              }
-              Eq(_, end_offset, _) if saw_index_access => {
-                let rhs_end_index = wesl_find_statement_end(
-                  tokens,
-                  lookahead + 1,
-                )
-                let rhs_end_offset = if rhs_end_index < tokens.length() {
-                  tokens[rhs_end_index].start()
-                } else {
-                  item.source.length()
-                }
-                let rhs = item.source[end_offset:rhs_end_offset].to_owned()
-                if wesl_source_has_explicit_int_literal(rhs) {
-                  raise WeslCompileError::Validation(
-                    "matrix assignments must not use explicit integer literals (\{context})",
-                  )
-                }
-                break
-              }
-              _ => break
-            }
-          }
-        }
-      _ => ()
-    }
-    index += 1
+  match item.header {
+    Function(function_) =>
+      wesl_validate_matrix_body_assignments(
+        path,
+        item,
+        function_.body,
+        matrix_scopes,
+        0,
+      )
+    _ => ()
   }
 }
 
