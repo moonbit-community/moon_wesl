@@ -1330,6 +1330,41 @@ test "wesl: file resolver maps module path to wesl path" {
 }
 
 ///|
+test "wesl: file resolver reads files and falls back from wesl to wgsl" {
+  let resolver = FileResolver::new("testdata/upstream/bevy")
+  let wesl_source = resolver.resolve_source(
+    ModulePath::from_path("/custom_material"),
+  )
+  debug_inspect(wesl_source.contains("make_polka_dots"), content="true")
+
+  let wgsl_source = resolver.resolve_source(
+    ModulePath::from_path("/custom_material_import"),
+  )
+  debug_inspect(wgsl_source.contains("COLOR_MULTIPLIER"), content="true")
+}
+
+///|
+test "wesl: file resolver compiles local file imports" {
+  let resolver = FileResolver::new("testdata/upstream/bevy")
+  let compiled = compile(
+    ModulePath::from_path("/custom_material"),
+    resolver,
+    EscapeMangler::default(),
+    CompileOptions::default().with_keep_root(true),
+  )
+  let compiled_text = compiled.to_string()
+
+  debug_inspect(
+    compiled_text.contains("fn package_util__2make_polka_dots"),
+    content="true",
+  )
+  debug_inspect(
+    compiled_text.contains("return package_util__2make_polka_dots"),
+    content="true",
+  )
+}
+
+///|
 test "wesl: standard resolver exposes constants package" {
   let resolver = StandardResolver::new("shaders")
   resolver.add_constant("PI", 3.141592653589793)

@@ -95,6 +95,33 @@ fn upstream_assert_standalone_compile_result(
 }
 
 ///|
+fn upstream_assert_file_compile_result(
+  case_name : String,
+  path : String,
+) -> String? {
+  let resolver = FileResolver::new("testdata/upstream")
+  let root_path = upstream_fixture_module_path(path)
+  let result = try? compile(
+    root_path,
+    resolver,
+    EscapeMangler::default(),
+    CompileOptions::default().with_keep_root(true),
+  )
+  match result {
+    Ok(compiled) =>
+      if compiled.to_string().trim().to_owned() == "" {
+        Some("\{case_name}: expected non-empty compiled output")
+      } else {
+        None
+      }
+    Err(err) =>
+      Some(
+        "\{case_name}: expected file-resolver compile success, got \{err.message()}",
+      )
+  }
+}
+
+///|
 fn upstream_assert_bulk_case(case : UpstreamBulkCase) -> String? {
   if case.name.trim().to_owned() == "" {
     return Some("bulk case metadata: expected non-empty case name")
@@ -197,6 +224,11 @@ fn upstream_assert_module_case(case : UpstreamModuleCase) -> String? {
 let upstream_bevy_standalone_compile_paths : Array[String] = [
   "bevy/custom_material_import.wgsl", "bevy/custom_phase_item.wgsl", "bevy/game_of_life.wgsl",
   "bevy/gpu_readback.wgsl", "bevy/util.wesl",
+]
+
+///|
+let upstream_bevy_file_resolver_compile_paths : Array[String] = [
+  "bevy/custom_material.wesl",
 ]
 
 ///|
@@ -452,12 +484,32 @@ test "upstream: bevy standalone fixtures without package imports compile through
 }
 
 ///|
+test "upstream: bevy local file imports compile through file resolver" {
+  for case in upstream_bevy_e2e_cases {
+    if !upstream_array_contains(
+        upstream_bevy_file_resolver_compile_paths,
+        case.path,
+      ) {
+      continue
+    }
+    match upstream_assert_file_compile_result(case.path, case.path) {
+      Some(message) => fail(message)
+      None => ()
+    }
+  }
+}
+
+///|
 #skip
 test "upstream: bevy package-import integration e2e awaits resolver parity" {
   for case in upstream_bevy_e2e_cases {
     if upstream_is_shader_path(case.path) &&
       !upstream_array_contains(
         upstream_bevy_standalone_compile_paths,
+        case.path,
+      ) &&
+      !upstream_array_contains(
+        upstream_bevy_file_resolver_compile_paths,
         case.path,
       ) {
       ignore(case)

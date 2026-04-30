@@ -434,7 +434,17 @@ pub fn FileResolver::file_path(
 ///|
 pub impl Resolver for FileResolver with resolve_source(self, path) {
   let fs_path = self.file_path(path)
-  raise ResolveError::FileNotFound(fs_path, "physical file")
+  @fs.read_file_to_string(fs_path) catch {
+    _ =>
+      if self.extension == "wesl" {
+        let fallback_path = self.set_extension("wgsl").file_path(path)
+        @fs.read_file_to_string(fallback_path) catch {
+          _ => raise ResolveError::FileNotFound(fs_path, "physical file")
+        }
+      } else {
+        raise ResolveError::FileNotFound(fs_path, "physical file")
+      }
+  }
 }
 
 ///|
