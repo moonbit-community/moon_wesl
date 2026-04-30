@@ -51,6 +51,7 @@ priv enum ConstEvalToken {
   Star
   Slash
   Percent
+  Tilde
   Arrow
   Ident(String)
   Number(String)
@@ -226,6 +227,10 @@ fn const_eval_lex(
         tokens.push(ConstEvalToken::Percent)
         index += 1
       }
+      126 => {
+        tokens.push(ConstEvalToken::Tilde)
+        index += 1
+      }
       _ =>
         if const_eval_is_identifier_start(code) {
           let start = index
@@ -303,6 +308,7 @@ priv enum ConstEvalExpr {
   Binding(String)
   UnaryNeg(ConstEvalExpr)
   UnaryNot(ConstEvalExpr)
+  UnaryBitNot(ConstEvalExpr)
   Binary(ConstEvalBinaryOp, ConstEvalExpr, ConstEvalExpr)
   Call(String, Array[ConstEvalExpr])
 }
@@ -449,6 +455,10 @@ fn ConstEvalParser::parse_unary(
     [Bang, .. rest] => {
       self.update_view(rest)
       ConstEvalExpr::UnaryNot(self.parse_unary())
+    }
+    [Tilde, .. rest] => {
+      self.update_view(rest)
+      ConstEvalExpr::UnaryBitNot(self.parse_unary())
     }
     _ => self.parse_primary()
   }
@@ -1398,6 +1408,35 @@ fn const_eval_unary_not(
 }
 
 ///|
+fn const_eval_unary_bit_not(
+  value : ConstEvalValue,
+) -> ConstEvalValue raise WeslCompileError {
+  match value {
+    Bool(_) =>
+      raise WeslCompileError::Validation(
+        "cannot use unary operator `~` on type `bool`",
+      )
+    AbstractInt(number) => ConstEvalValue::AbstractInt(number.lnot())
+    I32(number) =>
+      ConstEvalValue::I32(
+        const_eval_require_i32(
+          ConstEvalValue::AbstractInt(number.lnot()),
+          "bitwise complement",
+        ),
+      )
+    U32(number) => ConstEvalValue::U32(CONST_EVAL_U32_MAX - number)
+    AbstractFloat(_) =>
+      raise WeslCompileError::Validation(
+        "cannot use unary operator `~` on type `AbstractFloat`",
+      )
+    F32(_) =>
+      raise WeslCompileError::Validation(
+        "cannot use unary operator `~` on type `f32`",
+      )
+  }
+}
+
+///|
 fn const_eval_to_abstract_float(
   value : ConstEvalValue,
   context : String,
@@ -1994,6 +2033,8 @@ fn const_eval_eval_expr(
       }
     UnaryNeg(inner) => const_eval_unary_neg(const_eval_eval_expr(inner, ctx))
     UnaryNot(inner) => const_eval_unary_not(const_eval_eval_expr(inner, ctx))
+    UnaryBitNot(inner) =>
+      const_eval_unary_bit_not(const_eval_eval_expr(inner, ctx))
     Binary(LogicalAnd, lhs, rhs) => {
       let left = const_eval_eval_expr(lhs, ctx)
       if !const_eval_require_bool(left, "logical and") {
