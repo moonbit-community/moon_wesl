@@ -116,6 +116,10 @@ pub(all) enum BinaryOperator {
   Remainder
 } derive(Eq, @debug.Debug)
 
+pub(all) struct BlockStatement {
+  body : FunctionBody
+} derive(Eq, @debug.Debug)
+
 pub struct CodegenModule {
   name : String
   source : String
@@ -182,6 +186,18 @@ pub(all) struct ConstDeclaration {
   type_text : String?
   type_expr : TypeExpression?
   initializer : String?
+} derive(Eq, @debug.Debug)
+
+pub(all) struct ContinuingStatement {
+  body : FunctionBody
+} derive(Eq, @debug.Debug)
+
+pub(all) enum ControlStatement {
+  Block(BlockStatement)
+  If(IfStatement)
+  Loop(LoopStatement)
+  While(WhileStatement)
+  Continuing(ContinuingStatement)
 } derive(Eq, @debug.Debug)
 
 pub(all) struct DiagnosticDirectiveDeclaration {
@@ -285,6 +301,12 @@ pub struct IdentityPreprocessor {
 pub fn IdentityPreprocessor::new() -> Self
 pub impl ModulePreprocessor for IdentityPreprocessor
 
+pub(all) struct IfStatement {
+  condition : Expression
+  body : FunctionBody
+  else_body : FunctionBody?
+} derive(Eq, @debug.Debug)
+
 pub(all) struct ImportNode {
   path_segments : Array[String]
   rename : String?
@@ -311,6 +333,10 @@ pub(all) struct LetDeclaration {
   type_text : String?
   type_expr : TypeExpression?
   initializer : String?
+} derive(Eq, @debug.Debug)
+
+pub(all) struct LoopStatement {
+  body : FunctionBody
 } derive(Eq, @debug.Debug)
 
 pub(all) enum ManglerKind {
@@ -412,6 +438,7 @@ pub(all) struct Statement {
   declaration : StatementDeclaration?
   assignment : AssignmentStatement?
   update_expression : Expression?
+  control : ControlStatement?
 } derive(Eq, @debug.Debug)
 
 pub(all) struct StatementDeclaration {
@@ -549,6 +576,11 @@ pub fn[R] Wesl::use_imports(Self[R], Bool) -> Self[R]
 pub fn[R] Wesl::use_lower(Self[R], Bool) -> Self[R]
 pub fn[R] Wesl::use_sourcemap(Self[R], Bool) -> Self[R]
 pub fn[R] Wesl::use_stripping(Self[R], Bool) -> Self[R]
+
+pub(all) struct WhileStatement {
+  condition : Expression
+  body : FunctionBody
+} derive(Eq, @debug.Debug)
 
 // Type aliases
 

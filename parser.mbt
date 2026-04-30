@@ -793,6 +793,346 @@ fn parser_statement_update_expression(
 }
 
 ///|
+fn parser_skip_layout_and_comments(source : String, index : Int) -> Int {
+  let mut cursor = index
+  let mut running = true
+  while running && cursor < source.length() {
+    running = false
+    while cursor < source.length() {
+      let code = source.code_unit_at(cursor).to_int()
+      if code == 32 || code == 9 || code == 10 || code == 13 {
+        cursor += 1
+        running = true
+      } else {
+        break
+      }
+    }
+    if cursor + 1 < source.length() &&
+      source.code_unit_at(cursor).to_int() == 47 {
+      let next = source.code_unit_at(cursor + 1).to_int()
+      if next == 47 {
+        cursor += 2
+        while cursor < source.length() &&
+              source.code_unit_at(cursor).to_int() != 10 {
+          cursor += 1
+        }
+        running = true
+      } else if next == 42 {
+        cursor += 2
+        while cursor + 1 < source.length() {
+          if source.code_unit_at(cursor).to_int() == 42 &&
+            source.code_unit_at(cursor + 1).to_int() == 47 {
+            cursor += 2
+            break
+          }
+          cursor += 1
+        }
+        running = true
+      }
+    }
+  }
+  cursor
+}
+
+///|
+fn parser_find_matching_delimiter(
+  source : String,
+  open_index : Int,
+  open_code : Int,
+  close_code : Int,
+) -> Int? {
+  if open_index >= source.length() ||
+    source.code_unit_at(open_index).to_int() != open_code {
+    return None
+  }
+  let mut cursor = open_index + 1
+  let mut depth = 1
+  while cursor < source.length() {
+    let code = source.code_unit_at(cursor).to_int()
+    if code == 47 && cursor + 1 < source.length() {
+      let next = source.code_unit_at(cursor + 1).to_int()
+      if next == 47 {
+        cursor += 2
+        while cursor < source.length() &&
+              source.code_unit_at(cursor).to_int() != 10 {
+          cursor += 1
+        }
+        continue
+      }
+      if next == 42 {
+        cursor += 2
+        while cursor + 1 < source.length() {
+          if source.code_unit_at(cursor).to_int() == 42 &&
+            source.code_unit_at(cursor + 1).to_int() == 47 {
+            cursor += 2
+            break
+          }
+          cursor += 1
+        }
+        continue
+      }
+    }
+    if code == open_code {
+      depth += 1
+    } else if code == close_code {
+      depth -= 1
+      if depth == 0 {
+        return Some(cursor)
+      }
+    }
+    cursor += 1
+  }
+  None
+}
+
+///|
+fn parser_parse_embedded_function_body(
+  body_source : String,
+  item_source : String,
+) -> FunctionBody raise WeslCompileError {
+  match @statement_parse.parse_function_body_source(body_source) {
+    @statement_parse.Parsed(node) =>
+      parser_function_body_from_generated(node.statements, item_source)
+    @statement_parse.Failed(diagnostic) => {
+      if diagnostic.incomplete {
+        raise WeslCompileError::Parse(
+          "incomplete embedded function body at byte \{diagnostic.offset}: \{item_source}",
+        )
+      }
+      raise WeslCompileError::Parse(
+        "invalid embedded function body at byte \{diagnostic.offset}: \{item_source}",
+      )
+    }
+  }
+}
+
+///|
+fn parser_parse_braced_statement_body(
+  source : String,
+  open_index : Int,
+  item_source : String,
+) -> (FunctionBody, Int) raise WeslCompileError {
+  match parser_find_matching_delimiter(source, open_index, 123, 125) {
+    Some(close_index) =>
+      (
+        parser_parse_embedded_function_body(
+          source[open_index + 1:close_index].to_owned(),
+          item_source,
+        ),
+        close_index,
+      )
+    None =>
+      raise WeslCompileError::Parse(
+        "expected statement body closing brace: \{item_source}",
+      )
+  }
+}
+
+///|
+fn parser_parse_parenthesized_condition(
+  source : String,
+  open_index : Int,
+  item_source : String,
+) -> (Expression, Int) raise WeslCompileError {
+  match parser_find_matching_delimiter(source, open_index, 40, 41) {
+    Some(close_index) =>
+      (
+        parser_parse_statement_expression(
+          source[open_index + 1:close_index].trim().to_owned(),
+          item_source,
+        ),
+        close_index,
+      )
+    None =>
+      raise WeslCompileError::Parse(
+        "expected statement condition closing parenthesis: \{item_source}",
+      )
+  }
+}
+
+///|
+fn parser_find_control_body_start(source : String, index : Int) -> Int? {
+  let mut cursor = index
+  let mut paren_depth = 0
+  let mut bracket_depth = 0
+  while cursor < source.length() {
+    let code = source.code_unit_at(cursor).to_int()
+    if code == 47 && cursor + 1 < source.length() {
+      let next = source.code_unit_at(cursor + 1).to_int()
+      if next == 47 {
+        cursor += 2
+        while cursor < source.length() &&
+              source.code_unit_at(cursor).to_int() != 10 {
+          cursor += 1
+        }
+        continue
+      }
+      if next == 42 {
+        cursor += 2
+        while cursor + 1 < source.length() {
+          if source.code_unit_at(cursor).to_int() == 42 &&
+            source.code_unit_at(cursor + 1).to_int() == 47 {
+            cursor += 2
+            break
+          }
+          cursor += 1
+        }
+        continue
+      }
+    }
+    if code == 40 {
+      paren_depth += 1
+    } else if code == 41 {
+      paren_depth -= 1
+    } else if code == 91 {
+      bracket_depth += 1
+    } else if code == 93 {
+      bracket_depth -= 1
+    } else if code == 123 && paren_depth == 0 && bracket_depth == 0 {
+      return Some(cursor)
+    }
+    cursor += 1
+  }
+  None
+}
+
+///|
+fn parser_parse_control_condition_and_body_start(
+  source : String,
+  start_index : Int,
+  item_source : String,
+) -> (Expression, Int) raise WeslCompileError {
+  let condition_start = parser_skip_layout_and_comments(source, start_index)
+  if condition_start < source.length() &&
+    source.code_unit_at(condition_start).to_int() == 40 {
+    let (condition, condition_end) = parser_parse_parenthesized_condition(
+      source, condition_start, item_source,
+    )
+    let body_start = parser_skip_layout_and_comments(source, condition_end + 1)
+    return (condition, body_start)
+  }
+  match parser_find_control_body_start(source, condition_start) {
+    Some(body_start) =>
+      (
+        parser_parse_statement_expression(
+          source[condition_start:body_start].trim().to_owned(),
+          item_source,
+        ),
+        body_start,
+      )
+    None =>
+      raise WeslCompileError::Parse(
+        "expected statement control body opening brace: \{item_source}",
+      )
+  }
+}
+
+///|
+fn parser_statement_block_control(
+  source : String,
+  item_source : String,
+) -> ControlStatement raise WeslCompileError {
+  let body_start = parser_skip_layout_and_comments(source, 0)
+  let (body, _) = parser_parse_braced_statement_body(
+    source, body_start, item_source,
+  )
+  ControlStatement::Block(BlockStatement::{ body, })
+}
+
+///|
+fn parser_statement_loop_control(
+  source : String,
+  item_source : String,
+) -> ControlStatement raise WeslCompileError {
+  let body_start = parser_skip_layout_and_comments(source, 4)
+  let (body, _) = parser_parse_braced_statement_body(
+    source, body_start, item_source,
+  )
+  ControlStatement::Loop(LoopStatement::{ body, })
+}
+
+///|
+fn parser_statement_continuing_control(
+  source : String,
+  item_source : String,
+) -> ControlStatement raise WeslCompileError {
+  let body_start = parser_skip_layout_and_comments(source, 10)
+  let (body, _) = parser_parse_braced_statement_body(
+    source, body_start, item_source,
+  )
+  ControlStatement::Continuing(ContinuingStatement::{ body, })
+}
+
+///|
+fn parser_statement_while_control(
+  source : String,
+  item_source : String,
+) -> ControlStatement raise WeslCompileError {
+  let (condition, body_start) = parser_parse_control_condition_and_body_start(
+    source, 5, item_source,
+  )
+  let (body, _) = parser_parse_braced_statement_body(
+    source, body_start, item_source,
+  )
+  ControlStatement::While(WhileStatement::{ condition, body })
+}
+
+///|
+fn parser_statement_if_control(
+  source : String,
+  item_source : String,
+) -> ControlStatement raise WeslCompileError {
+  let (condition, body_start) = parser_parse_control_condition_and_body_start(
+    source, 2, item_source,
+  )
+  let (body, body_end) = parser_parse_braced_statement_body(
+    source, body_start, item_source,
+  )
+  let after_body = parser_skip_layout_and_comments(source, body_end + 1)
+  let else_body = if source[after_body:].trim().has_prefix("else") {
+    let else_start = parser_skip_layout_and_comments(source, after_body + 4)
+    if else_start < source.length() &&
+      source.code_unit_at(else_start).to_int() == 123 {
+      let (body, _) = parser_parse_braced_statement_body(
+        source, else_start, item_source,
+      )
+      Some(body)
+    } else {
+      Some(
+        parser_parse_embedded_function_body(
+          source[else_start:].trim().to_owned(),
+          item_source,
+        ),
+      )
+    }
+  } else {
+    None
+  }
+  ControlStatement::If(IfStatement::{ condition, body, else_body })
+}
+
+///|
+fn parser_statement_control(
+  statement : @statement_parse.StatementParseNode,
+  item_source : String,
+) -> ControlStatement? raise WeslCompileError {
+  let source = parser_strip_statement_attributes(statement.source)
+  match statement.kind {
+    @statement_parse.Block =>
+      Some(parser_statement_block_control(source, item_source))
+    @statement_parse.If =>
+      Some(parser_statement_if_control(source, item_source))
+    @statement_parse.Loop =>
+      Some(parser_statement_loop_control(source, item_source))
+    @statement_parse.While =>
+      Some(parser_statement_while_control(source, item_source))
+    @statement_parse.Continuing =>
+      Some(parser_statement_continuing_control(source, item_source))
+    _ => None
+  }
+}
+
+///|
 fn parser_trim_statement_semicolon(source : String) -> String {
   let trimmed = source.trim().to_owned()
   if trimmed.has_suffix(";") {
@@ -973,6 +1313,7 @@ fn parser_function_body_from_generated(
       update_expression: parser_statement_update_expression(
         statement, item_source,
       ),
+      control: parser_statement_control(statement, item_source),
     })
   }
   FunctionBody::{ statements: mapped }

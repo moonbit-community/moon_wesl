@@ -337,6 +337,43 @@ pub(all) struct AssignmentStatement {
 } derive(Eq, Debug)
 
 ///|
+pub(all) struct BlockStatement {
+  body : FunctionBody
+} derive(Eq, Debug)
+
+///|
+pub(all) struct IfStatement {
+  condition : Expression
+  body : FunctionBody
+  else_body : FunctionBody?
+} derive(Eq, Debug)
+
+///|
+pub(all) struct LoopStatement {
+  body : FunctionBody
+} derive(Eq, Debug)
+
+///|
+pub(all) struct WhileStatement {
+  condition : Expression
+  body : FunctionBody
+} derive(Eq, Debug)
+
+///|
+pub(all) struct ContinuingStatement {
+  body : FunctionBody
+} derive(Eq, Debug)
+
+///|
+pub(all) enum ControlStatement {
+  Block(BlockStatement)
+  If(IfStatement)
+  Loop(LoopStatement)
+  While(WhileStatement)
+  Continuing(ContinuingStatement)
+} derive(Eq, Debug)
+
+///|
 pub(all) struct StatementDeclaration {
   kind : StatementDeclarationKind
   name : String?
@@ -355,6 +392,7 @@ pub(all) struct Statement {
   declaration : StatementDeclaration?
   assignment : AssignmentStatement?
   update_expression : Expression?
+  control : ControlStatement?
 } derive(Eq, Debug)
 
 ///|

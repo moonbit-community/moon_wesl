@@ -371,6 +371,7 @@ test "parser: generated function parser records signature" {
         #|    declaration: None,
         #|    assignment: None,
         #|    update_expression: None,
+        #|    control: None,
         #|  },
         #|]
 
@@ -499,6 +500,84 @@ test "parser: generated statement parser classifies function body statements" {
       debug_inspect(
         header.body.statements[5].update_expression,
         content="Some(TypeOrIdentifier({ path: [], ident: \"value\", template_text: None, template_args: [] }))",
+      )
+      let expected_if_control =
+        #|Some(
+        #|  If(
+        #|    {
+        #|      condition: Binary(
+        #|        GreaterThan,
+        #|        TypeOrIdentifier({ path: [], ident: "value", template_text: None, template_args: [] }),
+        #|        TypeOrIdentifier({ path: [], ident: "limit", template_text: None, template_args: [] }),
+        #|      ),
+        #|      body: {
+        #|        statements: [
+        #|          {
+        #|            kind: Break,
+        #|            source: "break;",
+        #|            expression: None,
+        #|            declaration: None,
+        #|            assignment: None,
+        #|            update_expression: None,
+        #|            control: None,
+        #|          },
+        #|        ],
+        #|      },
+        #|      else_body: None,
+        #|    },
+        #|  ),
+        #|)
+      debug_inspect(
+        header.body.statements[6].control,
+        content=expected_if_control,
+      )
+      let expected_loop_control =
+        #|Some(
+        #|  Loop(
+        #|    {
+        #|      body: {
+        #|        statements: [
+        #|          {
+        #|            kind: Continuing,
+        #|            source: "continuing { break if value > 10; }",
+        #|            expression: None,
+        #|            declaration: None,
+        #|            assignment: None,
+        #|            update_expression: None,
+        #|            control: Some(
+        #|              Continuing(
+        #|                {
+        #|                  body: {
+        #|                    statements: [
+        #|                      {
+        #|                        kind: BreakIf,
+        #|                        source: "break if value > 10;",
+        #|                        expression: Some(
+        #|                          Binary(
+        #|                            GreaterThan,
+        #|                            TypeOrIdentifier({ path: [], ident: "value", template_text: None, template_args: [] }),
+        #|                            Literal("10"),
+        #|                          ),
+        #|                        ),
+        #|                        declaration: None,
+        #|                        assignment: None,
+        #|                        update_expression: None,
+        #|                        control: None,
+        #|                      },
+        #|                    ],
+        #|                  },
+        #|                },
+        #|              ),
+        #|            ),
+        #|          },
+        #|        ],
+        #|      },
+        #|    },
+        #|  ),
+        #|)
+      debug_inspect(
+        header.body.statements[7].control,
+        content=expected_loop_control,
       )
       debug_inspect(header.body.statements[9].expression, content="None")
     }
