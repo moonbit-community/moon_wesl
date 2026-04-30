@@ -11,6 +11,8 @@ pub fn[R : Resolver] compile(ModulePath, R, EscapeMangler, CompileOptions) -> Co
 
 pub fn[R : Resolver] compile_sourcemap(ModulePath, R, EscapeMangler, CompileOptions) -> CompileResult raise WeslCompileError
 
+pub fn eval_const(String, String) -> EvalResult raise WeslCompileError
+
 pub fn parse_global_declarations(String) -> Array[GlobalDeclaration] raise WeslCompileError
 
 pub fn parse_module_path(String) -> ModulePath raise ModulePathParseError
@@ -232,6 +234,11 @@ pub struct EscapeMangler {
 }
 pub fn EscapeMangler::default() -> Self
 pub fn EscapeMangler::mangle(Self, ModulePath, String) -> String
+
+pub(all) struct EvalResult {
+  value : String
+} derive(Eq, @debug.Debug)
+pub fn EvalResult::to_string(Self) -> String
 
 pub(all) enum Expression {
   Literal(String)

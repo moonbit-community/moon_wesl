@@ -132,6 +132,14 @@ test "wesl: default result mirrors upstream empty output" {
 }
 
 ///|
+test "wesl: public const eval returns upstream literal result" {
+  let result = eval_const(
+    "@const fn test() -> i32 {\n  return 1 + 2;\n}", "test()",
+  )
+  inspect(result.to_string(), content="3i")
+}
+
+///|
 test "wesl: feature default and bool conversion match upstream" {
   debug_inspect(Feature::default(), content="Disable")
   debug_inspect(Feature::from_bool(true), content="Enable")

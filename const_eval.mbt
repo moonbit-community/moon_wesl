@@ -13,6 +13,16 @@
 // limitations under the License.
 
 ///|
+pub(all) struct EvalResult {
+  value : String
+} derive(Eq, Debug)
+
+///|
+pub fn EvalResult::to_string(self : EvalResult) -> String {
+  self.value
+}
+
+///|
 fn eval_const_function(
   source : String,
   target_expr : String,
@@ -22,4 +32,12 @@ fn eval_const_function(
   let function = parser.parse_function()
   const_eval_validate_target(target_expr.trim().to_owned(), function.name)
   const_eval_execute_function(function)
+}
+
+///|
+pub fn eval_const(
+  source : String,
+  target_expr : String,
+) -> EvalResult raise WeslCompileError {
+  EvalResult::{ value: eval_const_function(source, target_expr) }
 }
