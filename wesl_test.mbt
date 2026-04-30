@@ -377,10 +377,13 @@ test "wesl: parser classifies global directives" {
   for declaration in unit.global_declarations {
     headers.push(declaration.header)
   }
-  debug_inspect(
-    headers,
-    content="[EnableDirective, RequiresDirective, DiagnosticDirective]",
-  )
+  let expected_headers =
+    #|[
+    #|  EnableDirective({ names: ["f16"] }),
+    #|  RequiresDirective({ names: ["readonly_and_readwrite_storage_textures"] }),
+    #|  DiagnosticDirective({ arguments: ["error", "derivative_uniformity"] }),
+    #|]
+  debug_inspect(headers, content=expected_headers)
 }
 
 ///|

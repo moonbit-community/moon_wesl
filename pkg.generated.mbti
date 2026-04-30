@@ -141,6 +141,14 @@ pub(all) struct ConstDeclaration {
   initializer : String?
 } derive(Eq, @debug.Debug)
 
+pub(all) struct DiagnosticDirectiveDeclaration {
+  arguments : Array[String]
+} derive(Eq, @debug.Debug)
+
+pub(all) struct EnableDirectiveDeclaration {
+  names : Array[String]
+} derive(Eq, @debug.Debug)
+
 pub struct EscapeMangler {
 }
 pub fn EscapeMangler::default() -> Self
@@ -200,9 +208,9 @@ pub(all) enum GlobalDeclarationHeader {
   Let(LetDeclaration)
   Var(VarDeclaration)
   ConstAssert
-  EnableDirective
-  RequiresDirective
-  DiagnosticDirective
+  EnableDirective(EnableDirectiveDeclaration)
+  RequiresDirective(RequiresDirectiveDeclaration)
+  DiagnosticDirective(DiagnosticDirectiveDeclaration)
   Other
 } derive(Eq, @debug.Debug)
 
@@ -300,6 +308,10 @@ pub struct Preprocessor[R, P] {
 }
 pub fn[R, P] Preprocessor::new(R, P) -> Self[R, P]
 pub impl[R : Resolver, P : ModulePreprocessor] Resolver for Preprocessor[R, P]
+
+pub(all) struct RequiresDirectiveDeclaration {
+  names : Array[String]
+} derive(Eq, @debug.Debug)
 
 pub struct Router {
   // private fields

@@ -449,6 +449,31 @@ fn Parser::parse_binding_with_yacc(
 }
 
 ///|
+fn Parser::parse_directive_with_yacc(
+  self : Parser,
+  item_source : String,
+) -> @directive_parse.DirectiveParseNode raise WeslCompileError {
+  match @directive_parse.parse_directive_source(item_source) {
+    @directive_parse.Parsed(node) => node
+    @directive_parse.Failed(diagnostic) => {
+      let byte_offset = if self.tokens.length() > 0 {
+        self.tokens[0].start() + diagnostic.offset
+      } else {
+        diagnostic.offset
+      }
+      if diagnostic.incomplete {
+        raise WeslCompileError::Parse(
+          "incomplete directive at byte \{byte_offset}: \{item_source}",
+        )
+      }
+      raise WeslCompileError::Parse(
+        "invalid directive at byte \{byte_offset}: \{item_source}",
+      )
+    }
+  }
+}
+
+///|
 fn Parser::parse_import_tree_with_yacc(
   self : Parser,
   context : String,
@@ -652,12 +677,24 @@ fn Parser::parse_global_declaration(
     }
     @global_parse.Parsed(@global_parse.ConstAssert) =>
       GlobalDeclarationHeader::ConstAssert
-    @global_parse.Parsed(@global_parse.EnableDirective) =>
-      GlobalDeclarationHeader::EnableDirective
-    @global_parse.Parsed(@global_parse.RequiresDirective) =>
-      GlobalDeclarationHeader::RequiresDirective
-    @global_parse.Parsed(@global_parse.DiagnosticDirective) =>
-      GlobalDeclarationHeader::DiagnosticDirective
+    @global_parse.Parsed(@global_parse.EnableDirective) => {
+      let directive = self.parse_directive_with_yacc(item_source)
+      GlobalDeclarationHeader::EnableDirective(EnableDirectiveDeclaration::{
+        names: directive.arguments,
+      })
+    }
+    @global_parse.Parsed(@global_parse.RequiresDirective) => {
+      let directive = self.parse_directive_with_yacc(item_source)
+      GlobalDeclarationHeader::RequiresDirective(RequiresDirectiveDeclaration::{
+        names: directive.arguments,
+      })
+    }
+    @global_parse.Parsed(@global_parse.DiagnosticDirective) => {
+      let directive = self.parse_directive_with_yacc(item_source)
+      GlobalDeclarationHeader::DiagnosticDirective(DiagnosticDirectiveDeclaration::{
+        arguments: directive.arguments,
+      })
+    }
     @global_parse.Parsed(@global_parse.Other) => GlobalDeclarationHeader::Other
     @global_parse.Failed(diagnostic) => {
       let byte_offset = if self.tokens.length() > 0 {

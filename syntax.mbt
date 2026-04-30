@@ -271,6 +271,21 @@ pub(all) struct VarDeclaration {
 } derive(Eq, Debug)
 
 ///|
+pub(all) struct EnableDirectiveDeclaration {
+  names : Array[String]
+} derive(Eq, Debug)
+
+///|
+pub(all) struct RequiresDirectiveDeclaration {
+  names : Array[String]
+} derive(Eq, Debug)
+
+///|
+pub(all) struct DiagnosticDirectiveDeclaration {
+  arguments : Array[String]
+} derive(Eq, Debug)
+
+///|
 fn VarDeclaration::ident(self : VarDeclaration) -> String? {
   self.name
 }
@@ -290,9 +305,9 @@ pub(all) enum GlobalDeclarationHeader {
   Let(LetDeclaration)
   Var(VarDeclaration)
   ConstAssert
-  EnableDirective
-  RequiresDirective
-  DiagnosticDirective
+  EnableDirective(EnableDirectiveDeclaration)
+  RequiresDirective(RequiresDirectiveDeclaration)
+  DiagnosticDirective(DiagnosticDirectiveDeclaration)
   Other
 } derive(Eq, Debug)
 
@@ -318,9 +333,9 @@ fn GlobalDeclaration::ident(self : GlobalDeclaration) -> String? {
       header.ident()
     }
     ConstAssert => None
-    EnableDirective => None
-    RequiresDirective => None
-    DiagnosticDirective => None
+    EnableDirective(_) => None
+    RequiresDirective(_) => None
+    DiagnosticDirective(_) => None
     Other => None
   }
 }

@@ -245,3 +245,36 @@ test "parser: generated binding parser records type annotations and initializers
     _ => fail("expected var declaration")
   }
 }
+
+///|
+test "parser: generated directive parser records directive arguments" {
+  let unit = try! parse_translation_unit(
+    try! parse_module_path("demo"),
+    "enable f16, chromium_experimental_full_ptr_parameters;\nrequires readonly_and_readwrite_storage_textures;\ndiagnostic(off, derivative_uniformity);\n",
+    true,
+  )
+  match unit.global_declarations[0].header {
+    EnableDirective(header) =>
+      debug_inspect(
+        header.names,
+        content="[\"f16\", \"chromium_experimental_full_ptr_parameters\"]",
+      )
+    _ => fail("expected enable directive")
+  }
+  match unit.global_declarations[1].header {
+    RequiresDirective(header) =>
+      debug_inspect(
+        header.names,
+        content="[\"readonly_and_readwrite_storage_textures\"]",
+      )
+    _ => fail("expected requires directive")
+  }
+  match unit.global_declarations[2].header {
+    DiagnosticDirective(header) =>
+      debug_inspect(
+        header.arguments,
+        content="[\"off\", \"derivative_uniformity\"]",
+      )
+    _ => fail("expected diagnostic directive")
+  }
+}
