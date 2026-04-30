@@ -244,23 +244,30 @@ pub(all) struct AliasDeclaration {
 ///|
 pub(all) struct ConstDeclaration {
   name : String
+  type_text : String?
   initializer : String?
 } derive(Eq, Debug)
 
 ///|
 pub(all) struct OverrideDeclaration {
   name : String
+  type_text : String?
+  initializer : String?
 } derive(Eq, Debug)
 
 ///|
 pub(all) struct LetDeclaration {
   name : String
+  type_text : String?
+  initializer : String?
 } derive(Eq, Debug)
 
 ///|
 pub(all) struct VarDeclaration {
   name : String?
   template_arguments : String?
+  type_text : String?
+  initializer : String?
 } derive(Eq, Debug)
 
 ///|

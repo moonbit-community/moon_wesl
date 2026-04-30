@@ -1,5 +1,6 @@
 import {
   "Milky2018/moon_wesl/internal/attribute_parse",
+  "Milky2018/moon_wesl/internal/binding_parse",
   "Milky2018/moon_wesl/internal/cond_expr_parse",
   "Milky2018/moon_wesl/internal/function_parse",
   "Milky2018/moon_wesl/internal/global_parse",

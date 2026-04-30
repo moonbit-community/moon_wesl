@@ -193,3 +193,55 @@ test "parser: generated function parser records signature" {
     _ => fail("expected function declaration")
   }
 }
+
+///|
+test "parser: generated binding parser records type annotations and initializers" {
+  let source =
+    #|alias color = vec4<f32>;
+    #|const scale: f32 = 2.0;
+    #|override enabled: bool = true;
+    #|let index: u32 = 4u;
+    #|@group(0) @binding(0) var<storage, read_write> values: array<f32>;
+    #|
+  let unit = try! parse_translation_unit(
+    try! parse_module_path("demo"),
+    source,
+    true,
+  )
+  match unit.global_declarations[0].header {
+    Alias(header) => debug_inspect(header.target, content="Some(\"vec4<f32>\")")
+    _ => fail("expected alias declaration")
+  }
+  match unit.global_declarations[1].header {
+    Const(header) => {
+      debug_inspect(header.type_text, content="Some(\"f32\")")
+      debug_inspect(header.initializer, content="Some(\"2.0\")")
+    }
+    _ => fail("expected const declaration")
+  }
+  match unit.global_declarations[2].header {
+    Override(header) => {
+      debug_inspect(header.type_text, content="Some(\"bool\")")
+      debug_inspect(header.initializer, content="Some(\"true\")")
+    }
+    _ => fail("expected override declaration")
+  }
+  match unit.global_declarations[3].header {
+    Let(header) => {
+      debug_inspect(header.type_text, content="Some(\"u32\")")
+      debug_inspect(header.initializer, content="Some(\"4u\")")
+    }
+    _ => fail("expected let declaration")
+  }
+  match unit.global_declarations[4].header {
+    Var(header) => {
+      debug_inspect(
+        header.template_arguments,
+        content="Some(\"storage, read_write\")",
+      )
+      debug_inspect(header.type_text, content="Some(\"array<f32>\")")
+      debug_inspect(header.initializer, content="None")
+    }
+    _ => fail("expected var declaration")
+  }
+}

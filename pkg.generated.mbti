@@ -137,6 +137,7 @@ pub impl ModulePreprocessor for CondCompPreprocessor
 
 pub(all) struct ConstDeclaration {
   name : String
+  type_text : String?
   initializer : String?
 } derive(Eq, @debug.Debug)
 
@@ -233,6 +234,8 @@ pub(all) struct ImportedName {
 
 pub(all) struct LetDeclaration {
   name : String
+  type_text : String?
+  initializer : String?
 } derive(Eq, @debug.Debug)
 
 pub(all) enum ManglerKind {
@@ -273,6 +276,8 @@ pub impl Resolver for NoResolver
 
 pub(all) struct OverrideDeclaration {
   name : String
+  type_text : String?
+  initializer : String?
 } derive(Eq, @debug.Debug)
 
 pub(all) enum PathOrigin {
@@ -345,6 +350,8 @@ pub fn TranslationUnit::to_string(Self) -> String
 pub(all) struct VarDeclaration {
   name : String?
   template_arguments : String?
+  type_text : String?
+  initializer : String?
 } derive(Eq, @debug.Debug)
 
 pub struct VirtualResolver {

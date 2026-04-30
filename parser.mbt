@@ -307,15 +307,6 @@ fn Parser::source_slice(
 }
 
 ///|
-fn Parser::trim_source_slice(
-  self : Parser,
-  start_offset : Int,
-  end_offset : Int,
-) -> String {
-  self.source_slice(start_offset, end_offset).trim().to_owned()
-}
-
-///|
 fn Parser::item_source(self : Parser) -> String raise WeslCompileError {
   match self.tokens[:] {
     [first, ..] =>
@@ -433,6 +424,31 @@ fn parser_function_parameters_from_generated(
 }
 
 ///|
+fn Parser::parse_binding_with_yacc(
+  self : Parser,
+  item_source : String,
+) -> @binding_parse.BindingParseNode raise WeslCompileError {
+  match @binding_parse.parse_binding_source(item_source) {
+    @binding_parse.Parsed(node) => node
+    @binding_parse.Failed(diagnostic) => {
+      let byte_offset = if self.tokens.length() > 0 {
+        self.tokens[0].start() + diagnostic.offset
+      } else {
+        diagnostic.offset
+      }
+      if diagnostic.incomplete {
+        raise WeslCompileError::Parse(
+          "incomplete binding declaration at byte \{byte_offset}: \{item_source}",
+        )
+      }
+      raise WeslCompileError::Parse(
+        "invalid binding declaration at byte \{byte_offset}: \{item_source}",
+      )
+    }
+  }
+}
+
+///|
 fn Parser::parse_import_tree_with_yacc(
   self : Parser,
   context : String,
@@ -525,51 +541,6 @@ fn Parser::parse_import_statement(
 }
 
 ///|
-fn Parser::slice_after_top_level_eq(self : Parser) -> String? {
-  guard self.tokens.last() is Some(last_token) else { return None }
-  let mut paren_depth = 0
-  let mut bracket_depth = 0
-  let mut brace_depth = 0
-  let mut eq_end : Int? = None
-  for current = self.tokens[:] {
-    match current {
-      [token, .. rest] => {
-        match token {
-          LParen(_, _, _) => paren_depth += 1
-          RParen(_, _, _) => paren_depth -= 1
-          LBracket(_, _, _) => bracket_depth += 1
-          RBracket(_, _, _) => bracket_depth -= 1
-          LBrace(_, _, _) => brace_depth += 1
-          RBrace(_, _, _) => brace_depth -= 1
-          Eq(_, end_, _) if paren_depth == 0 &&
-            bracket_depth == 0 &&
-            brace_depth == 0 => {
-            eq_end = Some(end_)
-            break
-          }
-          _ => ()
-        }
-        continue rest
-      }
-      [] => break
-    }
-  }
-  match eq_end {
-    Some(eq_offset) =>
-      Some(
-        self.trim_source_slice(
-          eq_offset,
-          match last_token {
-            Semi(start, _, _) => start
-            _ => last_token.end()
-          },
-        ),
-      )
-    None => None
-  }
-}
-
-///|
 fn Parser::parse_global_declaration(
   self : Parser,
 ) -> GlobalDeclaration raise WeslCompileError {
@@ -633,34 +604,50 @@ fn Parser::parse_global_declaration(
     }
     @global_parse.Parsed(@global_parse.Alias(name)) => {
       parser_validate_declaration_ident(name)
+      let binding = self.parse_binding_with_yacc(item_source)
       GlobalDeclarationHeader::Alias(AliasDeclaration::{
         name,
-        target: self.slice_after_top_level_eq(),
+        target: binding.type_text,
       })
     }
     @global_parse.Parsed(@global_parse.Const(name)) => {
       parser_validate_declaration_ident(name)
+      let binding = self.parse_binding_with_yacc(item_source)
       GlobalDeclarationHeader::Const(ConstDeclaration::{
         name,
-        initializer: self.slice_after_top_level_eq(),
+        type_text: binding.type_text,
+        initializer: binding.initializer,
       })
     }
     @global_parse.Parsed(@global_parse.Override(name)) => {
       parser_validate_declaration_ident(name)
-      GlobalDeclarationHeader::Override(OverrideDeclaration::{ name, })
+      let binding = self.parse_binding_with_yacc(item_source)
+      GlobalDeclarationHeader::Override(OverrideDeclaration::{
+        name,
+        type_text: binding.type_text,
+        initializer: binding.initializer,
+      })
     }
     @global_parse.Parsed(@global_parse.Let(name)) => {
       parser_validate_declaration_ident(name)
-      GlobalDeclarationHeader::Let(LetDeclaration::{ name, })
+      let binding = self.parse_binding_with_yacc(item_source)
+      GlobalDeclarationHeader::Let(LetDeclaration::{
+        name,
+        type_text: binding.type_text,
+        initializer: binding.initializer,
+      })
     }
     @global_parse.Parsed(@global_parse.Var(var_header)) => {
       match var_header.name {
         Some(name) => parser_validate_declaration_ident(name)
         None => ()
       }
+      let binding = self.parse_binding_with_yacc(item_source)
       GlobalDeclarationHeader::Var(VarDeclaration::{
         name: var_header.name,
-        template_arguments: var_header.template_arguments,
+        template_arguments: binding.var_template,
+        type_text: binding.type_text,
+        initializer: binding.initializer,
       })
     }
     @global_parse.Parsed(@global_parse.ConstAssert) =>
