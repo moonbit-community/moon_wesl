@@ -90,6 +90,45 @@ test "wesl: mangler kind default is escape" {
 }
 
 ///|
+test "wesl: mangler kind can unmangle reversible schemes" {
+  match
+    ManglerKind::unmangle(
+      ManglerKind::Escape,
+      "package__1bevy_pbr_lighting_item",
+    ) {
+    Some((path, item)) => {
+      debug_inspect(path.to_string(), content="\"package::bevy_pbr::lighting\"")
+      debug_inspect(item, content="\"item\"")
+    }
+    None => fail("expected escape unmangle")
+  }
+  match ManglerKind::unmangle(ManglerKind::Escape, "import_2_bevy_pbr_item") {
+    Some((path, item)) => {
+      debug_inspect(path.to_string(), content="\"bevy/pbr\"")
+      debug_inspect(item, content="\"item\"")
+    }
+    None => fail("expected dependency unmangle")
+  }
+  let unicode_path = try! parse_module_path("package::foo_bar")
+  let unicode_mangled = ManglerKind::mangle(
+    ManglerKind::Unicode,
+    unicode_path,
+    "make_vec",
+  )
+  match ManglerKind::unmangle(ManglerKind::Unicode, unicode_mangled) {
+    Some((path, item)) => {
+      debug_inspect(path.to_string(), content="\"package::foo_bar\"")
+      debug_inspect(item, content="\"make_vec\"")
+    }
+    None => fail("expected unicode unmangle")
+  }
+  debug_inspect(
+    ManglerKind::unmangle(ManglerKind::Hash, "item_123") is None,
+    content="true",
+  )
+}
+
+///|
 test "wesl: default result mirrors upstream empty output" {
   let result = CompileResult::default()
   let source_map = BasicSourceMap::new()
@@ -121,6 +160,23 @@ test "wesl: default result mirrors upstream empty output" {
   debug_inspect(
     SourceMap::get_default_source(source_map),
     content="Some(\"fn helper() {}\\n\")",
+  )
+  debug_inspect(
+    source_map.unmangle_identifier("package_helper"),
+    content="Some(\"package::helper\")",
+  )
+  debug_inspect(
+    source_map.unmangle_text(
+      "error: duplicate package_helper and unknown".to_string(),
+    ),
+    content="\"error: duplicate package::helper and unknown\"",
+  )
+  debug_inspect(
+    SourceMap::unmangle_text(
+      NoSourceMap::default(),
+      "error: duplicate package_helper".to_string(),
+    ),
+    content="\"error: duplicate package_helper\"",
   )
   match source_map.get_decl("package_helper") {
     Some((path, item)) => {
@@ -1040,6 +1096,40 @@ test "wesl: facade compile uses custom resolver and sourcemap option" {
     }
     None => fail("expected sourcemap")
   }
+}
+
+///|
+test "wesl: compile sourcemap unmangles imported diagnostics" {
+  let resolver = VirtualResolver::new()
+  let root_path = ModulePath::from_path("/shaders/root")
+  let util_path = ModulePath::from_path("/shaders/util")
+  resolver.add_module(
+    root_path, "import super::util::make_value;\n@compute @workgroup_size(1)\nfn main() {\n  let value = make_value();\n}\n",
+  )
+  resolver.add_module(util_path, "fn make_value() -> i32 {\n  return 1i;\n}\n")
+
+  let compiled = compile_sourcemap(
+    root_path,
+    resolver,
+    EscapeMangler::default(),
+    CompileOptions::default(),
+  )
+  let mangled = "package_shaders_util__1make_value"
+  match compiled.sourcemap {
+    Some(source_map) =>
+      match source_map.get_decl(mangled) {
+        Some((path, item)) => {
+          debug_inspect(path.to_string(), content="\"package::shaders::util\"")
+          debug_inspect(item, content="\"make_value\"")
+        }
+        None => fail("expected imported declaration mapping")
+      }
+    None => fail("expected sourcemap")
+  }
+  debug_inspect(
+    compiled.unmangle_text("unknown function package_shaders_util__1make_value"),
+    content="\"unknown function package::shaders::util::make_value\"",
+  )
 }
 
 ///|

@@ -262,11 +262,17 @@ pub(open) trait SourceMap {
   get_source(Self, ModulePath) -> String?
   get_display_name(Self, ModulePath) -> String?
   get_default_source(Self) -> String? = _
+  unmangle_text(Self, String) -> String = _
 }
 
 ///|
 impl SourceMap with get_default_source(_self) {
   None
+}
+
+///|
+impl SourceMap with unmangle_text(_self, text) {
+  text
 }
 
 ///|
@@ -348,6 +354,53 @@ pub fn BasicSourceMap::get_default_source(self : BasicSourceMap) -> String? {
 }
 
 ///|
+pub fn BasicSourceMap::unmangle_identifier(
+  self : BasicSourceMap,
+  mangled : String,
+) -> String? {
+  match self.get_decl(mangled) {
+    Some((path, item)) => Some("\{path.to_string()}::\{item}")
+    None => None
+  }
+}
+
+///|
+pub fn BasicSourceMap::unmangle_text(
+  self : BasicSourceMap,
+  text : String,
+) -> String {
+  let parts : Array[String] = []
+  let mut start = 0
+  let mut index = 0
+  while index < text.length() {
+    let code = text.code_unit_at(index).to_int()
+    if wesl_is_identifier_char(code) {
+      if start < index {
+        parts.push(text[start:index].to_owned())
+      }
+      let ident_start = index
+      index = index + 1
+      while index < text.length() &&
+            wesl_is_identifier_char(text.code_unit_at(index).to_int()) {
+        index = index + 1
+      }
+      let ident = text[ident_start:index].to_owned()
+      match self.unmangle_identifier(ident) {
+        Some(unmangled) => parts.push(unmangled)
+        None => parts.push(ident)
+      }
+      start = index
+    } else {
+      index = index + 1
+    }
+  }
+  if start < text.length() {
+    parts.push(text[start:text.length()].to_owned())
+  }
+  parts.join("")
+}
+
+///|
 pub impl SourceMap for BasicSourceMap with get_decl(self, decl) {
   self.mappings.get(decl)
 }
@@ -374,6 +427,44 @@ pub impl SourceMap for BasicSourceMap with get_default_source(self) {
 }
 
 ///|
+pub impl SourceMap for BasicSourceMap with unmangle_text(self, text) {
+  self.unmangle_text(text)
+}
+
+///|
+pub struct NoSourceMap {}
+
+///|
+pub fn NoSourceMap::new() -> NoSourceMap {
+  NoSourceMap::{  }
+}
+
+///|
+pub fn NoSourceMap::default() -> NoSourceMap {
+  NoSourceMap::new()
+}
+
+///|
+pub impl SourceMap for NoSourceMap with get_decl(_self, _decl) {
+  None
+}
+
+///|
+pub impl SourceMap for NoSourceMap with get_source(_self, _path) {
+  None
+}
+
+///|
+pub impl SourceMap for NoSourceMap with get_display_name(_self, _path) {
+  None
+}
+
+///|
+pub impl SourceMap for NoSourceMap with get_default_source(_self) {
+  None
+}
+
+///|
 pub struct CompileResult {
   syntax : TranslationUnit
   sourcemap : BasicSourceMap?
@@ -397,6 +488,17 @@ pub fn CompileResult::to_string(self : CompileResult) -> String {
 ///|
 pub fn CompileResult::has_sourcemap(self : CompileResult) -> Bool {
   self.sourcemap is Some(_)
+}
+
+///|
+pub fn CompileResult::unmangle_text(
+  self : CompileResult,
+  text : String,
+) -> String {
+  match self.sourcemap {
+    Some(sourcemap) => sourcemap.unmangle_text(text)
+    None => text
+  }
 }
 
 ///|

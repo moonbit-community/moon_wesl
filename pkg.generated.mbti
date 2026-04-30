@@ -99,6 +99,8 @@ pub fn BasicSourceMap::get_display_name(Self, ModulePath) -> String?
 pub fn BasicSourceMap::get_source(Self, ModulePath) -> String?
 pub fn BasicSourceMap::new() -> Self
 pub fn BasicSourceMap::set_default_source(Self, String) -> Unit
+pub fn BasicSourceMap::unmangle_identifier(Self, String) -> String?
+pub fn BasicSourceMap::unmangle_text(Self, String) -> String
 pub impl SourceMap for BasicSourceMap
 
 pub(all) enum BinaryOperator {
@@ -181,6 +183,7 @@ pub fn CompileResult::default() -> Self
 pub fn CompileResult::eval(Self, String) -> EvalResult raise WeslCompileError
 pub fn CompileResult::has_sourcemap(Self) -> Bool
 pub fn CompileResult::to_string(Self) -> String
+pub fn CompileResult::unmangle_text(Self, String) -> String
 
 pub struct CondCompPreprocessor {
   features : Features
@@ -237,6 +240,7 @@ pub struct EscapeMangler {
 }
 pub fn EscapeMangler::default() -> Self
 pub fn EscapeMangler::mangle(Self, ModulePath, String) -> String
+pub fn EscapeMangler::unmangle(Self, String) -> (ModulePath, String)?
 
 pub(all) struct EvalResult {
   value : String
@@ -401,6 +405,7 @@ pub(all) enum ManglerKind {
 } derive(Eq, @debug.Debug)
 pub fn ManglerKind::default() -> Self
 pub fn ManglerKind::mangle(Self, ModulePath, String) -> String
+pub fn ManglerKind::unmangle(Self, String) -> (ModulePath, String)?
 
 type ModuleItemRef derive(Eq, @debug.Debug)
 
@@ -428,6 +433,12 @@ pub struct NoResolver {
 pub fn NoResolver::default() -> Self
 pub fn NoResolver::new() -> Self
 pub impl Resolver for NoResolver
+
+pub struct NoSourceMap {
+}
+pub fn NoSourceMap::default() -> Self
+pub fn NoSourceMap::new() -> Self
+pub impl SourceMap for NoSourceMap
 
 pub(all) struct OverrideDeclaration {
   name : String
@@ -671,5 +682,6 @@ pub(open) trait SourceMap {
   get_source(Self, ModulePath) -> String?
   get_display_name(Self, ModulePath) -> String?
   get_default_source(Self) -> String? = _
+  unmangle_text(Self, String) -> String = _
 }
 

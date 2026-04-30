@@ -64,6 +64,117 @@ fn escape_mangler_component(comp : String) -> String {
 }
 
 ///|
+fn escape_mangler_parse_count(text : String) -> (Int, String)? {
+  let mut digits = 0
+  while digits < text.length() {
+    let code = text.code_unit_at(digits).to_int()
+    if code < 48 || code > 57 {
+      break
+    }
+    digits = digits + 1
+  }
+  if digits == 0 {
+    return None
+  }
+  let count = @string.parse_int(text[:digits]) catch { _ => return None }
+  Some((count, text[digits:].to_owned()))
+}
+
+///|
+fn escape_mangler_unescape_component(
+  parts : Array[String],
+  cursor : Int,
+) -> (String, Int)? {
+  guard cursor < parts.length() else { return None }
+  let part = parts[cursor]
+  if part != "" {
+    return Some((part, cursor + 1))
+  }
+  guard cursor + 1 < parts.length() else { return None }
+  let first = parts[cursor + 1]
+  guard escape_mangler_parse_count(first) is Some((count, rem)) else {
+    return None
+  }
+  let end_index = cursor + 2 + count
+  guard end_index <= parts.length() else { return None }
+  let component_parts : Array[String] = [rem]
+  for index in (cursor + 2)..<end_index {
+    component_parts.push(parts[index])
+  }
+  Some((component_parts.join("_"), end_index))
+}
+
+///|
+fn escape_mangler_split(mangled : String) -> Array[String] {
+  let parts : Array[String] = []
+  for part in mangled.split("_") {
+    parts.push(part.to_owned())
+  }
+  parts
+}
+
+///|
+pub fn EscapeMangler::unmangle(
+  _self : EscapeMangler,
+  mangled : String,
+) -> (ModulePath, String)? {
+  let parts = escape_mangler_split(mangled)
+  guard parts.length() > 0 else { return None }
+  let mut cursor = 1
+  let origin = match parts[0] {
+    "package" => PathOrigin::Absolute
+    "self" => PathOrigin::Relative(0)
+    "super" => {
+      let mut levels = 1
+      while cursor < parts.length() && parts[cursor] == "super" {
+        levels = levels + 1
+        cursor = cursor + 1
+      }
+      PathOrigin::Relative(levels)
+    }
+    "import" => {
+      guard cursor < parts.length() else { return None }
+      let count = @string.parse_int(parts[cursor][:]) catch { _ => return None }
+      cursor = cursor + 1
+      let package_parts : Array[String] = []
+      for _ in 0..<count {
+        guard escape_mangler_unescape_component(parts, cursor)
+          is Some((component, next_cursor)) else {
+          return None
+        }
+        package_parts.push(component)
+        cursor = next_cursor
+      }
+      PathOrigin::Package(package_parts.join("/"))
+    }
+    _ => {
+      guard escape_mangler_unescape_component(parts, 0)
+        is Some((package_name, next_cursor)) else {
+        return None
+      }
+      cursor = next_cursor
+      PathOrigin::Package(package_name)
+    }
+  }
+  let components : Array[String] = []
+  while cursor < parts.length() {
+    guard escape_mangler_unescape_component(parts, cursor)
+      is Some((component, next_cursor)) else {
+      return None
+    }
+    components.push(component)
+    cursor = next_cursor
+  }
+  guard components.length() > 0 else { return None }
+  let item = components[components.length() - 1]
+  let path_components : Array[String] = []
+  for index in 0..<(components.length() - 1) {
+    path_components.push(components[index])
+  }
+  Some((ModulePath::new(origin, path_components), item))
+}
+
+///|
 pub fn EscapeMangler::mangle(
   _self : EscapeMangler,
   path : ModulePath,
@@ -118,6 +229,28 @@ fn unicode_mangler_component(text : String) -> String {
 }
 
 ///|
+fn unicode_mangler_uncomponent(text : String) -> String {
+  text
+  .replace(old="＿", new="_")
+  .replace(old="ᐟ", new="/")
+  .replace(old="꞉", new=":")
+  .replace(old="ᐸ", new="<")
+  .replace(old="ᐳ", new=">")
+  .replace(old="ˏ", new=",")
+}
+
+///|
+fn unicode_mangler_last_separator(text : String) -> Int {
+  let mut last = -1
+  for index in 0..<text.length() {
+    if text.code_unit_at(index).to_int() == 95 {
+      last = index
+    }
+  }
+  last
+}
+
+///|
 pub fn ManglerKind::mangle(
   self : ManglerKind,
   path : ModulePath,
@@ -135,5 +268,30 @@ pub fn ManglerKind::mangle(
         unicode_mangler_component(item)
       }
     None => item
+  }
+}
+
+///|
+pub fn ManglerKind::unmangle(
+  self : ManglerKind,
+  mangled : String,
+) -> (ModulePath, String)? {
+  match self {
+    Escape => EscapeMangler::unmangle(EscapeMangler::default(), mangled)
+    Unicode => {
+      let sep = unicode_mangler_last_separator(mangled)
+      if sep < 0 {
+        return Some(
+          (ModulePath::new_root(), unicode_mangler_uncomponent(mangled)),
+        )
+      }
+      let path_text = unicode_mangler_uncomponent(mangled[:sep].to_owned())
+      let item = unicode_mangler_uncomponent(
+        mangled[sep + 1:mangled.length()].to_owned(),
+      )
+      let path = parse_module_path(path_text) catch { _ => return None }
+      Some((path, item))
+    }
+    Hash | None => None
   }
 }
