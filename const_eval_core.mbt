@@ -210,6 +210,7 @@ fn[A] ConstEvalParser::error(
 priv enum ConstEvalType {
   AbstractInt
   AbstractFloat
+  Bool
   I32
   U32
   F32
@@ -264,6 +265,10 @@ fn ConstEvalParser::parse_type(
   self : ConstEvalParser,
 ) -> ConstEvalType raise WeslCompileError {
   match self.view() {
+    [Ident("bool"), .. rest] => {
+      self.update_view(rest)
+      ConstEvalType::Bool
+    }
     [Ident("i32"), .. rest] => {
       self.update_view(rest)
       ConstEvalType::I32
@@ -288,6 +293,14 @@ fn ConstEvalParser::parse_primary(
     [Number(text), .. rest] => {
       self.update_view(rest)
       ConstEvalExpr::Literal(text)
+    }
+    [Ident("true"), .. rest] => {
+      self.update_view(rest)
+      ConstEvalExpr::Literal("true")
+    }
+    [Ident("false"), .. rest] => {
+      self.update_view(rest)
+      ConstEvalExpr::Literal("false")
     }
     [Ident(name), LeftParen, .. rest] => {
       self.update_view(rest)
@@ -580,6 +593,7 @@ fn ConstEvalParser::parse_function(
 
 ///|
 priv enum ConstEvalValue {
+  Bool(Bool)
   AbstractInt(Int64)
   AbstractFloat(Double)
   I32(Int64)
@@ -626,6 +640,7 @@ fn ConstEvalContext::new_call_scope(
 ///|
 fn ConstEvalValue::value_type(self : ConstEvalValue) -> ConstEvalType {
   match self {
+    Bool(_) => ConstEvalType::Bool
     AbstractInt(_) => ConstEvalType::AbstractInt
     AbstractFloat(_) => ConstEvalType::AbstractFloat
     I32(_) => ConstEvalType::I32
@@ -785,6 +800,11 @@ fn const_eval_parse_literal(
   if text.length() == 0 {
     raise WeslCompileError::Validation("empty literal")
   }
+  match text {
+    "true" => return ConstEvalValue::Bool(true)
+    "false" => return ConstEvalValue::Bool(false)
+    _ => ()
+  }
   let is_hex = text.length() >= 2 &&
     (text[:2].to_owned() == "0x" || text[:2].to_owned() == "0X")
   if text.contains(".") || text.contains("p") || text.contains("P") {
@@ -841,6 +861,10 @@ fn const_eval_require_i32(
   context : String,
 ) -> Int64 raise WeslCompileError {
   match value {
+    Bool(_) =>
+      raise WeslCompileError::Validation(
+        "cannot convert bool to i32 in \{context}",
+      )
     AbstractInt(number) =>
       if number < CONST_EVAL_I32_MIN || number > CONST_EVAL_I32_MAX {
         raise WeslCompileError::Validation(
@@ -875,6 +899,10 @@ fn const_eval_require_u32(
   context : String,
 ) -> Int64 raise WeslCompileError {
   match value {
+    Bool(_) =>
+      raise WeslCompileError::Validation(
+        "cannot convert bool to u32 in \{context}",
+      )
     AbstractInt(number) =>
       if number < 0 || number > CONST_EVAL_U32_MAX {
         raise WeslCompileError::Validation(
@@ -909,6 +937,10 @@ fn const_eval_require_f32(
   context : String,
 ) -> Float raise WeslCompileError {
   match value {
+    Bool(_) =>
+      raise WeslCompileError::Validation(
+        "cannot convert bool to f32 in \{context}",
+      )
     AbstractInt(number) =>
       const_eval_exact_f32_from_double(context, number.to_double())
     AbstractFloat(number) => const_eval_exact_f32_from_double(context, number)
@@ -925,6 +957,20 @@ fn const_eval_require_f32(
 }
 
 ///|
+fn const_eval_require_bool(
+  value : ConstEvalValue,
+  context : String,
+) -> Bool raise WeslCompileError {
+  match value {
+    Bool(value) => value
+    _ =>
+      raise WeslCompileError::Validation(
+        "cannot convert non-bool to bool in \{context}",
+      )
+  }
+}
+
+///|
 fn const_eval_convert_to_type(
   value : ConstEvalValue,
   target : ConstEvalType,
@@ -933,6 +979,7 @@ fn const_eval_convert_to_type(
   match target {
     AbstractInt => value
     AbstractFloat => value
+    Bool => ConstEvalValue::Bool(const_eval_require_bool(value, context))
     I32 => ConstEvalValue::I32(const_eval_require_i32(value, context))
     U32 => ConstEvalValue::U32(const_eval_require_u32(value, context))
     F32 => ConstEvalValue::F32(const_eval_require_f32(value, context))
@@ -944,6 +991,7 @@ fn const_eval_unary_neg(
   value : ConstEvalValue,
 ) -> ConstEvalValue raise WeslCompileError {
   match value {
+    Bool(_) => raise WeslCompileError::Validation("cannot negate bool literal")
     AbstractInt(number) => ConstEvalValue::AbstractInt(-number)
     AbstractFloat(number) => ConstEvalValue::AbstractFloat(-number)
     I32(number) => ConstEvalValue::I32(-number)
@@ -958,6 +1006,10 @@ fn const_eval_to_abstract_float(
   context : String,
 ) -> Double raise WeslCompileError {
   match value {
+    Bool(_) =>
+      raise WeslCompileError::Validation(
+        "cannot use bool with abstract float in \{context}",
+      )
     AbstractInt(number) => number.to_double()
     AbstractFloat(number) => number
     F32(number) => number.to_double()
@@ -1021,6 +1073,14 @@ fn const_eval_apply_binary(
   rhs : ConstEvalValue,
 ) -> ConstEvalValue raise WeslCompileError {
   match (lhs, rhs) {
+    (Bool(_), _) =>
+      raise WeslCompileError::Validation(
+        "cannot use bool in arithmetic expression",
+      )
+    (_, Bool(_)) =>
+      raise WeslCompileError::Validation(
+        "cannot use bool in arithmetic expression",
+      )
     (F32(left), right) =>
       ConstEvalValue::F32(
         const_eval_binary_float(
@@ -1124,6 +1184,10 @@ fn const_eval_clamp_type(
   let mut has_u32 = false
   for value in values {
     match value.value_type() {
+      Bool =>
+        raise WeslCompileError::Validation(
+          "cannot use bool with clamp arguments",
+        )
       F32 => has_f32 = true
       AbstractFloat => has_abstract_float = true
       I32 => has_i32 = true
@@ -1242,6 +1306,7 @@ fn const_eval_format_abstract_float(value : Double) -> String {
 ///|
 fn const_eval_render_value(value : ConstEvalValue) -> String {
   match value {
+    Bool(value) => if value { "true" } else { "false" }
     AbstractInt(number) => "\{number}"
     AbstractFloat(number) => const_eval_format_abstract_float(number)
     I32(number) => "\{number}i"

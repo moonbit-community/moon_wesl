@@ -153,6 +153,8 @@ test "wesl: eval_str evaluates standalone const expressions" {
   inspect(eval_str("1u + 2u").to_string(), content="3u")
   inspect(eval_str("6u * 7u").to_string(), content="42u")
   inspect(eval_str("1.0 + 2.0").to_string(), content="3.0")
+  inspect(eval_str("true").to_string(), content="true")
+  inspect(eval_str("false").to_string(), content="false")
 }
 
 ///|
@@ -221,6 +223,24 @@ test "wesl: compile result eval handles multiplied global constants" {
   )
 
   inspect(compiled.eval("TAU").to_string(), content="6f")
+}
+
+///|
+test "wesl: compile result eval handles bool global constants" {
+  let resolver = VirtualResolver::new()
+  let root_path = ModulePath::from_path("/shaders/root")
+  resolver.add_module(
+    root_path, "const FLAG: bool = true;\nconst SIZE: u32 = 2u;\n",
+  )
+  let compiled = compile(
+    root_path,
+    resolver,
+    EscapeMangler::default(),
+    CompileOptions::default().keep_declarations(["FLAG", "SIZE"]),
+  )
+
+  inspect(compiled.eval("FLAG").to_string(), content="true")
+  inspect(compiled.eval("SIZE").to_string(), content="2u")
 }
 
 ///|
