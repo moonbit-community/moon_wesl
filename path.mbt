@@ -94,15 +94,6 @@ fn module_path_split_non_empty(path : String, sep : String) -> Array[String] {
 }
 
 ///|
-fn module_path_split_preserve(path : String, sep : String) -> Array[String] {
-  let parts : Array[String] = []
-  for part in path.split(sep) {
-    parts.push(part.to_owned())
-  }
-  parts
-}
-
-///|
 fn module_path_slice(
   parts : Array[String],
   start : Int,
@@ -333,45 +324,21 @@ pub fn ModulePath::to_string(self : ModulePath) -> String {
 pub fn parse_module_path(
   text : String,
 ) -> ModulePath raise ModulePathParseError {
-  let parts = module_path_split_preserve(text.trim().to_owned(), "::")
-  let origin = match parts.get(0) {
-    Some("package") => Absolute
-    Some("self") => Relative(0)
-    Some("super") => {
-      let mut levels = 1
-      while levels < parts.length() && parts[levels] == "super" {
-        levels = levels + 1
+  let parsed = @module_path_parse.parse_module_path_source(text)
+  let path = match parsed {
+    @module_path_parse.Parsed(path) => path
+    @module_path_parse.Failed(diagnostic) =>
+      match diagnostic.problem {
+        @module_path_parse.Empty => raise Empty
+        @module_path_parse.MisplacedPackage => raise MisplacedPackage
+        @module_path_parse.MisplacedSelf => raise MisplacedSelf
+        @module_path_parse.MisplacedSuper => raise MisplacedSuper
       }
-      for i in levels..<parts.length() {
-        if parts[i] == "package" {
-          raise MisplacedPackage
-        }
-        if parts[i] == "self" {
-          raise MisplacedSelf
-        }
-        if parts[i] == "super" {
-          raise MisplacedSuper
-        }
-      }
-      return ModulePath::new(
-        Relative(levels),
-        module_path_slice(parts, levels, parts.length()),
-      )
-    }
-    Some("") => raise Empty
-    None => raise Empty
-    Some(name) => Package(name)
   }
-  for i in 1..<parts.length() {
-    if parts[i] == "package" {
-      raise MisplacedPackage
-    }
-    if parts[i] == "self" {
-      raise MisplacedSelf
-    }
-    if parts[i] == "super" {
-      raise MisplacedSuper
-    }
+  let origin = match path.origin {
+    @module_path_parse.Absolute => Absolute
+    @module_path_parse.Relative(levels) => Relative(levels)
+    @module_path_parse.Package(name) => Package(name)
   }
-  ModulePath::new(origin, module_path_slice(parts, 1, parts.length()))
+  ModulePath::new(origin, path.components)
 }

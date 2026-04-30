@@ -38,6 +38,32 @@ test "wesl: module path join matches relative import semantics" {
 }
 
 ///|
+fn wesl_test_module_path_error_message(source : String) -> String {
+  let path = parse_module_path(source) catch { err => return err.message() }
+  ignore(path)
+  abort("\{source}: expected parse failure")
+}
+
+///|
+test "wesl: module path parser rejects misplaced reserved origins" {
+  let valid = try! parse_module_path("super::super::util")
+  debug_inspect(valid.to_string(), content="\"super::super::util\"")
+  let cases = [
+    ("package::self", "`self` must be a prefix of the module path"),
+    ("self::super", "`super` must be a prefix of the module path"),
+    ("demo::package", "`package` must be a prefix of the module path"),
+    ("package::", "module name cannot be empty"),
+  ]
+  for case in cases {
+    let (source, expected) = case
+    debug_inspect(
+      wesl_test_module_path_error_message(source),
+      content="\"\{expected}\"",
+    )
+  }
+}
+
+///|
 test "wesl: escape mangler matches Bevy naming" {
   let mangler = EscapeMangler::default()
   let package_path = try! parse_module_path("package::bevy_pbr::lighting")
