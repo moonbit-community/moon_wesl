@@ -11,10 +11,7 @@ import {
   "Milky2018/moon_wesl/internal/module_path_parse",
   "Milky2018/moon_wesl/internal/statement_parse",
   "Milky2018/moon_wesl/internal/struct_parse",
+  "Milky2018/moon_wesl/internal/type_parse",
   "moonbitlang/core/hashmap",
   "moonbitlang/core/string",
 }
-
-import {
-  "Milky2018/moon_wesl/internal/type_parse",
-} for "wbtest"

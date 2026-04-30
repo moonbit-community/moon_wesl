@@ -401,10 +401,14 @@ fn parser_import_node_from_generated(
 ///|
 fn parser_struct_members_from_generated(
   members : Array[@struct_parse.StructMemberParseNode],
-) -> Array[StructMember] {
+) -> Array[StructMember] raise WeslCompileError {
   let mapped : Array[StructMember] = []
   for field in members {
-    mapped.push(StructMember::{ name: field.name, type_text: field.type_text })
+    mapped.push(StructMember::{
+      name: field.name,
+      type_text: field.type_text,
+      type_expr: parser_parse_type_expression(field.type_text),
+    })
   }
   mapped
 }
@@ -412,12 +416,13 @@ fn parser_struct_members_from_generated(
 ///|
 fn parser_function_parameters_from_generated(
   parameters : Array[@function_parse.FunctionParameterParseNode],
-) -> Array[FunctionParameter] {
+) -> Array[FunctionParameter] raise WeslCompileError {
   let mapped : Array[FunctionParameter] = []
   for parameter in parameters {
     mapped.push(FunctionParameter::{
       name: parameter.name,
       type_text: parameter.type_text,
+      type_expr: parser_parse_type_expression(parameter.type_text),
     })
   }
   mapped
@@ -461,6 +466,67 @@ fn parser_type_expression_from_generated(
     path: node.path,
     ident: node.ident,
     template_text: node.template_text,
+    template_args: [],
+  }
+}
+
+///|
+fn parser_type_template_argument_from_generated(
+  node : @type_parse.TypeTemplateArgumentParseNode,
+) -> TypeTemplateArgument {
+  match node {
+    @type_parse.Type(ty) =>
+      TypeTemplateArgument::Type(parser_type_expression_from_type_parse(ty))
+    @type_parse.Literal(text) => TypeTemplateArgument::Literal(text)
+  }
+}
+
+///|
+fn parser_type_expression_from_type_parse(
+  node : @type_parse.TypeSpecifierParseNode,
+) -> TypeExpression {
+  let template_args : Array[TypeTemplateArgument] = []
+  for arg in node.template_args {
+    template_args.push(parser_type_template_argument_from_generated(arg))
+  }
+  TypeExpression::{
+    path: node.path,
+    ident: node.ident,
+    template_text: None,
+    template_args,
+  }
+}
+
+///|
+fn parser_parse_type_expression(
+  source : String,
+) -> TypeExpression raise WeslCompileError {
+  match @type_parse.parse_type_source(source) {
+    @type_parse.Parsed(node) => parser_type_expression_from_type_parse(node)
+    @type_parse.Failed(diagnostic) => {
+      if diagnostic.incomplete {
+        raise WeslCompileError::Parse(
+          "incomplete type expression at byte \{diagnostic.offset}: \{source}",
+        )
+      }
+      let message = match diagnostic.message {
+        Some(message) => message
+        None => "invalid type expression"
+      }
+      raise WeslCompileError::Parse(
+        "\{message} at byte \{diagnostic.offset}: \{source}",
+      )
+    }
+  }
+}
+
+///|
+fn parser_parse_optional_type_expression(
+  source : String?,
+) -> TypeExpression? raise WeslCompileError {
+  match source {
+    Some(text) => Some(parser_parse_type_expression(text))
+    None => None
   }
 }
 
@@ -945,6 +1011,7 @@ fn Parser::parse_global_declaration(
       GlobalDeclarationHeader::Alias(AliasDeclaration::{
         name,
         target: binding.type_text,
+        target_type: parser_parse_optional_type_expression(binding.type_text),
       })
     }
     @global_parse.Parsed(@global_parse.Const(name)) => {
@@ -953,6 +1020,7 @@ fn Parser::parse_global_declaration(
       GlobalDeclarationHeader::Const(ConstDeclaration::{
         name,
         type_text: binding.type_text,
+        type_expr: parser_parse_optional_type_expression(binding.type_text),
         initializer: binding.initializer,
       })
     }
@@ -962,6 +1030,7 @@ fn Parser::parse_global_declaration(
       GlobalDeclarationHeader::Override(OverrideDeclaration::{
         name,
         type_text: binding.type_text,
+        type_expr: parser_parse_optional_type_expression(binding.type_text),
         initializer: binding.initializer,
       })
     }
@@ -971,6 +1040,7 @@ fn Parser::parse_global_declaration(
       GlobalDeclarationHeader::Let(LetDeclaration::{
         name,
         type_text: binding.type_text,
+        type_expr: parser_parse_optional_type_expression(binding.type_text),
         initializer: binding.initializer,
       })
     }
@@ -984,6 +1054,7 @@ fn Parser::parse_global_declaration(
         name: var_header.name,
         template_arguments: binding.var_template,
         type_text: binding.type_text,
+        type_expr: parser_parse_optional_type_expression(binding.type_text),
         initializer: binding.initializer,
       })
     }

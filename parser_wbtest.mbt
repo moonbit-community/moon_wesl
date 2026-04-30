@@ -55,7 +55,28 @@ fn parse_expression_ast(
 ///|
 fn parse_type_specifier(source : String) -> Unit raise WeslCompileError {
   match @type_parse.parse_type_source(source) {
-    @type_parse.Parsed => ()
+    @type_parse.Parsed(_) => ()
+    @type_parse.Failed(diagnostic) => {
+      let message = match diagnostic.message {
+        Some(message) => message
+        None =>
+          if diagnostic.incomplete {
+            "incomplete type"
+          } else {
+            "unsupported type syntax"
+          }
+      }
+      raise WeslCompileError::Parse("\{message}: `\{source}`")
+    }
+  }
+}
+
+///|
+fn parse_type_ast(
+  source : String,
+) -> @type_parse.TypeSpecifierParseNode raise WeslCompileError {
+  match @type_parse.parse_type_source(source) {
+    @type_parse.Parsed(node) => node
     @type_parse.Failed(diagnostic) => {
       let message = match diagnostic.message {
         Some(message) => message
@@ -151,6 +172,7 @@ test "parser: generated type parser handles nested WGSL type specifiers" {
   let valid_cases = [
     "f32", "vec4<f32>", "mat4x4<f16>", "array<vec3<f32>, 4>", "array<array<f32, 2>, 3>",
     "ptr<storage, DynamicArray, read_write>", "package::shared::Payload", "foo::bar::Texture<vec2<f32>, N>",
+    "array<u32, 1,>", "ptr<storage,>",
   ]
   for ty in valid_cases {
     let result = try? parse_type_specifier(ty)
@@ -159,9 +181,7 @@ test "parser: generated type parser handles nested WGSL type specifiers" {
       Err(err) => fail("\{ty}: \{err.message()}")
     }
   }
-  let invalid_cases = [
-    "", "array<", "vec2<f32", "array<f32,, 2>", "ptr<storage,>", "foo::",
-  ]
+  let invalid_cases = ["", "array<", "vec2<f32", "array<f32,, 2>", "foo::"]
   for ty in invalid_cases {
     let result = try? parse_type_specifier(ty)
     match result {
@@ -169,6 +189,36 @@ test "parser: generated type parser handles nested WGSL type specifiers" {
       Err(_) => ()
     }
   }
+}
+
+///|
+test "parser: generated type parser returns AST nodes" {
+  let ast = parse_type_ast("package::shared::Payload<array<vec3<f32>, 4>, -1>")
+  let expected =
+    #|{
+    #|  path: ["package", "shared"],
+    #|  ident: "Payload",
+    #|  template_args: [
+    #|    Type(
+    #|      {
+    #|        path: [],
+    #|        ident: "array",
+    #|        template_args: [
+    #|          Type(
+    #|            {
+    #|              path: [],
+    #|              ident: "vec3",
+    #|              template_args: [Type({ path: [], ident: "f32", template_args: [] })],
+    #|            },
+    #|          ),
+    #|          Literal("4"),
+    #|        ],
+    #|      },
+    #|    ),
+    #|    Literal("-1"),
+    #|  ],
+    #|}
+  debug_inspect(ast, content=expected)
 }
 
 ///|
@@ -220,9 +270,41 @@ test "parser: generated struct parser records member names and types" {
     Struct(header) => {
       let expected_members =
         #|[
-        #|  { name: "clip_position", type_text: "vec4<f32>" },
-        #|  { name: "color", type_text: "array<vec3<f32>, 4>" },
-        #|  { name: "index", type_text: "u32" },
+        #|  {
+        #|    name: "clip_position",
+        #|    type_text: "vec4<f32>",
+        #|    type_expr: {
+        #|      path: [],
+        #|      ident: "vec4",
+        #|      template_text: None,
+        #|      template_args: [Type({ path: [], ident: "f32", template_text: None, template_args: [] })],
+        #|    },
+        #|  },
+        #|  {
+        #|    name: "color",
+        #|    type_text: "array<vec3<f32>, 4>",
+        #|    type_expr: {
+        #|      path: [],
+        #|      ident: "array",
+        #|      template_text: None,
+        #|      template_args: [
+        #|        Type(
+        #|          {
+        #|            path: [],
+        #|            ident: "vec3",
+        #|            template_text: None,
+        #|            template_args: [Type({ path: [], ident: "f32", template_text: None, template_args: [] })],
+        #|          },
+        #|        ),
+        #|        Literal("4"),
+        #|      ],
+        #|    },
+        #|  },
+        #|  {
+        #|    name: "index",
+        #|    type_text: "u32",
+        #|    type_expr: { path: [], ident: "u32", template_text: None, template_args: [] },
+        #|  },
         #|]
 
       debug_inspect(header.members, content=expected_members)
@@ -253,8 +335,29 @@ test "parser: generated function parser records signature" {
       debug_inspect(header.generic_parameters, content="Some(\"T\")")
       let expected_parameters =
         #|[
-        #|  { name: "color", type_text: "vec4<f32>" },
-        #|  { name: "index", type_text: "array<u32, 4>" },
+        #|  {
+        #|    name: "color",
+        #|    type_text: "vec4<f32>",
+        #|    type_expr: {
+        #|      path: [],
+        #|      ident: "vec4",
+        #|      template_text: None,
+        #|      template_args: [Type({ path: [], ident: "f32", template_text: None, template_args: [] })],
+        #|    },
+        #|  },
+        #|  {
+        #|    name: "index",
+        #|    type_text: "array<u32, 4>",
+        #|    type_expr: {
+        #|      path: [],
+        #|      ident: "array",
+        #|      template_text: None,
+        #|      template_args: [
+        #|        Type({ path: [], ident: "u32", template_text: None, template_args: [] }),
+        #|        Literal("4"),
+        #|      ],
+        #|    },
+        #|  },
         #|]
 
       debug_inspect(header.parameters, content=expected_parameters)
@@ -264,7 +367,7 @@ test "parser: generated function parser records signature" {
         #|  {
         #|    kind: Return,
         #|    source: "return color;",
-        #|    expression: Some(TypeOrIdentifier({ path: [], ident: "color", template_text: None })),
+        #|    expression: Some(TypeOrIdentifier({ path: [], ident: "color", template_text: None, template_args: [] })),
         #|  },
         #|]
 
@@ -317,13 +420,23 @@ test "parser: generated statement parser classifies function body statements" {
         #|Some(
         #|  FunctionCall(
         #|    {
-        #|      callee: { path: [], ident: "textureStore", template_text: None },
+        #|      callee: {
+        #|        path: [],
+        #|        ident: "textureStore",
+        #|        template_text: None,
+        #|        template_args: [],
+        #|      },
         #|      arguments: [
-        #|        TypeOrIdentifier({ path: [], ident: "tex", template_text: None }),
-        #|        TypeOrIdentifier({ path: [], ident: "coord", template_text: None }),
+        #|        TypeOrIdentifier({ path: [], ident: "tex", template_text: None, template_args: [] }),
+        #|        TypeOrIdentifier({ path: [], ident: "coord", template_text: None, template_args: [] }),
         #|        FunctionCall(
         #|          {
-        #|            callee: { path: [], ident: "vec4", template_text: Some("f32") },
+        #|            callee: {
+        #|              path: [],
+        #|              ident: "vec4",
+        #|              template_text: Some("f32"),
+        #|              template_args: [],
+        #|            },
         #|            arguments: [],
         #|          },
         #|        ),
@@ -336,7 +449,12 @@ test "parser: generated statement parser classifies function body statements" {
         #|Some(
         #|  FunctionCall(
         #|    {
-        #|      callee: { path: [], ident: "storageBarrier", template_text: None },
+        #|      callee: {
+        #|        path: [],
+        #|        ident: "storageBarrier",
+        #|        template_text: None,
+        #|        template_args: [],
+        #|      },
         #|      arguments: [],
         #|    },
         #|  ),
@@ -366,7 +484,19 @@ test "parser: generated binding parser records type annotations and initializers
     true,
   )
   match unit.global_declarations[0].header {
-    Alias(header) => debug_inspect(header.target, content="Some(\"vec4<f32>\")")
+    Alias(header) => {
+      debug_inspect(header.target, content="Some(\"vec4<f32>\")")
+      let expected_target_type =
+        #|Some(
+        #|  {
+        #|    path: [],
+        #|    ident: "vec4",
+        #|    template_text: None,
+        #|    template_args: [Type({ path: [], ident: "f32", template_text: None, template_args: [] })],
+        #|  },
+        #|)
+      debug_inspect(header.target_type, content=expected_target_type)
+    }
     _ => fail("expected alias declaration")
   }
   match unit.global_declarations[1].header {
@@ -397,6 +527,16 @@ test "parser: generated binding parser records type annotations and initializers
         content="Some(\"storage, read_write\")",
       )
       debug_inspect(header.type_text, content="Some(\"array<f32>\")")
+      let expected_var_type =
+        #|Some(
+        #|  {
+        #|    path: [],
+        #|    ident: "array",
+        #|    template_text: None,
+        #|    template_args: [Type({ path: [], ident: "f32", template_text: None, template_args: [] })],
+        #|  },
+        #|)
+      debug_inspect(header.type_expr, content=expected_var_type)
       debug_inspect(header.initializer, content="None")
     }
     _ => fail("expected var declaration")

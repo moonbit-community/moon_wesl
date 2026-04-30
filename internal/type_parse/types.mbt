@@ -21,9 +21,58 @@ pub(all) struct TypeParseDiagnostic {
 
 ///|
 pub(all) enum TypeParseResult {
-  Parsed
+  Parsed(TypeSpecifierParseNode)
   Failed(TypeParseDiagnostic)
 } derive(Eq, Debug)
+
+///|
+pub(all) struct TypeSpecifierParseNode {
+  path : Array[String]
+  ident : String
+  template_args : Array[TypeTemplateArgumentParseNode]
+} derive(Eq, Debug)
+
+///|
+pub(all) enum TypeTemplateArgumentParseNode {
+  Type(TypeSpecifierParseNode)
+  Literal(String)
+} derive(Eq, Debug)
+
+///|
+pub fn TypeSpecifierParseNode::from_path(
+  path : Array[String],
+) -> TypeSpecifierParseNode {
+  let prefix : Array[String] = []
+  for index in 0..<(path.length() - 1) {
+    prefix.push(path[index])
+  }
+  TypeSpecifierParseNode::{
+    path: prefix,
+    ident: path[path.length() - 1],
+    template_args: [],
+  }
+}
+
+///|
+pub fn TypeSpecifierParseNode::qualified_child(
+  self : TypeSpecifierParseNode,
+  ident : String,
+) -> TypeSpecifierParseNode {
+  let path : Array[String] = []
+  for segment in self.path {
+    path.push(segment)
+  }
+  path.push(self.ident)
+  TypeSpecifierParseNode::{ path, ident, template_args: [] }
+}
+
+///|
+pub fn TypeSpecifierParseNode::with_template_args(
+  self : TypeSpecifierParseNode,
+  template_args : Array[TypeTemplateArgumentParseNode],
+) -> TypeSpecifierParseNode {
+  TypeSpecifierParseNode::{ path: self.path, ident: self.ident, template_args }
+}
 
 ///|
 priv enum TypeLexResult {
@@ -259,7 +308,7 @@ pub fn parse_type_source(source : String) -> TypeParseResult {
       message: Some("empty type"),
     })
   }
-  parse_type_specifier(tokens) catch {
+  let parsed = parse_type_specifier(tokens) catch {
     UnexpectedToken(_, (start, _), _) =>
       return Failed(TypeParseDiagnostic::{
         offset: start,
@@ -273,5 +322,5 @@ pub fn parse_type_source(source : String) -> TypeParseResult {
         message: None,
       })
   }
-  Parsed
+  Parsed(parsed)
 }

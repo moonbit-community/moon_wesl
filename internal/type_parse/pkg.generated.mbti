@@ -8,7 +8,7 @@ import {
 // Values
 pub fn parse_type_source(String) -> TypeParseResult
 
-pub fn parse_type_specifier(Array[(Token, Int, Int)], initial_pos? : Int) -> Unit raise ParseError
+pub fn parse_type_specifier(Array[(Token, Int, Int)], initial_pos? : Int) -> TypeSpecifierParseNode raise ParseError
 
 // Errors
 pub suberror ParseError {
@@ -47,8 +47,22 @@ pub(all) struct TypeParseDiagnostic {
 } derive(Eq, @debug.Debug)
 
 pub(all) enum TypeParseResult {
-  Parsed
+  Parsed(TypeSpecifierParseNode)
   Failed(TypeParseDiagnostic)
+} derive(Eq, @debug.Debug)
+
+pub(all) struct TypeSpecifierParseNode {
+  path : Array[String]
+  ident : String
+  template_args : Array[TypeTemplateArgumentParseNode]
+} derive(Eq, @debug.Debug)
+pub fn TypeSpecifierParseNode::from_path(Array[String]) -> Self
+pub fn TypeSpecifierParseNode::qualified_child(Self, String) -> Self
+pub fn TypeSpecifierParseNode::with_template_args(Self, Array[TypeTemplateArgumentParseNode]) -> Self
+
+pub(all) enum TypeTemplateArgumentParseNode {
+  Type(TypeSpecifierParseNode)
+  Literal(String)
 } derive(Eq, @debug.Debug)
 
 // Type aliases

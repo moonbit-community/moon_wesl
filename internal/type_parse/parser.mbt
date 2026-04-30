@@ -11,13 +11,25 @@ type YYObj = Error
 priv suberror YYObj_Void
 
 ///|
-priv suberror YYObj_Unit {
-  YYObj_Unit(Unit)
+priv suberror YYObj_Array_TypeTemplateArgumentParseNode_ {
+  YYObj_Array_TypeTemplateArgumentParseNode_(
+    Array[TypeTemplateArgumentParseNode]
+  )
 }
 
 ///|
 priv suberror YYObj_String {
   YYObj_String(String)
+}
+
+///|
+priv suberror YYObj_TypeSpecifierParseNode {
+  YYObj_TypeSpecifierParseNode(TypeSpecifierParseNode)
+}
+
+///|
+priv suberror YYObj_TypeTemplateArgumentParseNode {
+  YYObj_TypeTemplateArgumentParseNode(TypeTemplateArgumentParseNode)
 }
 
 ///|
@@ -65,158 +77,187 @@ fn init {
 }
 
 // file:///./parser.mbty
-// 24|    type_specifier                { () }
+// 24|    type_specifier                { $1 }
 
 ///|
 fn yy_action_0(_last_pos : Int, _args : ArrayView[(YYObj, Int, Int)]) -> YYObj {
-  YYObj_Unit(
+  guard _args[0].0 is YYObj_TypeSpecifierParseNode(_dollar1)
+  YYObj_TypeSpecifierParseNode(
     {
       ()
-      ()
+      _dollar1
     },
   )
 }
 
 // file:///./parser.mbty
-// 28|    path_ident opt_template       { () }
+// 28|    path_ident opt_template       { $1.with_template_args($2) }
 
 ///|
 fn yy_action_1(_last_pos : Int, _args : ArrayView[(YYObj, Int, Int)]) -> YYObj {
-  YYObj_Unit(
+  guard _args[0].0 is YYObj_TypeSpecifierParseNode(_dollar1)
+  guard _args[1].0 is YYObj_Array_TypeTemplateArgumentParseNode_(_dollar2)
+  YYObj_TypeSpecifierParseNode(
     {
       ()
-      ()
+      _dollar1.with_template_args(_dollar2)
     },
   )
 }
 
 // file:///./parser.mbty
-// 33|    path_ident "::" IDENT         { () }
+// 33|    path_ident "::" IDENT         { $1.qualified_child($3) }
 
 ///|
 fn yy_action_2(_last_pos : Int, _args : ArrayView[(YYObj, Int, Int)]) -> YYObj {
-  YYObj_Unit(
+  guard _args[0].0 is YYObj_TypeSpecifierParseNode(_dollar1)
+  guard _args[2].0 is YYObj_String(_dollar3)
+  YYObj_TypeSpecifierParseNode(
     {
       ()
-      ()
+      _dollar1.qualified_child(_dollar3)
     },
   )
 }
 
 // file:///./parser.mbty
-// 38|    "<" template_arg_list ">"     { () }
+// 38|    "<" template_arg_list ">"     { $2 }
 
 ///|
 fn yy_action_3(_last_pos : Int, _args : ArrayView[(YYObj, Int, Int)]) -> YYObj {
-  YYObj_Unit(
+  guard _args[1].0 is YYObj_Array_TypeTemplateArgumentParseNode_(_dollar2)
+  YYObj_Array_TypeTemplateArgumentParseNode_(
     {
       ()
-      ()
+      _dollar2
     },
   )
 }
 
 // file:///./parser.mbty
-// 43|    template_arg_list "," template_arg
-// 44|                                  { () }
+// 39|    "<" template_arg_list "," ">" { $2 }
 
 ///|
 fn yy_action_4(_last_pos : Int, _args : ArrayView[(YYObj, Int, Int)]) -> YYObj {
-  YYObj_Unit(
+  guard _args[1].0 is YYObj_Array_TypeTemplateArgumentParseNode_(_dollar2)
+  YYObj_Array_TypeTemplateArgumentParseNode_(
     {
       ()
-      ()
+      _dollar2
     },
   )
 }
 
 // file:///./parser.mbty
-// 42|    template_arg                  { () }
+// 44|    template_arg_list "," template_arg
+// 45|                                  { $1.push($3); $1 }
 
 ///|
 fn yy_action_5(_last_pos : Int, _args : ArrayView[(YYObj, Int, Int)]) -> YYObj {
-  YYObj_Unit(
+  guard _args[0].0 is YYObj_Array_TypeTemplateArgumentParseNode_(_dollar1)
+  guard _args[2].0 is YYObj_TypeTemplateArgumentParseNode(_dollar3)
+  YYObj_Array_TypeTemplateArgumentParseNode_(
     {
       ()
-      ()
+      _dollar1.push(_dollar3)
+      _dollar1
     },
   )
 }
 
 // file:///./parser.mbty
-// 48|    type_specifier                { () }
+// 43|    template_arg                  { [$1] }
 
 ///|
 fn yy_action_6(_last_pos : Int, _args : ArrayView[(YYObj, Int, Int)]) -> YYObj {
-  YYObj_Unit(
+  guard _args[0].0 is YYObj_TypeTemplateArgumentParseNode(_dollar1)
+  YYObj_Array_TypeTemplateArgumentParseNode_(
     {
       ()
-      ()
+      [_dollar1]
     },
   )
 }
 
 // file:///./parser.mbty
-// 49|    signed_literal                { () }
+// 49|    type_specifier                { TypeTemplateArgumentParseNode::Type($1) }
 
 ///|
 fn yy_action_7(_last_pos : Int, _args : ArrayView[(YYObj, Int, Int)]) -> YYObj {
-  YYObj_Unit(
+  guard _args[0].0 is YYObj_TypeSpecifierParseNode(_dollar1)
+  YYObj_TypeTemplateArgumentParseNode(
     {
       ()
-      ()
+      TypeTemplateArgumentParseNode::Type(_dollar1)
     },
   )
 }
 
 // file:///./parser.mbty
-// 53|    NUMBER                        { () }
+// 50|    signed_literal                { TypeTemplateArgumentParseNode::Literal($1) }
 
 ///|
 fn yy_action_8(_last_pos : Int, _args : ArrayView[(YYObj, Int, Int)]) -> YYObj {
-  YYObj_Unit(
+  guard _args[0].0 is YYObj_String(_dollar1)
+  YYObj_TypeTemplateArgumentParseNode(
     {
       ()
-      ()
+      TypeTemplateArgumentParseNode::Literal(_dollar1)
     },
   )
 }
 
 // file:///./parser.mbty
-// 54|    "-" NUMBER                    { () }
+// 54|    NUMBER                        { $1 }
 
 ///|
 fn yy_action_9(_last_pos : Int, _args : ArrayView[(YYObj, Int, Int)]) -> YYObj {
-  YYObj_Unit(
+  guard _args[0].0 is YYObj_String(_dollar1)
+  YYObj_String(
     {
       ()
-      ()
+      _dollar1
     },
   )
 }
 
 // file:///./parser.mbty
-// 37|                                  { () }
+// 55|    "-" NUMBER                    { "-" + $2 }
 
 ///|
 fn yy_action_10(_last_pos : Int, _args : ArrayView[(YYObj, Int, Int)]) -> YYObj {
-  YYObj_Unit(
+  guard _args[1].0 is YYObj_String(_dollar2)
+  YYObj_String(
     {
       ()
-      ()
+      "-" + _dollar2
     },
   )
 }
 
 // file:///./parser.mbty
-// 32|    IDENT                         { () }
+// 37|                                  { [] }
 
 ///|
 fn yy_action_11(_last_pos : Int, _args : ArrayView[(YYObj, Int, Int)]) -> YYObj {
-  YYObj_Unit(
+  YYObj_Array_TypeTemplateArgumentParseNode_(
     {
       ()
+      []
+    },
+  )
+}
+
+// file:///./parser.mbty
+// 32|    IDENT                         { TypeSpecifierParseNode::from_path([$1]) }
+
+///|
+fn yy_action_12(_last_pos : Int, _args : ArrayView[(YYObj, Int, Int)]) -> YYObj {
+  guard _args[0].0 is YYObj_String(_dollar1)
+  YYObj_TypeSpecifierParseNode(
+    {
       ()
+      TypeSpecifierParseNode::from_path([_dollar1])
     },
   )
 }
@@ -242,7 +283,7 @@ fn yy_input(
 // [1, type_specifier → • path_ident opt_template, $]
 // [2, path_ident → • IDENT, $ / DOUBLE_COLON / LESS]
 // [3, path_ident → • path_ident DOUBLE_COLON IDENT, $ / DOUBLE_COLON / LESS]
-// [12, parse_type_specifier_prime → • parse_type_specifier, $]
+// [13, parse_type_specifier_prime → • parse_type_specifier, $]
 
 ///|
 fn yy_state_0(_lookahead : YYSymbol) -> YYDecision {
@@ -250,12 +291,12 @@ fn yy_state_0(_lookahead : YYSymbol) -> YYDecision {
     NT_parse_type_specifier => Shift(yy_state_1)
     T_IDENT => Shift(yy_state_2)
     NT_path_ident => Shift(yy_state_3)
-    NT_type_specifier => Shift(yy_state_18)
+    NT_type_specifier => Shift(yy_state_19)
     _ => Error
   }
 }
 
-// [12, parse_type_specifier_prime → parse_type_specifier •, $]
+// [13, parse_type_specifier_prime → parse_type_specifier •, $]
 
 ///|
 fn yy_state_1(_lookahead : YYSymbol) -> YYDecision {
@@ -266,21 +307,22 @@ fn yy_state_1(_lookahead : YYSymbol) -> YYDecision {
 
 ///|
 fn yy_state_2(_lookahead : YYSymbol) -> YYDecision {
-  ReduceNoLookahead(1, NT_path_ident, yy_action_11)
+  ReduceNoLookahead(1, NT_path_ident, yy_action_12)
 }
 
 // [1, type_specifier → path_ident • opt_template, $ / GREATER / COMMA]
 // [3, path_ident → path_ident • DOUBLE_COLON IDENT, $ / DOUBLE_COLON / LESS / GREATER / COMMA]
 // [4, opt_template → •, $ / GREATER / COMMA]
 // [5, opt_template → • LESS template_arg_list GREATER, $ / GREATER / COMMA]
+// [6, opt_template → • LESS template_arg_list COMMA GREATER, $ / GREATER / COMMA]
 
 ///|
 fn yy_state_3(_lookahead : YYSymbol) -> YYDecision {
   match _lookahead {
     T_LESS => Shift(yy_state_4)
-    T_DOUBLE_COLON => Shift(yy_state_15)
-    NT_opt_template => Shift(yy_state_17)
-    T_GREATER | T_COMMA | EOI => Reduce(0, NT_opt_template, yy_action_10)
+    T_DOUBLE_COLON => Shift(yy_state_16)
+    NT_opt_template => Shift(yy_state_18)
+    T_GREATER | T_COMMA | EOI => Reduce(0, NT_opt_template, yy_action_11)
     _ => Error
   }
 }
@@ -289,12 +331,13 @@ fn yy_state_3(_lookahead : YYSymbol) -> YYDecision {
 // [2, path_ident → • IDENT, DOUBLE_COLON / LESS / GREATER / COMMA]
 // [3, path_ident → • path_ident DOUBLE_COLON IDENT, DOUBLE_COLON / LESS / GREATER / COMMA]
 // [5, opt_template → LESS • template_arg_list GREATER, $ / GREATER / COMMA]
-// [6, template_arg_list → • template_arg, GREATER / COMMA]
-// [7, template_arg_list → • template_arg_list COMMA template_arg, GREATER / COMMA]
-// [8, template_arg → • type_specifier, GREATER / COMMA]
-// [9, template_arg → • signed_literal, GREATER / COMMA]
-// [10, signed_literal → • NUMBER, GREATER / COMMA]
-// [11, signed_literal → • MINUS NUMBER, GREATER / COMMA]
+// [6, opt_template → LESS • template_arg_list COMMA GREATER, $ / GREATER / COMMA]
+// [7, template_arg_list → • template_arg, GREATER / COMMA]
+// [8, template_arg_list → • template_arg_list COMMA template_arg, GREATER / COMMA]
+// [9, template_arg → • type_specifier, GREATER / COMMA]
+// [10, template_arg → • signed_literal, GREATER / COMMA]
+// [11, signed_literal → • NUMBER, GREATER / COMMA]
+// [12, signed_literal → • MINUS NUMBER, GREATER / COMMA]
 
 ///|
 fn yy_state_4(_lookahead : YYSymbol) -> YYDecision {
@@ -311,7 +354,7 @@ fn yy_state_4(_lookahead : YYSymbol) -> YYDecision {
   }
 }
 
-// [11, signed_literal → MINUS • NUMBER, GREATER / COMMA]
+// [12, signed_literal → MINUS • NUMBER, GREATER / COMMA]
 
 ///|
 fn yy_state_5(_lookahead : YYSymbol) -> YYDecision {
@@ -321,49 +364,50 @@ fn yy_state_5(_lookahead : YYSymbol) -> YYDecision {
   }
 }
 
-// [11, signed_literal → MINUS NUMBER •, GREATER / COMMA]
+// [12, signed_literal → MINUS NUMBER •, GREATER / COMMA]
 
 ///|
 fn yy_state_6(_lookahead : YYSymbol) -> YYDecision {
-  ReduceNoLookahead(2, NT_signed_literal, yy_action_9)
+  ReduceNoLookahead(2, NT_signed_literal, yy_action_10)
 }
 
-// [10, signed_literal → NUMBER •, GREATER / COMMA]
+// [11, signed_literal → NUMBER •, GREATER / COMMA]
 
 ///|
 fn yy_state_7(_lookahead : YYSymbol) -> YYDecision {
-  ReduceNoLookahead(1, NT_signed_literal, yy_action_8)
+  ReduceNoLookahead(1, NT_signed_literal, yy_action_9)
 }
 
-// [9, template_arg → signed_literal •, GREATER / COMMA]
+// [10, template_arg → signed_literal •, GREATER / COMMA]
 
 ///|
 fn yy_state_8(_lookahead : YYSymbol) -> YYDecision {
-  ReduceNoLookahead(1, NT_template_arg, yy_action_7)
+  ReduceNoLookahead(1, NT_template_arg, yy_action_8)
 }
 
-// [8, template_arg → type_specifier •, GREATER / COMMA]
+// [9, template_arg → type_specifier •, GREATER / COMMA]
 
 ///|
 fn yy_state_9(_lookahead : YYSymbol) -> YYDecision {
-  ReduceNoLookahead(1, NT_template_arg, yy_action_6)
+  ReduceNoLookahead(1, NT_template_arg, yy_action_7)
 }
 
-// [6, template_arg_list → template_arg •, GREATER / COMMA]
+// [7, template_arg_list → template_arg •, GREATER / COMMA]
 
 ///|
 fn yy_state_10(_lookahead : YYSymbol) -> YYDecision {
-  ReduceNoLookahead(1, NT_template_arg_list, yy_action_5)
+  ReduceNoLookahead(1, NT_template_arg_list, yy_action_6)
 }
 
 // [5, opt_template → LESS template_arg_list • GREATER, $ / GREATER / COMMA]
-// [7, template_arg_list → template_arg_list • COMMA template_arg, GREATER / COMMA]
+// [6, opt_template → LESS template_arg_list • COMMA GREATER, $ / GREATER / COMMA]
+// [8, template_arg_list → template_arg_list • COMMA template_arg, GREATER / COMMA]
 
 ///|
 fn yy_state_11(_lookahead : YYSymbol) -> YYDecision {
   match _lookahead {
     T_COMMA => Shift(yy_state_12)
-    T_GREATER => Shift(yy_state_14)
+    T_GREATER => Shift(yy_state_15)
     _ => Error
   }
 }
@@ -371,11 +415,12 @@ fn yy_state_11(_lookahead : YYSymbol) -> YYDecision {
 // [1, type_specifier → • path_ident opt_template, GREATER / COMMA]
 // [2, path_ident → • IDENT, DOUBLE_COLON / LESS / GREATER / COMMA]
 // [3, path_ident → • path_ident DOUBLE_COLON IDENT, DOUBLE_COLON / LESS / GREATER / COMMA]
-// [7, template_arg_list → template_arg_list COMMA • template_arg, GREATER / COMMA]
-// [8, template_arg → • type_specifier, GREATER / COMMA]
-// [9, template_arg → • signed_literal, GREATER / COMMA]
-// [10, signed_literal → • NUMBER, GREATER / COMMA]
-// [11, signed_literal → • MINUS NUMBER, GREATER / COMMA]
+// [6, opt_template → LESS template_arg_list COMMA • GREATER, $ / GREATER / COMMA]
+// [8, template_arg_list → template_arg_list COMMA • template_arg, GREATER / COMMA]
+// [9, template_arg → • type_specifier, GREATER / COMMA]
+// [10, template_arg → • signed_literal, GREATER / COMMA]
+// [11, signed_literal → • NUMBER, GREATER / COMMA]
+// [12, signed_literal → • MINUS NUMBER, GREATER / COMMA]
 
 ///|
 fn yy_state_12(_lookahead : YYSymbol) -> YYDecision {
@@ -387,30 +432,38 @@ fn yy_state_12(_lookahead : YYSymbol) -> YYDecision {
     NT_signed_literal => Shift(yy_state_8)
     NT_type_specifier => Shift(yy_state_9)
     NT_template_arg => Shift(yy_state_13)
+    T_GREATER => Shift(yy_state_14)
     _ => Error
   }
 }
 
-// [7, template_arg_list → template_arg_list COMMA template_arg •, GREATER / COMMA]
+// [8, template_arg_list → template_arg_list COMMA template_arg •, GREATER / COMMA]
 
 ///|
 fn yy_state_13(_lookahead : YYSymbol) -> YYDecision {
-  ReduceNoLookahead(3, NT_template_arg_list, yy_action_4)
+  ReduceNoLookahead(3, NT_template_arg_list, yy_action_5)
+}
+
+// [6, opt_template → LESS template_arg_list COMMA GREATER •, $ / GREATER / COMMA]
+
+///|
+fn yy_state_14(_lookahead : YYSymbol) -> YYDecision {
+  ReduceNoLookahead(4, NT_opt_template, yy_action_4)
 }
 
 // [5, opt_template → LESS template_arg_list GREATER •, $ / GREATER / COMMA]
 
 ///|
-fn yy_state_14(_lookahead : YYSymbol) -> YYDecision {
+fn yy_state_15(_lookahead : YYSymbol) -> YYDecision {
   ReduceNoLookahead(3, NT_opt_template, yy_action_3)
 }
 
 // [3, path_ident → path_ident DOUBLE_COLON • IDENT, $ / DOUBLE_COLON / LESS / GREATER / COMMA]
 
 ///|
-fn yy_state_15(_lookahead : YYSymbol) -> YYDecision {
+fn yy_state_16(_lookahead : YYSymbol) -> YYDecision {
   match _lookahead {
-    T_IDENT => Shift(yy_state_16)
+    T_IDENT => Shift(yy_state_17)
     _ => Error
   }
 }
@@ -418,21 +471,21 @@ fn yy_state_15(_lookahead : YYSymbol) -> YYDecision {
 // [3, path_ident → path_ident DOUBLE_COLON IDENT •, $ / DOUBLE_COLON / LESS / GREATER / COMMA]
 
 ///|
-fn yy_state_16(_lookahead : YYSymbol) -> YYDecision {
+fn yy_state_17(_lookahead : YYSymbol) -> YYDecision {
   ReduceNoLookahead(3, NT_path_ident, yy_action_2)
 }
 
 // [1, type_specifier → path_ident opt_template •, $ / GREATER / COMMA]
 
 ///|
-fn yy_state_17(_lookahead : YYSymbol) -> YYDecision {
+fn yy_state_18(_lookahead : YYSymbol) -> YYDecision {
   ReduceNoLookahead(2, NT_type_specifier, yy_action_1)
 }
 
 // [0, parse_type_specifier → type_specifier •, $]
 
 ///|
-fn yy_state_18(_lookahead : YYSymbol) -> YYDecision {
+fn yy_state_19(_lookahead : YYSymbol) -> YYDecision {
   ReduceNoLookahead(1, NT_parse_type_specifier, yy_action_0)
 }
 
@@ -577,12 +630,12 @@ fn error(
 pub fn parse_type_specifier(
   tokens : Array[(Token, Int, Int)],
   initial_pos? : Int,
-) -> Unit raise ParseError {
+) -> TypeSpecifierParseNode raise ParseError {
   yy_parse(
     tokens,
     yy_state_0,
     it => {
-      guard it is YYObj_Unit(result)
+      guard it is YYObj_TypeSpecifierParseNode(result)
       result
     },
     initial_pos?,

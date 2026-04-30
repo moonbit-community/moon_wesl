@@ -213,6 +213,13 @@ fn ImportStatement::flatten_items(
 pub(all) struct FunctionParameter {
   name : String
   type_text : String
+  type_expr : TypeExpression
+} derive(Eq, Debug)
+
+///|
+pub(all) enum TypeTemplateArgument {
+  Type(TypeExpression)
+  Literal(String)
 } derive(Eq, Debug)
 
 ///|
@@ -220,6 +227,7 @@ pub(all) struct TypeExpression {
   path : Array[String]
   ident : String
   template_text : String?
+  template_args : Array[TypeTemplateArgument]
 } derive(Eq, Debug)
 
 ///|
@@ -323,6 +331,7 @@ pub(all) struct FunctionDeclaration {
 pub(all) struct StructMember {
   name : String
   type_text : String
+  type_expr : TypeExpression
 } derive(Eq, Debug)
 
 ///|
@@ -335,12 +344,14 @@ pub(all) struct StructDeclaration {
 pub(all) struct AliasDeclaration {
   name : String
   target : String?
+  target_type : TypeExpression?
 } derive(Eq, Debug)
 
 ///|
 pub(all) struct ConstDeclaration {
   name : String
   type_text : String?
+  type_expr : TypeExpression?
   initializer : String?
 } derive(Eq, Debug)
 
@@ -348,6 +359,7 @@ pub(all) struct ConstDeclaration {
 pub(all) struct OverrideDeclaration {
   name : String
   type_text : String?
+  type_expr : TypeExpression?
   initializer : String?
 } derive(Eq, Debug)
 
@@ -355,6 +367,7 @@ pub(all) struct OverrideDeclaration {
 pub(all) struct LetDeclaration {
   name : String
   type_text : String?
+  type_expr : TypeExpression?
   initializer : String?
 } derive(Eq, Debug)
 
@@ -363,6 +376,7 @@ pub(all) struct VarDeclaration {
   name : String?
   template_arguments : String?
   type_text : String?
+  type_expr : TypeExpression?
   initializer : String?
 } derive(Eq, Debug)
 

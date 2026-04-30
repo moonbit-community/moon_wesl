@@ -1,7 +1,7 @@
 %derive<Debug> Token
 %derive<Debug> ParseError
 %position<Int>
-%start<Unit> parse_type_specifier
+%start<TypeSpecifierParseNode> parse_type_specifier
 
 %token<String> IDENT
 %token<String> NUMBER
@@ -11,45 +11,46 @@
 %token COMMA       ","
 %token MINUS       "-"
 
-%type<Unit> type_specifier
-%type<Unit> path_ident
-%type<Unit> opt_template
-%type<Unit> template_arg_list
-%type<Unit> template_arg
-%type<Unit> signed_literal
+%type<TypeSpecifierParseNode> type_specifier
+%type<TypeSpecifierParseNode> path_ident
+%type<Array[TypeTemplateArgumentParseNode]> opt_template
+%type<Array[TypeTemplateArgumentParseNode]> template_arg_list
+%type<TypeTemplateArgumentParseNode> template_arg
+%type<String> signed_literal
 
 %%
 
 parse_type_specifier
-  : type_specifier                { () }
+  : type_specifier                { $1 }
   ;
 
 type_specifier
-  : path_ident opt_template       { () }
+  : path_ident opt_template       { $1.with_template_args($2) }
   ;
 
 path_ident
-  : IDENT                         { () }
-  | path_ident "::" IDENT         { () }
+  : IDENT                         { TypeSpecifierParseNode::from_path([$1]) }
+  | path_ident "::" IDENT         { $1.qualified_child($3) }
   ;
 
 opt_template
-  :                               { () }
-  | "<" template_arg_list ">"     { () }
+  :                               { [] }
+  | "<" template_arg_list ">"     { $2 }
+  | "<" template_arg_list "," ">" { $2 }
   ;
 
 template_arg_list
-  : template_arg                  { () }
+  : template_arg                  { [$1] }
   | template_arg_list "," template_arg
-                                  { () }
+                                  { $1.push($3); $1 }
   ;
 
 template_arg
-  : type_specifier                { () }
-  | signed_literal                { () }
+  : type_specifier                { TypeTemplateArgumentParseNode::Type($1) }
+  | signed_literal                { TypeTemplateArgumentParseNode::Literal($1) }
   ;
 
 signed_literal
-  : NUMBER                        { () }
-  | "-" NUMBER                    { () }
+  : NUMBER                        { $1 }
+  | "-" NUMBER                    { "-" + $2 }
   ;
