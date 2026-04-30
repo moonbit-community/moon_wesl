@@ -455,6 +455,7 @@ pub(all) struct StructMember {
   name : String
   type_text : String
   type_expr : TypeExpression
+  attributes : Array[Attribute]
 } derive(Eq, Debug)
 
 ///|

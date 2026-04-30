@@ -20,6 +20,7 @@ pub suberror ParseError {
 pub(all) struct StructMemberParseNode {
   name : String
   type_text : String
+  attributes : String
 } derive(Eq, @debug.Debug)
 
 pub(all) struct StructParseDiagnostic {

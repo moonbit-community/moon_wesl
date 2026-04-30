@@ -408,6 +408,11 @@ fn parser_struct_members_from_generated(
       name: field.name,
       type_text: field.type_text,
       type_expr: parser_parse_type_expression(field.type_text),
+      attributes: if field.attributes == "" {
+        []
+      } else {
+        parser_statement_attributes(field.attributes)
+      },
     })
   }
   mapped

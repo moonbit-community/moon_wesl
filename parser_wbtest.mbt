@@ -279,6 +279,13 @@ test "parser: generated struct parser records member names and types" {
         #|      template_text: None,
         #|      template_args: [Type({ path: [], ident: "f32", template_text: None, template_args: [] })],
         #|    },
+        #|    attributes: [
+        #|      {
+        #|        name: "builtin",
+        #|        arguments: Some("position"),
+        #|        span: { start_line: 1, end_line: 1 },
+        #|      },
+        #|    ],
         #|  },
         #|  {
         #|    name: "color",
@@ -299,11 +306,13 @@ test "parser: generated struct parser records member names and types" {
         #|        Literal("4"),
         #|      ],
         #|    },
+        #|    attributes: [],
         #|  },
         #|  {
         #|    name: "index",
         #|    type_text: "u32",
         #|    type_expr: { path: [], ident: "u32", template_text: None, template_args: [] },
+        #|    attributes: [],
         #|  },
         #|]
 

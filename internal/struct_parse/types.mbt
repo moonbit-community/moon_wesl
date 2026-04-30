@@ -16,6 +16,7 @@
 pub(all) struct StructMemberParseNode {
   name : String
   type_text : String
+  attributes : String
 } derive(Eq, Debug)
 
 ///|
@@ -312,6 +313,7 @@ fn struct_parse_lex(source : String) -> StructLexResult {
       index += 1
       break
     }
+    let attr_start = index
     let (after_attrs, ok) = struct_parse_skip_attributes(source, index)
     if !ok {
       return LexFailed(StructParseDiagnostic::{
@@ -355,7 +357,11 @@ fn struct_parse_lex(source : String) -> StructLexResult {
     }
     struct_parse_push(
       tokens,
-      MEMBER(StructMemberParseNode::{ name: member_name, type_text }),
+      MEMBER(StructMemberParseNode::{
+        name: member_name,
+        type_text,
+        attributes: source[attr_start:after_attrs].trim().to_owned(),
+      }),
       index,
       type_end,
     )
