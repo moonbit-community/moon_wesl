@@ -959,7 +959,7 @@ fn ConstEvalParser::parse_function(
 priv enum ConstEvalValue {
   Bool(Bool)
   AbstractInt(Int64)
-  AbstractFloat(Double)
+  AbstractFloat(Double, Bool)
   I32(Int64)
   U32(Int64)
   F32(Float)
@@ -1006,7 +1006,7 @@ fn ConstEvalValue::value_type(self : ConstEvalValue) -> ConstEvalType {
   match self {
     Bool(_) => ConstEvalType::Bool
     AbstractInt(_) => ConstEvalType::AbstractInt
-    AbstractFloat(_) => ConstEvalType::AbstractFloat
+    AbstractFloat(_, _) => ConstEvalType::AbstractFloat
     I32(_) => ConstEvalType::I32
     U32(_) => ConstEvalType::U32
     F32(_) => ConstEvalType::F32
@@ -1194,6 +1194,18 @@ fn const_eval_exact_f32_from_double(
 }
 
 ///|
+fn const_eval_rounded_f32_from_double(
+  text : String,
+  value : Double,
+) -> Float raise WeslCompileError {
+  let narrowed = Float::from_double(value)
+  if Float::is_inf(narrowed) || Float::is_nan(narrowed) {
+    raise WeslCompileError::Validation("f32 literal out of range `\{text}`")
+  }
+  narrowed
+}
+
+///|
 fn const_eval_parse_literal(
   text : String,
 ) -> ConstEvalValue raise WeslCompileError {
@@ -1214,8 +1226,16 @@ fn const_eval_parse_literal(
     }
     let value = const_eval_parse_double_literal(float_text)
     return match text[text.length() - 1:text.length()].to_owned() {
-      "f" => ConstEvalValue::F32(const_eval_exact_f32_from_double(text, value))
-      _ => ConstEvalValue::AbstractFloat(value)
+      "f" =>
+        ConstEvalValue::F32(const_eval_rounded_f32_from_double(text, value))
+      _ => {
+        let f32_lossless = if is_hex {
+          Float::from_double(value).to_double() == value
+        } else {
+          true
+        }
+        ConstEvalValue::AbstractFloat(value, f32_lossless)
+      }
     }
   }
   if is_hex {
@@ -1249,7 +1269,7 @@ fn const_eval_parse_literal(
       let value = const_eval_parse_double_literal(
         text[:text.length() - 1].to_owned(),
       )
-      ConstEvalValue::F32(const_eval_exact_f32_from_double(text, value))
+      ConstEvalValue::F32(const_eval_rounded_f32_from_double(text, value))
     }
     _ => ConstEvalValue::AbstractInt(const_eval_parse_integer_literal(text))
   }
@@ -1282,7 +1302,7 @@ fn const_eval_require_i32(
       } else {
         number
       }
-    AbstractFloat(_) =>
+    AbstractFloat(_, _) =>
       raise WeslCompileError::Validation(
         "cannot convert abstract float to i32 in \{context}",
       )
@@ -1320,7 +1340,7 @@ fn const_eval_require_u32(
       } else {
         number
       }
-    AbstractFloat(_) =>
+    AbstractFloat(_, _) =>
       raise WeslCompileError::Validation(
         "cannot convert abstract float to u32 in \{context}",
       )
@@ -1343,7 +1363,12 @@ fn const_eval_require_f32(
       )
     AbstractInt(number) =>
       const_eval_exact_f32_from_double(context, number.to_double())
-    AbstractFloat(number) => const_eval_exact_f32_from_double(context, number)
+    AbstractFloat(number, f32_lossless) =>
+      if f32_lossless {
+        const_eval_rounded_f32_from_double(context, number)
+      } else {
+        const_eval_exact_f32_from_double(context, number)
+      }
     F32(number) => number
     I32(_) =>
       raise WeslCompileError::Validation(
@@ -1407,7 +1432,8 @@ fn const_eval_unary_neg(
   match value {
     Bool(_) => raise WeslCompileError::Validation("cannot negate bool literal")
     AbstractInt(number) => ConstEvalValue::AbstractInt(-number)
-    AbstractFloat(number) => ConstEvalValue::AbstractFloat(-number)
+    AbstractFloat(number, f32_lossless) =>
+      ConstEvalValue::AbstractFloat(-number, f32_lossless)
     I32(number) => ConstEvalValue::I32(-number)
     U32(_) => raise WeslCompileError::Validation("cannot negate u32 literal")
     F32(number) => ConstEvalValue::F32(-number)
@@ -1439,7 +1465,7 @@ fn const_eval_unary_bit_not(
         ),
       )
     U32(number) => ConstEvalValue::U32(CONST_EVAL_U32_MAX - number)
-    AbstractFloat(_) =>
+    AbstractFloat(_, _) =>
       raise WeslCompileError::Validation(
         "cannot use unary operator `~` on type `AbstractFloat`",
       )
@@ -1461,7 +1487,7 @@ fn const_eval_to_abstract_float(
         "cannot use bool with abstract float in \{context}",
       )
     AbstractInt(number) => number.to_double()
-    AbstractFloat(number) => number
+    AbstractFloat(number, _) => number
     F32(number) => number.to_double()
     I32(_) =>
       raise WeslCompileError::Validation(
@@ -1674,8 +1700,8 @@ fn const_eval_apply_bitwise(
       }
     (Bool(_), right) => const_eval_binary_type_error(op, lhs, right)
     (left, Bool(_)) => const_eval_binary_type_error(op, left, rhs)
-    (AbstractFloat(_), right) => const_eval_binary_type_error(op, lhs, right)
-    (left, AbstractFloat(_)) => const_eval_binary_type_error(op, left, rhs)
+    (AbstractFloat(_, _), right) => const_eval_binary_type_error(op, lhs, right)
+    (left, AbstractFloat(_, _)) => const_eval_binary_type_error(op, left, rhs)
     (F32(_), right) => const_eval_binary_type_error(op, lhs, right)
     (left, F32(_)) => const_eval_binary_type_error(op, left, rhs)
     (U32(_), I32(_)) => const_eval_binary_type_error(op, lhs, rhs)
@@ -1745,7 +1771,7 @@ fn const_eval_apply_shift(
 ) -> ConstEvalValue raise WeslCompileError {
   match lhs {
     Bool(_) => const_eval_binary_type_error(op, lhs, rhs)
-    AbstractFloat(_) => const_eval_binary_type_error(op, lhs, rhs)
+    AbstractFloat(_, _) => const_eval_binary_type_error(op, lhs, rhs)
     F32(_) => const_eval_binary_type_error(op, lhs, rhs)
     AbstractInt(left) =>
       ConstEvalValue::AbstractInt(const_eval_shift_int(op, left, rhs))
@@ -1793,7 +1819,7 @@ fn const_eval_apply_comparison(
           right.to_double(),
         ),
       )
-    (AbstractFloat(left), right) =>
+    (AbstractFloat(left, _), right) =>
       ConstEvalValue::Bool(
         const_eval_compare_float(
           op,
@@ -1801,7 +1827,7 @@ fn const_eval_apply_comparison(
           const_eval_to_abstract_float(right, "binary expression"),
         ),
       )
-    (left, AbstractFloat(right)) =>
+    (left, AbstractFloat(right, _)) =>
       ConstEvalValue::Bool(
         const_eval_compare_float(
           op,
@@ -1887,21 +1913,23 @@ fn const_eval_apply_binary(
           right,
         ),
       )
-    (AbstractFloat(left), right) =>
+    (AbstractFloat(left, left_lossless), right) =>
       ConstEvalValue::AbstractFloat(
         const_eval_binary_abstract_float(
           op,
           left,
           const_eval_to_abstract_float(right, "binary expression"),
         ),
+        left_lossless,
       )
-    (left, AbstractFloat(right)) =>
+    (left, AbstractFloat(right, right_lossless)) =>
       ConstEvalValue::AbstractFloat(
         const_eval_binary_abstract_float(
           op,
           const_eval_to_abstract_float(left, "binary expression"),
           right,
         ),
+        right_lossless,
       )
     (U32(_), I32(_)) =>
       raise WeslCompileError::Validation("cannot mix i32 and u32")
@@ -2111,6 +2139,7 @@ fn const_eval_apply_min_or_max(
         } else {
           right
         },
+        true,
       )
     }
     F32 => {
@@ -2231,8 +2260,8 @@ fn const_eval_apply_abs(
       ConstEvalValue::AbstractInt(const_eval_abs_i64(number))
     I32(number) => ConstEvalValue::I32(const_eval_abs_i64(number))
     U32(number) => ConstEvalValue::U32(number)
-    AbstractFloat(number) =>
-      ConstEvalValue::AbstractFloat(const_eval_abs_double(number))
+    AbstractFloat(number, f32_lossless) =>
+      ConstEvalValue::AbstractFloat(const_eval_abs_double(number), f32_lossless)
     F32(number) => ConstEvalValue::F32(const_eval_abs_float(number))
   }
 }
@@ -2265,6 +2294,142 @@ fn const_eval_apply_bool_builtin(
     raise WeslCompileError::Validation("`\{name}` expects one argument")
   }
   ConstEvalValue::Bool(const_eval_require_bool(args[0], name))
+}
+
+///|
+fn const_eval_require_float_builtin_arg(
+  name : String,
+  args : Array[ConstEvalValue],
+) -> ConstEvalValue raise WeslCompileError {
+  if args.length() != 1 {
+    raise WeslCompileError::Validation("`\{name}` expects one argument")
+  }
+  match args[0] {
+    Bool(_) | I32(_) | U32(_) =>
+      raise WeslCompileError::Validation(
+        "`\{name}` expects a float or vector of float argument",
+      )
+    value => value
+  }
+}
+
+///|
+fn const_eval_apply_float_unary_builtin(
+  name : String,
+  args : Array[ConstEvalValue],
+) -> ConstEvalValue raise WeslCompileError {
+  let value = const_eval_require_float_builtin_arg(name, args)
+  match value {
+    AbstractInt(number) =>
+      ConstEvalValue::AbstractFloat(
+        match name {
+          "floor" => number.to_double().floor()
+          "ceil" => number.to_double().ceil()
+          "round" => number.to_double().round()
+          "trunc" => number.to_double().trunc()
+          "fract" => number.to_double() - number.to_double().floor()
+          "sqrt" => number.to_double().sqrt()
+          "inverseSqrt" => 1.0 / number.to_double().sqrt()
+          _ =>
+            raise WeslCompileError::Validation(
+              "unsupported float builtin `\{name}`",
+            )
+        },
+        true,
+      )
+    AbstractFloat(number, _) =>
+      ConstEvalValue::AbstractFloat(
+        match name {
+          "floor" => number.floor()
+          "ceil" => number.ceil()
+          "round" => number.round()
+          "trunc" => number.trunc()
+          "fract" => number - number.floor()
+          "sqrt" => number.sqrt()
+          "inverseSqrt" => 1.0 / number.sqrt()
+          _ =>
+            raise WeslCompileError::Validation(
+              "unsupported float builtin `\{name}`",
+            )
+        },
+        true,
+      )
+    F32(number) =>
+      ConstEvalValue::F32(
+        match name {
+          "floor" => number.floor()
+          "ceil" => number.ceil()
+          "round" => number.round()
+          "trunc" => number.trunc()
+          "fract" => number - number.floor()
+          "sqrt" => number.sqrt()
+          "inverseSqrt" => Float::from_double(1.0) / number.sqrt()
+          _ =>
+            raise WeslCompileError::Validation(
+              "unsupported float builtin `\{name}`",
+            )
+        },
+      )
+    Bool(_) | I32(_) | U32(_) =>
+      raise WeslCompileError::Validation(
+        "`\{name}` expects a float or vector of float argument",
+      )
+  }
+}
+
+///|
+fn const_eval_sign_i64(value : Int64) -> Int64 {
+  if value < 0 {
+    -1L
+  } else if value > 0 {
+    1L
+  } else {
+    0L
+  }
+}
+
+///|
+fn const_eval_sign_double(value : Double) -> Double {
+  if value < 0.0 {
+    -1.0
+  } else if value > 0.0 {
+    1.0
+  } else {
+    0.0
+  }
+}
+
+///|
+fn const_eval_sign_float(value : Float) -> Float {
+  if value < 0.0 {
+    -1.0
+  } else if value > 0.0 {
+    1.0
+  } else {
+    0.0
+  }
+}
+
+///|
+fn const_eval_apply_sign(
+  args : Array[ConstEvalValue],
+) -> ConstEvalValue raise WeslCompileError {
+  if args.length() != 1 {
+    raise WeslCompileError::Validation("`sign` expects one argument")
+  }
+  match args[0] {
+    Bool(_) =>
+      raise WeslCompileError::Validation(
+        "`sign` expects a float or vector of float argument",
+      )
+    AbstractInt(number) =>
+      ConstEvalValue::AbstractInt(const_eval_sign_i64(number))
+    I32(number) => ConstEvalValue::I32(const_eval_sign_i64(number))
+    U32(number) => ConstEvalValue::U32(if number == 0 { 0L } else { 1L })
+    AbstractFloat(number, _) =>
+      ConstEvalValue::AbstractFloat(const_eval_sign_double(number), true)
+    F32(number) => ConstEvalValue::F32(const_eval_sign_float(number))
+  }
 }
 
 ///|
@@ -2323,6 +2488,15 @@ fn const_eval_eval_expr(
         "select" => const_eval_apply_select(values)
         "all" => const_eval_apply_bool_builtin("all", values)
         "any" => const_eval_apply_bool_builtin("any", values)
+        "floor" => const_eval_apply_float_unary_builtin("floor", values)
+        "ceil" => const_eval_apply_float_unary_builtin("ceil", values)
+        "round" => const_eval_apply_float_unary_builtin("round", values)
+        "trunc" => const_eval_apply_float_unary_builtin("trunc", values)
+        "fract" => const_eval_apply_float_unary_builtin("fract", values)
+        "sqrt" => const_eval_apply_float_unary_builtin("sqrt", values)
+        "inverseSqrt" =>
+          const_eval_apply_float_unary_builtin("inverseSqrt", values)
+        "sign" => const_eval_apply_sign(values)
         _ =>
           match ctx.functions.get(name) {
             Some(function_) =>
@@ -2362,7 +2536,7 @@ fn const_eval_render_value(value : ConstEvalValue) -> String {
   match value {
     Bool(value) => if value { "true" } else { "false" }
     AbstractInt(number) => "\{number}"
-    AbstractFloat(number) => const_eval_format_abstract_float(number)
+    AbstractFloat(number, _) => const_eval_format_abstract_float(number)
     I32(number) => "\{number}i"
     U32(number) => "\{number}u"
     F32(number) => const_eval_format_f32(number)
