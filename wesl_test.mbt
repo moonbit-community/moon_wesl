@@ -637,6 +637,31 @@ test "wesl: validation checks matrix templates through AST type expressions" {
 }
 
 ///|
+test "wesl: validation checks matrix constructors through AST calls" {
+  let root_path = ModulePath::from_path("/shaders/root")
+  let resolver = VirtualResolver::new()
+  resolver.add_module(root_path, "const m = mat2x2(1i, 0.0, 0.0, 0.0);\n")
+
+  let result = try? compile(
+    root_path,
+    resolver,
+    EscapeMangler::default(),
+    CompileOptions::default().with_strip(false),
+  )
+
+  match result {
+    Err(WeslCompileError::Validation(message)) =>
+      debug_inspect(
+        message.contains(
+          "matrix constructors must not use explicit integer literals",
+        ),
+        content="true",
+      )
+    _ => fail("expected matrix constructor validation error")
+  }
+}
+
+///|
 test "wesl: compile options expose lazy resolution control" {
   let options = CompileOptions::default()
 

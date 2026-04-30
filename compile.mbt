@@ -3047,6 +3047,67 @@ fn wesl_validate_matrix_type_expr(
 }
 
 ///|
+fn wesl_literal_is_explicit_int(literal : String) -> Bool {
+  let text = literal.trim()
+  let mut index = 0
+  if index < text.length() && text.code_unit_at(index).to_int() == 45 {
+    index += 1
+  }
+  if index >= text.length() {
+    return false
+  }
+  let mut saw_digit = false
+  while index < text.length() &&
+        wesl_is_digit(text.code_unit_at(index).to_int()) {
+    saw_digit = true
+    index += 1
+  }
+  saw_digit &&
+  index + 1 == text.length() &&
+  text.code_unit_at(index).to_int() == 105
+}
+
+///|
+fn wesl_expression_has_explicit_int_literal(expr : Expression) -> Bool {
+  match expr {
+    Literal(literal) => wesl_literal_is_explicit_int(literal)
+    Bool(_) | TypeOrIdentifier(_) => false
+    Parenthesized(inner) | NamedComponent(inner, _) | Indexing(inner, _) =>
+      wesl_expression_has_explicit_int_literal(inner)
+    Unary(_, inner) => wesl_expression_has_explicit_int_literal(inner)
+    Binary(_, left, right) =>
+      wesl_expression_has_explicit_int_literal(left) ||
+      wesl_expression_has_explicit_int_literal(right)
+    FunctionCall(call) => {
+      for argument in call.arguments {
+        if wesl_expression_has_explicit_int_literal(argument) {
+          return true
+        }
+      }
+      false
+    }
+  }
+}
+
+///|
+fn wesl_validate_matrix_constructor_arguments(
+  path : ModulePath,
+  item : ModuleItem,
+  call : FunctionCallExpression,
+) -> Unit raise WeslCompileError {
+  if !wesl_is_matrix_type_name(call.callee.ident) {
+    return
+  }
+  for argument in call.arguments {
+    if wesl_expression_has_explicit_int_literal(argument) {
+      raise WeslCompileError::Validation(
+        "matrix constructors must not use explicit integer literals (\{wesl_item_context(path, item)})",
+      )
+    }
+  }
+}
+
+///|
 fn wesl_validate_matrix_expression_types(
   path : ModulePath,
   item : ModuleItem,
@@ -3064,6 +3125,7 @@ fn wesl_validate_matrix_expression_types(
     }
     FunctionCall(call) => {
       wesl_validate_matrix_type_expr(path, item, call.callee)
+      wesl_validate_matrix_constructor_arguments(path, item, call)
       for argument in call.arguments {
         wesl_validate_matrix_expression_types(path, item, argument)
       }
@@ -3454,37 +3516,6 @@ fn wesl_binding_is_matrix_type(
 }
 
 ///|
-fn wesl_validate_matrix_constructors(
-  path : ModulePath,
-  item : ModuleItem,
-) -> Unit raise WeslCompileError {
-  let tokens = parser_lex(item.source)
-  let context = wesl_item_context(path, item)
-  for index in 0..<tokens.length() {
-    match tokens[index] {
-      Ident(type_name, _, _, _) =>
-        if wesl_is_matrix_type_name(type_name) &&
-          index + 1 < tokens.length() &&
-          tokens[index + 1] is LParen(start_offset, end_offset, _) {
-          let close_offset = wesl_find_matching_delim(
-            item.source,
-            start_offset,
-            40,
-            41,
-          )
-          let arguments = item.source[end_offset:close_offset].to_owned()
-          if wesl_source_has_explicit_int_literal(arguments) {
-            raise WeslCompileError::Validation(
-              "matrix constructors must not use explicit integer literals (\{context})",
-            )
-          }
-        }
-      _ => ()
-    }
-  }
-}
-
-///|
 fn wesl_validate_matrix_assignments(
   path : ModulePath,
   item : ModuleItem,
@@ -3581,7 +3612,6 @@ fn wesl_validate_item_types(
   item : ModuleItem,
 ) -> Unit raise WeslCompileError {
   wesl_validate_matrix_header_types(path, item)
-  wesl_validate_matrix_constructors(path, item)
   wesl_validate_matrix_assignments(path, item)
 }
 
