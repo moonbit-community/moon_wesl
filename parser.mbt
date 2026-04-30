@@ -2138,6 +2138,9 @@ fn Parser::parse_global_declaration(
           function_node.parameters,
         ),
         return_type: function_node.return_type,
+        return_type_expr: parser_parse_optional_type_expression(
+          function_node.return_type,
+        ),
         body: self.parse_function_body_with_yacc(
           function_node.body_text,
           item_source,

@@ -824,6 +824,12 @@ impl ModulePreprocessor for AppendDeclPreprocessor with preprocess_module(
       generic_parameters: None,
       parameters: [],
       return_type: Some("f32"),
+      return_type_expr: Some(TypeExpression::{
+        path: [],
+        ident: "f32",
+        template_text: None,
+        template_args: [],
+      }),
       body: FunctionBody::{ statements: [] },
     }),
     attributes: Array::new(),
@@ -848,6 +854,12 @@ impl ModulePreprocessor for ConditionalAppendPreprocessor with preprocess_module
       generic_parameters: None,
       parameters: [],
       return_type: Some("f32"),
+      return_type_expr: Some(TypeExpression::{
+        path: [],
+        ident: "f32",
+        template_text: None,
+        template_args: [],
+      }),
       body: FunctionBody::{ statements: [] },
     }),
     attributes: [

@@ -446,6 +446,7 @@ pub(all) struct FunctionDeclaration {
   generic_parameters : String?
   parameters : Array[FunctionParameter]
   return_type : String?
+  return_type_expr : TypeExpression?
   body : FunctionBody
 } derive(Eq, Debug)
 

@@ -362,6 +362,16 @@ test "parser: generated function parser records signature" {
 
       debug_inspect(header.parameters, content=expected_parameters)
       debug_inspect(header.return_type, content="Some(\"vec4<f32>\")")
+      let expected_return_type =
+        #|Some(
+        #|  {
+        #|    path: [],
+        #|    ident: "vec4",
+        #|    template_text: None,
+        #|    template_args: [Type({ path: [], ident: "f32", template_text: None, template_args: [] })],
+        #|  },
+        #|)
+      debug_inspect(header.return_type_expr, content=expected_return_type)
       let expected_body =
         #|[
         #|  {

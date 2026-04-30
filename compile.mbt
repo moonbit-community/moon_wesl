@@ -2136,6 +2136,13 @@ fn wesl_collect_ast_item_references(
           current_path,
         )
       }
+      match function_.return_type_expr {
+        Some(ty) =>
+          wesl_ast_collect_type_reference(
+            ty, references, scopes, named_items, import_by_local, imports, current_path,
+          )
+        None => ()
+      }
       wesl_ast_collect_body_references(
         function_.body,
         references,

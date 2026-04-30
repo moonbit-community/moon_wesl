@@ -64,6 +64,24 @@ test "compile: AST reference collector follows structured expression and type re
 }
 
 ///|
+test "compile: AST reference collector follows function return type refs" {
+  let source =
+    #|struct Payload {
+    #|  value: f32,
+    #|}
+    #|
+    #|fn make_payload() -> Payload {
+    #|  return;
+    #|}
+  let unit = compile_test_module(source)
+  let refs = compile_test_ast_refs(unit.global_declarations[1].header, [
+    "Payload", "make_payload",
+  ])
+  inspect(refs.length(), content="1")
+  inspect(refs[0] == ModuleItemRef::Local("Payload"), content="true")
+}
+
+///|
 test "compile: AST reference collector respects local shadowing" {
   let source =
     #|struct Payload {
