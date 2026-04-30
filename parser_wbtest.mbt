@@ -694,7 +694,7 @@ test "parser: generated statement parser classifies function body statements" {
           )
           debug_inspect(
             switch_.cases[0].body.statements[0].kind,
-            content="Block",
+            content="Assignment",
           )
         }
         _ => fail("expected switch control statement")

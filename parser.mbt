@@ -1446,6 +1446,34 @@ fn parser_parse_switch_selectors(
 }
 
 ///|
+fn parser_parse_switch_case_body(
+  source : String,
+  item_source : String,
+) -> FunctionBody raise WeslCompileError {
+  let trimmed = source.trim().to_owned()
+  let body_start = parser_skip_layout_and_comments(trimmed, 0)
+  if body_start < trimmed.length() &&
+    trimmed.code_unit_at(body_start).to_int() == 123 {
+    match parser_find_matching_delimiter(trimmed, body_start, 123, 125) {
+      Some(close_index) => {
+        let after_body = parser_skip_layout_and_comments(
+          trimmed,
+          close_index + 1,
+        )
+        if after_body == trimmed.length() {
+          return parser_parse_embedded_function_body(
+            trimmed[body_start + 1:close_index].to_owned(),
+            item_source,
+          )
+        }
+      }
+      None => ()
+    }
+  }
+  parser_parse_embedded_function_body(trimmed, item_source)
+}
+
+///|
 fn parser_parse_switch_cases(
   source : String,
   item_source : String,
@@ -1494,7 +1522,7 @@ fn parser_parse_switch_cases(
     cases.push(SwitchCase::{
       selectors,
       is_default,
-      body: parser_parse_embedded_function_body(
+      body: parser_parse_switch_case_body(
         source[body_start:body_end].trim().to_owned(),
         item_source,
       ),
