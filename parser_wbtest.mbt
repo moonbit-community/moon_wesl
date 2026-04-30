@@ -15,7 +15,28 @@
 ///|
 fn parse_expression(source : String) -> Unit raise WeslCompileError {
   match @expression_parse.parse_expression_source(source) {
-    @expression_parse.Parsed => ()
+    @expression_parse.Parsed(_) => ()
+    @expression_parse.Failed(diagnostic) => {
+      let message = match diagnostic.message {
+        Some(message) => message
+        None =>
+          if diagnostic.incomplete {
+            "incomplete expression"
+          } else {
+            "unsupported expression syntax"
+          }
+      }
+      raise WeslCompileError::Parse("\{message}: `\{source}`")
+    }
+  }
+}
+
+///|
+fn parse_expression_ast(
+  source : String,
+) -> @expression_parse.ExpressionParseNode raise WeslCompileError {
+  match @expression_parse.parse_expression_source(source) {
+    @expression_parse.Parsed(node) => node
     @expression_parse.Failed(diagnostic) => {
       let message = match diagnostic.message {
         Some(message) => message
@@ -55,7 +76,7 @@ test "parser: generated expression parser handles WGSL operator and template for
   let valid_cases = [
     "vec2<f32>(1.0, 2.0)", "array<vec2<f32>, 2>(vec2<f32>(1, 2), vec2(3, 4))", "a < b || c > d",
     "textureSample(t, s, uv).rgba[0]", "&buffer[index + 1u]", "foo(1, 2,)", "!(a == b) && (c != d)",
-    "value--7",
+    "value--7", "atomicMax(&storage_atomic_scalar, 1lu)",
   ]
   for expr in valid_cases {
     let result = try? parse_expression(expr)
@@ -74,6 +95,55 @@ test "parser: generated expression parser handles WGSL operator and template for
       Err(_) => ()
     }
   }
+}
+
+///|
+test "parser: generated expression parser returns AST nodes" {
+  let ast = parse_expression_ast("textureSample(t, s, uv).rgba[0] + -value--7")
+  let expected_ast =
+    #|Binary(
+    #|  Subtraction,
+    #|  Binary(
+    #|    Addition,
+    #|    Indexing(
+    #|      NamedComponent(
+    #|        FunctionCall(
+    #|          {
+    #|            callee: { path: [], ident: "textureSample", template_text: None },
+    #|            arguments: [
+    #|              TypeOrIdentifier({ path: [], ident: "t", template_text: None }),
+    #|              TypeOrIdentifier({ path: [], ident: "s", template_text: None }),
+    #|              TypeOrIdentifier({ path: [], ident: "uv", template_text: None }),
+    #|            ],
+    #|          },
+    #|        ),
+    #|        "rgba",
+    #|      ),
+    #|      Literal("0"),
+    #|    ),
+    #|    Unary(
+    #|      Negation,
+    #|      TypeOrIdentifier({ path: [], ident: "value", template_text: None }),
+    #|    ),
+    #|  ),
+    #|  Unary(Negation, Literal("7")),
+    #|)
+  debug_inspect(ast, content=expected_ast)
+  let templated = parse_expression_ast(
+    "package::math::make_vec<vec2<f32>, 2>(1, true)",
+  )
+  let expected_templated =
+    #|FunctionCall(
+    #|  {
+    #|    callee: {
+    #|      path: ["package", "math"],
+    #|      ident: "make_vec",
+    #|      template_text: Some("vec2<f32>, 2"),
+    #|    },
+    #|    arguments: [Literal("1"), Bool(true)],
+    #|  },
+    #|)
+  debug_inspect(templated, content=expected_templated)
 }
 
 ///|
@@ -190,7 +260,13 @@ test "parser: generated function parser records signature" {
       debug_inspect(header.parameters, content=expected_parameters)
       debug_inspect(header.return_type, content="Some(\"vec4<f32>\")")
       let expected_body =
-        #|[{ kind: Return, source: "return color;" }]
+        #|[
+        #|  {
+        #|    kind: Return,
+        #|    source: "return color;",
+        #|    expression: Some(TypeOrIdentifier({ path: [], ident: "color", template_text: None })),
+        #|  },
+        #|]
 
       debug_inspect(header.body.statements, content=expected_body)
     }
@@ -202,6 +278,7 @@ test "parser: generated function parser records signature" {
 test "parser: generated statement parser classifies function body statements" {
   let source =
     #|fn statements() {
+    #|  @if(true) storageBarrier();
     #|  var value: i32 = 0;
     #|  let limit: i32 = 4;
     #|  value += 1;
@@ -224,8 +301,51 @@ test "parser: generated statement parser classifies function body statements" {
         kinds.push(statement.kind)
       }
       let expected_kinds =
-        #|[Var, Let, CompoundAssignment, Increment, If, Loop, Call, Return]
+        #|[
+        #|  Call,
+        #|  Var,
+        #|  Let,
+        #|  CompoundAssignment,
+        #|  Increment,
+        #|  If,
+        #|  Loop,
+        #|  Call,
+        #|  Return,
+        #|]
       debug_inspect(kinds, content=expected_kinds)
+      let expected_call =
+        #|Some(
+        #|  FunctionCall(
+        #|    {
+        #|      callee: { path: [], ident: "textureStore", template_text: None },
+        #|      arguments: [
+        #|        TypeOrIdentifier({ path: [], ident: "tex", template_text: None }),
+        #|        TypeOrIdentifier({ path: [], ident: "coord", template_text: None }),
+        #|        FunctionCall(
+        #|          {
+        #|            callee: { path: [], ident: "vec4", template_text: Some("f32") },
+        #|            arguments: [],
+        #|          },
+        #|        ),
+        #|      ],
+        #|    },
+        #|  ),
+        #|)
+      debug_inspect(header.body.statements[7].expression, content=expected_call)
+      let expected_conditional_call =
+        #|Some(
+        #|  FunctionCall(
+        #|    {
+        #|      callee: { path: [], ident: "storageBarrier", template_text: None },
+        #|      arguments: [],
+        #|    },
+        #|  ),
+        #|)
+      debug_inspect(
+        header.body.statements[0].expression,
+        content=expected_conditional_call,
+      )
+      debug_inspect(header.body.statements[8].expression, content="None")
     }
     _ => fail("expected function declaration")
   }

@@ -454,14 +454,251 @@ fn parser_statement_kind_from_generated(
 }
 
 ///|
+fn parser_type_expression_from_generated(
+  node : @expression_parse.ExpressionTypeParseNode,
+) -> TypeExpression {
+  TypeExpression::{
+    path: node.path,
+    ident: node.ident,
+    template_text: node.template_text,
+  }
+}
+
+///|
+fn parser_unary_operator_from_generated(
+  op : @expression_parse.ExpressionUnaryOperator,
+) -> UnaryOperator {
+  match op {
+    @expression_parse.Negation => Negation
+    @expression_parse.LogicalNegation => LogicalNegation
+    @expression_parse.BitwiseComplement => BitwiseComplement
+    @expression_parse.Indirection => Indirection
+    @expression_parse.AddressOf => AddressOf
+  }
+}
+
+///|
+fn parser_binary_operator_from_generated(
+  op : @expression_parse.ExpressionBinaryOperator,
+) -> BinaryOperator {
+  match op {
+    @expression_parse.ShortCircuitOr => ShortCircuitOr
+    @expression_parse.ShortCircuitAnd => ShortCircuitAnd
+    @expression_parse.BitwiseOr => BitwiseOr
+    @expression_parse.BitwiseXor => BitwiseXor
+    @expression_parse.BitwiseAnd => BitwiseAnd
+    @expression_parse.Equality => Equality
+    @expression_parse.Inequality => Inequality
+    @expression_parse.LessThan => LessThan
+    @expression_parse.LessThanEqual => LessThanEqual
+    @expression_parse.GreaterThan => GreaterThan
+    @expression_parse.GreaterThanEqual => GreaterThanEqual
+    @expression_parse.ShiftLeft => ShiftLeft
+    @expression_parse.ShiftRight => ShiftRight
+    @expression_parse.Addition => Addition
+    @expression_parse.Subtraction => Subtraction
+    @expression_parse.Multiplication => Multiplication
+    @expression_parse.Division => Division
+    @expression_parse.Remainder => Remainder
+  }
+}
+
+///|
+fn parser_expression_from_generated(
+  node : @expression_parse.ExpressionParseNode,
+) -> Expression {
+  match node {
+    @expression_parse.Literal(text) => Expression::Literal(text)
+    @expression_parse.Bool(value) => Expression::Bool(value)
+    @expression_parse.TypeOrIdentifier(ty) =>
+      Expression::TypeOrIdentifier(parser_type_expression_from_generated(ty))
+    @expression_parse.Parenthesized(expr) =>
+      Expression::Parenthesized(parser_expression_from_generated(expr))
+    @expression_parse.NamedComponent(base, component) =>
+      Expression::NamedComponent(
+        parser_expression_from_generated(base),
+        component,
+      )
+    @expression_parse.Indexing(base, index) =>
+      Expression::Indexing(
+        parser_expression_from_generated(base),
+        parser_expression_from_generated(index),
+      )
+    @expression_parse.Unary(op, operand) =>
+      Expression::Unary(
+        parser_unary_operator_from_generated(op),
+        parser_expression_from_generated(operand),
+      )
+    @expression_parse.Binary(op, left, right) =>
+      Expression::Binary(
+        parser_binary_operator_from_generated(op),
+        parser_expression_from_generated(left),
+        parser_expression_from_generated(right),
+      )
+    @expression_parse.FunctionCall(call) => {
+      let arguments : Array[Expression] = []
+      for argument in call.arguments {
+        arguments.push(parser_expression_from_generated(argument))
+      }
+      Expression::FunctionCall(FunctionCallExpression::{
+        callee: parser_type_expression_from_generated(call.callee),
+        arguments,
+      })
+    }
+  }
+}
+
+///|
+fn parser_parse_statement_expression(
+  source : String,
+  item_source : String,
+) -> Expression raise WeslCompileError {
+  match @expression_parse.parse_expression_source(source) {
+    @expression_parse.Parsed(node) => parser_expression_from_generated(node)
+    @expression_parse.Failed(diagnostic) => {
+      if diagnostic.incomplete {
+        raise WeslCompileError::Parse(
+          "incomplete statement expression at byte \{diagnostic.offset}: \{item_source}",
+        )
+      }
+      let message = match diagnostic.message {
+        Some(message) => message
+        None => "invalid statement expression"
+      }
+      raise WeslCompileError::Parse(
+        "\{message} at byte \{diagnostic.offset}: \{item_source}",
+      )
+    }
+  }
+}
+
+///|
+fn parser_trim_statement_semicolon(source : String) -> String {
+  let trimmed = source.trim().to_owned()
+  if trimmed.has_suffix(";") {
+    trimmed[:trimmed.length() - 1].trim().to_owned()
+  } else {
+    trimmed
+  }
+}
+
+///|
+fn parser_skip_balanced_attribute_arguments(
+  source : String,
+  index : Int,
+) -> (Int, Bool) {
+  let mut cursor = index
+  let mut depth = 1
+  while cursor < source.length() {
+    let code = source.code_unit_at(cursor).to_int()
+    if code == 40 {
+      depth += 1
+    } else if code == 41 {
+      depth -= 1
+      if depth == 0 {
+        return (cursor + 1, true)
+      }
+    }
+    cursor += 1
+  }
+  (cursor, false)
+}
+
+///|
+fn parser_strip_statement_attributes(source : String) -> String {
+  let mut cursor = 0
+  while cursor < source.length() {
+    while cursor < source.length() {
+      let code = source.code_unit_at(cursor).to_int()
+      if code == 32 || code == 9 || code == 10 || code == 13 {
+        cursor += 1
+      } else {
+        break
+      }
+    }
+    if cursor >= source.length() || source.code_unit_at(cursor).to_int() != 64 {
+      break
+    }
+    cursor += 1
+    if cursor >= source.length() ||
+      !parser_is_identifier_start(source.code_unit_at(cursor).to_int()) {
+      break
+    }
+    cursor += 1
+    while cursor < source.length() &&
+          parser_is_identifier_char(source.code_unit_at(cursor).to_int()) {
+      cursor += 1
+    }
+    while cursor < source.length() {
+      let code = source.code_unit_at(cursor).to_int()
+      if code == 32 || code == 9 || code == 10 || code == 13 {
+        cursor += 1
+      } else {
+        break
+      }
+    }
+    if cursor < source.length() && source.code_unit_at(cursor).to_int() == 40 {
+      let (end_, ok) = parser_skip_balanced_attribute_arguments(
+        source,
+        cursor + 1,
+      )
+      if !ok {
+        break
+      }
+      cursor = end_
+    }
+  }
+  source[cursor:].trim().to_owned()
+}
+
+///|
+fn parser_statement_expression(
+  statement : @statement_parse.StatementParseNode,
+  item_source : String,
+) -> Expression? raise WeslCompileError {
+  let source = parser_trim_statement_semicolon(
+    parser_strip_statement_attributes(statement.source),
+  )
+  match statement.kind {
+    @statement_parse.Return => {
+      let rest = source[6:].trim().to_owned()
+      if rest == "" {
+        None
+      } else {
+        Some(parser_parse_statement_expression(rest, item_source))
+      }
+    }
+    @statement_parse.ConstAssert =>
+      Some(
+        parser_parse_statement_expression(
+          source[12:].trim().to_owned(),
+          item_source,
+        ),
+      )
+    @statement_parse.BreakIf =>
+      Some(
+        parser_parse_statement_expression(
+          source[8:].trim().to_owned(),
+          item_source,
+        ),
+      )
+    @statement_parse.Call =>
+      Some(parser_parse_statement_expression(source, item_source))
+    _ => None
+  }
+}
+
+///|
 fn parser_function_body_from_generated(
   statements : Array[@statement_parse.StatementParseNode],
-) -> FunctionBody {
+  item_source : String,
+) -> FunctionBody raise WeslCompileError {
   let mapped : Array[Statement] = []
   for statement in statements {
     mapped.push(Statement::{
       kind: parser_statement_kind_from_generated(statement.kind),
       source: statement.source,
+      expression: parser_statement_expression(statement, item_source),
     })
   }
   FunctionBody::{ statements: mapped }
@@ -475,7 +712,7 @@ fn Parser::parse_function_body_with_yacc(
 ) -> FunctionBody raise WeslCompileError {
   match @statement_parse.parse_function_body_source(body_source) {
     @statement_parse.Parsed(node) =>
-      parser_function_body_from_generated(node.statements)
+      parser_function_body_from_generated(node.statements, item_source)
     @statement_parse.Failed(diagnostic) => {
       let byte_offset = if self.tokens.length() > 0 {
         self.tokens[0].start() + diagnostic.offset

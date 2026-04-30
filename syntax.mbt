@@ -216,6 +216,63 @@ pub(all) struct FunctionParameter {
 } derive(Eq, Debug)
 
 ///|
+pub(all) struct TypeExpression {
+  path : Array[String]
+  ident : String
+  template_text : String?
+} derive(Eq, Debug)
+
+///|
+pub(all) enum UnaryOperator {
+  Negation
+  LogicalNegation
+  BitwiseComplement
+  Indirection
+  AddressOf
+} derive(Eq, Debug)
+
+///|
+pub(all) enum BinaryOperator {
+  ShortCircuitOr
+  ShortCircuitAnd
+  BitwiseOr
+  BitwiseXor
+  BitwiseAnd
+  Equality
+  Inequality
+  LessThan
+  LessThanEqual
+  GreaterThan
+  GreaterThanEqual
+  ShiftLeft
+  ShiftRight
+  Addition
+  Subtraction
+  Multiplication
+  Division
+  Remainder
+} derive(Eq, Debug)
+
+///|
+pub(all) struct FunctionCallExpression {
+  callee : TypeExpression
+  arguments : Array[Expression]
+} derive(Eq, Debug)
+
+///|
+pub(all) enum Expression {
+  Literal(String)
+  Bool(Bool)
+  TypeOrIdentifier(TypeExpression)
+  Parenthesized(Expression)
+  NamedComponent(Expression, String)
+  Indexing(Expression, Expression)
+  Unary(UnaryOperator, Expression)
+  Binary(BinaryOperator, Expression, Expression)
+  FunctionCall(FunctionCallExpression)
+} derive(Eq, Debug)
+
+///|
 pub(all) enum StatementKind {
   Empty
   Block
@@ -245,6 +302,7 @@ pub(all) enum StatementKind {
 pub(all) struct Statement {
   kind : StatementKind
   source : String
+  expression : Expression?
 } derive(Eq, Debug)
 
 ///|

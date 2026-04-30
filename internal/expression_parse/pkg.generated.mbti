@@ -6,7 +6,7 @@ import {
 }
 
 // Values
-pub fn parse_expression(Array[(Token, Int, Int)], initial_pos? : Int) -> Unit raise ParseError
+pub fn parse_expression(Array[(Token, Int, Int)], initial_pos? : Int) -> ExpressionParseNode raise ParseError
 
 pub fn parse_expression_source(String) -> ExpressionParseResult
 
@@ -17,15 +17,76 @@ pub suberror ParseError {
 } derive(@debug.Debug)
 
 // Types and methods
+pub(all) enum ExpressionBinaryOperator {
+  ShortCircuitOr
+  ShortCircuitAnd
+  BitwiseOr
+  BitwiseXor
+  BitwiseAnd
+  Equality
+  Inequality
+  LessThan
+  LessThanEqual
+  GreaterThan
+  GreaterThanEqual
+  ShiftLeft
+  ShiftRight
+  Addition
+  Subtraction
+  Multiplication
+  Division
+  Remainder
+} derive(Eq, @debug.Debug)
+
+pub(all) struct ExpressionFunctionCallParseNode {
+  callee : ExpressionTypeParseNode
+  arguments : Array[ExpressionParseNode]
+} derive(Eq, @debug.Debug)
+
 pub(all) struct ExpressionParseDiagnostic {
   offset : Int
   incomplete : Bool
   message : String?
 } derive(Eq, @debug.Debug)
 
+pub(all) enum ExpressionParseNode {
+  Literal(String)
+  Bool(Bool)
+  TypeOrIdentifier(ExpressionTypeParseNode)
+  Parenthesized(ExpressionParseNode)
+  NamedComponent(ExpressionParseNode, String)
+  Indexing(ExpressionParseNode, ExpressionParseNode)
+  Unary(ExpressionUnaryOperator, ExpressionParseNode)
+  Binary(ExpressionBinaryOperator, ExpressionParseNode, ExpressionParseNode)
+  FunctionCall(ExpressionFunctionCallParseNode)
+} derive(Eq, @debug.Debug)
+pub fn ExpressionParseNode::apply_postfix(Self, ExpressionPostfixSuffix) -> Self
+
 pub(all) enum ExpressionParseResult {
-  Parsed
+  Parsed(ExpressionParseNode)
   Failed(ExpressionParseDiagnostic)
+} derive(Eq, @debug.Debug)
+
+pub(all) enum ExpressionPostfixSuffix {
+  NamedComponent(String)
+  Indexing(ExpressionParseNode)
+} derive(Eq, @debug.Debug)
+
+pub(all) struct ExpressionTypeParseNode {
+  path : Array[String]
+  ident : String
+  template_text : String?
+} derive(Eq, @debug.Debug)
+pub fn ExpressionTypeParseNode::from_path(Array[String]) -> Self
+pub fn ExpressionTypeParseNode::qualified_child(Self, String) -> Self
+pub fn ExpressionTypeParseNode::with_template(Self, String) -> Self
+
+pub(all) enum ExpressionUnaryOperator {
+  Negation
+  LogicalNegation
+  BitwiseComplement
+  Indirection
+  AddressOf
 } derive(Eq, @debug.Debug)
 
 pub(all) enum Token {

@@ -74,6 +74,27 @@ pub fn BasicSourceMap::new() -> Self
 pub fn BasicSourceMap::set_default_source(Self, String) -> Unit
 pub impl SourceMap for BasicSourceMap
 
+pub(all) enum BinaryOperator {
+  ShortCircuitOr
+  ShortCircuitAnd
+  BitwiseOr
+  BitwiseXor
+  BitwiseAnd
+  Equality
+  Inequality
+  LessThan
+  LessThanEqual
+  GreaterThan
+  GreaterThanEqual
+  ShiftLeft
+  ShiftRight
+  Addition
+  Subtraction
+  Multiplication
+  Division
+  Remainder
+} derive(Eq, @debug.Debug)
+
 pub struct CodegenModule {
   name : String
   source : String
@@ -154,6 +175,18 @@ pub struct EscapeMangler {
 pub fn EscapeMangler::default() -> Self
 pub fn EscapeMangler::mangle(Self, ModulePath, String) -> String
 
+pub(all) enum Expression {
+  Literal(String)
+  Bool(Bool)
+  TypeOrIdentifier(TypeExpression)
+  Parenthesized(Expression)
+  NamedComponent(Expression, String)
+  Indexing(Expression, Expression)
+  Unary(UnaryOperator, Expression)
+  Binary(BinaryOperator, Expression, Expression)
+  FunctionCall(FunctionCallExpression)
+} derive(Eq, @debug.Debug)
+
 pub(all) enum Feature {
   Enable
   Disable
@@ -182,6 +215,11 @@ pub impl Resolver for FileResolver
 
 pub(all) struct FunctionBody {
   statements : Array[Statement]
+} derive(Eq, @debug.Debug)
+
+pub(all) struct FunctionCallExpression {
+  callee : TypeExpression
+  arguments : Array[Expression]
 } derive(Eq, @debug.Debug)
 
 pub(all) struct FunctionDeclaration {
@@ -345,6 +383,7 @@ pub impl Resolver for StandardResolver
 pub(all) struct Statement {
   kind : StatementKind
   source : String
+  expression : Expression?
 } derive(Eq, @debug.Debug)
 
 pub(all) enum StatementKind {
@@ -393,6 +432,20 @@ pub(all) struct TranslationUnit {
 } derive(Eq, @debug.Debug)
 pub fn TranslationUnit::default() -> Self
 pub fn TranslationUnit::to_string(Self) -> String
+
+pub(all) struct TypeExpression {
+  path : Array[String]
+  ident : String
+  template_text : String?
+} derive(Eq, @debug.Debug)
+
+pub(all) enum UnaryOperator {
+  Negation
+  LogicalNegation
+  BitwiseComplement
+  Indirection
+  AddressOf
+} derive(Eq, @debug.Debug)
 
 pub(all) struct VarDeclaration {
   name : String?

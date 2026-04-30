@@ -21,9 +21,124 @@ pub(all) struct ExpressionParseDiagnostic {
 
 ///|
 pub(all) enum ExpressionParseResult {
-  Parsed
+  Parsed(ExpressionParseNode)
   Failed(ExpressionParseDiagnostic)
 } derive(Eq, Debug)
+
+///|
+pub(all) struct ExpressionTypeParseNode {
+  path : Array[String]
+  ident : String
+  template_text : String?
+} derive(Eq, Debug)
+
+///|
+pub(all) enum ExpressionUnaryOperator {
+  Negation
+  LogicalNegation
+  BitwiseComplement
+  Indirection
+  AddressOf
+} derive(Eq, Debug)
+
+///|
+pub(all) enum ExpressionBinaryOperator {
+  ShortCircuitOr
+  ShortCircuitAnd
+  BitwiseOr
+  BitwiseXor
+  BitwiseAnd
+  Equality
+  Inequality
+  LessThan
+  LessThanEqual
+  GreaterThan
+  GreaterThanEqual
+  ShiftLeft
+  ShiftRight
+  Addition
+  Subtraction
+  Multiplication
+  Division
+  Remainder
+} derive(Eq, Debug)
+
+///|
+pub(all) struct ExpressionFunctionCallParseNode {
+  callee : ExpressionTypeParseNode
+  arguments : Array[ExpressionParseNode]
+} derive(Eq, Debug)
+
+///|
+pub(all) enum ExpressionParseNode {
+  Literal(String)
+  Bool(Bool)
+  TypeOrIdentifier(ExpressionTypeParseNode)
+  Parenthesized(ExpressionParseNode)
+  NamedComponent(ExpressionParseNode, String)
+  Indexing(ExpressionParseNode, ExpressionParseNode)
+  Unary(ExpressionUnaryOperator, ExpressionParseNode)
+  Binary(ExpressionBinaryOperator, ExpressionParseNode, ExpressionParseNode)
+  FunctionCall(ExpressionFunctionCallParseNode)
+} derive(Eq, Debug)
+
+///|
+pub(all) enum ExpressionPostfixSuffix {
+  NamedComponent(String)
+  Indexing(ExpressionParseNode)
+} derive(Eq, Debug)
+
+///|
+pub fn ExpressionTypeParseNode::from_path(
+  path : Array[String],
+) -> ExpressionTypeParseNode {
+  let prefix : Array[String] = []
+  for index in 0..<(path.length() - 1) {
+    prefix.push(path[index])
+  }
+  ExpressionTypeParseNode::{
+    path: prefix,
+    ident: path[path.length() - 1],
+    template_text: None,
+  }
+}
+
+///|
+pub fn ExpressionTypeParseNode::with_template(
+  self : ExpressionTypeParseNode,
+  template_text : String,
+) -> ExpressionTypeParseNode {
+  ExpressionTypeParseNode::{
+    path: self.path,
+    ident: self.ident,
+    template_text: Some(template_text),
+  }
+}
+
+///|
+pub fn ExpressionTypeParseNode::qualified_child(
+  self : ExpressionTypeParseNode,
+  ident : String,
+) -> ExpressionTypeParseNode {
+  let path : Array[String] = []
+  for segment in self.path {
+    path.push(segment)
+  }
+  path.push(self.ident)
+  ExpressionTypeParseNode::{ path, ident, template_text: None }
+}
+
+///|
+pub fn ExpressionParseNode::apply_postfix(
+  self : ExpressionParseNode,
+  suffix : ExpressionPostfixSuffix,
+) -> ExpressionParseNode {
+  match suffix {
+    NamedComponent(component) =>
+      ExpressionParseNode::NamedComponent(self, component)
+    Indexing(index) => ExpressionParseNode::Indexing(self, index)
+  }
+}
 
 ///|
 priv enum ExpressionLexResult {
@@ -145,7 +260,12 @@ fn expression_parse_number_end(source : String, start : Int) -> (Int, Bool) {
   }
   if index < source.length() {
     let suffix = source.code_unit_at(index).to_int()
-    if suffix == 105 || suffix == 117 || suffix == 102 || suffix == 104 {
+    if suffix == 108 && index + 1 < source.length() {
+      let long_suffix = source.code_unit_at(index + 1).to_int()
+      if long_suffix == 105 || long_suffix == 117 || long_suffix == 102 {
+        index += 2
+      }
+    } else if suffix == 105 || suffix == 117 || suffix == 102 || suffix == 104 {
       index += 1
     }
   }
@@ -354,7 +474,7 @@ pub fn parse_expression_source(source : String) -> ExpressionParseResult {
       message: Some("empty expression"),
     })
   }
-  parse_expression(tokens) catch {
+  let parsed = parse_expression(tokens) catch {
     UnexpectedToken(_, (start, _), _) =>
       return Failed(ExpressionParseDiagnostic::{
         offset: start,
@@ -368,5 +488,5 @@ pub fn parse_expression_source(source : String) -> ExpressionParseResult {
         message: None,
       })
   }
-  Parsed
+  Parsed(parsed)
 }
