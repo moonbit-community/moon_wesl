@@ -414,6 +414,7 @@ priv struct ImportItem {
 priv struct ModuleItem {
   name : String?
   kind : ModuleItemKind
+  header : GlobalDeclarationHeader
   source : String
   span : SyntaxSpan
   entrypoint : Bool
@@ -434,7 +435,7 @@ enum ModuleItemRef {
   Local(String)
   Import(String, Int)
   Qualified(String, ModulePath, String)
-} derive(Eq)
+} derive(Eq, Debug)
 
 ///|
 priv struct ParsedModule {
@@ -1144,10 +1145,19 @@ fn wesl_condcomp_declarations(
       state,
     )
     if keep_node {
+      let transformed_source = next_source.unwrap_or(declaration.source)
+      let transformed_declarations = parse_global_declarations(
+        transformed_source,
+      )
+      guard transformed_declarations.length() == 1 else {
+        raise WeslCompileError::Parse(
+          "conditional compilation produced an invalid declaration: \{transformed_source}",
+        )
+      }
       out.push(GlobalDeclaration::{
-        ..declaration,
-        attributes: next_attrs.unwrap_or(declaration.attributes),
-        source: next_source.unwrap_or(declaration.source),
+        ..transformed_declarations[0],
+        attributes: next_attrs.unwrap_or(transformed_declarations[0].attributes),
+        span: declaration.span,
       })
     }
   }
@@ -1530,6 +1540,629 @@ fn wesl_collect_item_references(
       _ => ()
     }
     index += 1
+  }
+  references
+}
+
+///|
+fn wesl_ast_raw_path(ty : TypeExpression) -> String {
+  let mut raw = ""
+  for segment in ty.path {
+    if raw == "" {
+      raw = segment
+    } else {
+      raw = raw + "::" + segment
+    }
+  }
+  if raw == "" {
+    ty.ident
+  } else {
+    raw + "::" + ty.ident
+  }
+}
+
+///|
+fn wesl_ast_path_segments(ty : TypeExpression) -> Array[String] {
+  let segments : Array[String] = []
+  for segment in ty.path {
+    segments.push(segment)
+  }
+  segments.push(ty.ident)
+  segments
+}
+
+///|
+fn wesl_ast_bind_name(scopes : Array[Array[String]], name : String) -> Unit {
+  if scopes.length() == 0 {
+    return
+  }
+  wesl_push_unique(scopes[scopes.length() - 1], name)
+}
+
+///|
+fn wesl_ast_name_is_bound(scopes : Array[Array[String]], name : String) -> Bool {
+  if scopes.length() == 0 {
+    return false
+  }
+  wesl_scopes_contain(scopes, scopes.length() - 1, name)
+}
+
+///|
+fn wesl_ast_collect_type_reference(
+  ty : TypeExpression,
+  references : Array[ModuleItemRef],
+  scopes : Array[Array[String]],
+  named_items : @hashmap.HashMap[String, Int],
+  import_by_local : @hashmap.HashMap[String, Int],
+  imports : Array[ImportItem],
+  current_path : ModulePath,
+) -> Unit {
+  if ty.path.length() == 0 {
+    if !wesl_ast_name_is_bound(scopes, ty.ident) {
+      if named_items.contains(ty.ident) {
+        wesl_push_unique_item_ref(references, ModuleItemRef::Local(ty.ident))
+      } else {
+        match import_by_local.get(ty.ident) {
+          Some(import_index) =>
+            if wesl_import_named_target(imports[import_index]) is Some(_) {
+              wesl_push_unique_item_ref(
+                references,
+                ModuleItemRef::Import(ty.ident, import_index),
+              )
+            }
+          None => ()
+        }
+      }
+    }
+  } else if !wesl_ast_name_is_bound(scopes, ty.path[0]) {
+    let segments = wesl_ast_path_segments(ty)
+    match import_by_local.get(segments[0]) {
+      Some(import_index) => {
+        let (target_path, target_name) = wesl_resolve_qualified_import_target(
+          imports[import_index],
+          segments,
+        ) catch {
+          _ => (imports[import_index].namespace_path, ty.ident)
+        }
+        wesl_push_unique_item_ref(
+          references,
+          ModuleItemRef::Qualified(
+            wesl_ast_raw_path(ty),
+            target_path,
+            target_name,
+          ),
+        )
+      }
+      None =>
+        if segments[0] == "package" ||
+          segments[0] == "self" ||
+          segments[0] == "super" {
+          let (target_path, target_name) = wesl_resolve_direct_qualified_target(
+            current_path, segments,
+          ) catch {
+            _ => (current_path, ty.ident)
+          }
+          wesl_push_unique_item_ref(
+            references,
+            ModuleItemRef::Qualified(
+              wesl_ast_raw_path(ty),
+              target_path,
+              target_name,
+            ),
+          )
+        }
+    }
+  }
+  for arg in ty.template_args {
+    match arg {
+      Type(template_type) =>
+        wesl_ast_collect_type_reference(
+          template_type, references, scopes, named_items, import_by_local, imports,
+          current_path,
+        )
+      Literal(_) => ()
+    }
+  }
+}
+
+///|
+fn wesl_ast_collect_expression_references(
+  expr : Expression,
+  references : Array[ModuleItemRef],
+  scopes : Array[Array[String]],
+  named_items : @hashmap.HashMap[String, Int],
+  import_by_local : @hashmap.HashMap[String, Int],
+  imports : Array[ImportItem],
+  current_path : ModulePath,
+) -> Unit {
+  match expr {
+    Literal(_) | Bool(_) => ()
+    TypeOrIdentifier(ty) =>
+      wesl_ast_collect_type_reference(
+        ty, references, scopes, named_items, import_by_local, imports, current_path,
+      )
+    Parenthesized(inner) =>
+      wesl_ast_collect_expression_references(
+        inner, references, scopes, named_items, import_by_local, imports, current_path,
+      )
+    NamedComponent(base, _) =>
+      wesl_ast_collect_expression_references(
+        base, references, scopes, named_items, import_by_local, imports, current_path,
+      )
+    Indexing(base, index) => {
+      wesl_ast_collect_expression_references(
+        base, references, scopes, named_items, import_by_local, imports, current_path,
+      )
+      wesl_ast_collect_expression_references(
+        index, references, scopes, named_items, import_by_local, imports, current_path,
+      )
+    }
+    Unary(_, operand) =>
+      wesl_ast_collect_expression_references(
+        operand, references, scopes, named_items, import_by_local, imports, current_path,
+      )
+    Binary(_, lhs, rhs) => {
+      wesl_ast_collect_expression_references(
+        lhs, references, scopes, named_items, import_by_local, imports, current_path,
+      )
+      wesl_ast_collect_expression_references(
+        rhs, references, scopes, named_items, import_by_local, imports, current_path,
+      )
+    }
+    FunctionCall(call) => {
+      wesl_ast_collect_type_reference(
+        call.callee,
+        references,
+        scopes,
+        named_items,
+        import_by_local,
+        imports,
+        current_path,
+      )
+      for arg in call.arguments {
+        wesl_ast_collect_expression_references(
+          arg, references, scopes, named_items, import_by_local, imports, current_path,
+        )
+      }
+    }
+  }
+}
+
+///|
+fn wesl_ast_collect_declaration_references(
+  declaration : StatementDeclaration,
+  references : Array[ModuleItemRef],
+  scopes : Array[Array[String]],
+  named_items : @hashmap.HashMap[String, Int],
+  import_by_local : @hashmap.HashMap[String, Int],
+  imports : Array[ImportItem],
+  current_path : ModulePath,
+) -> Unit {
+  match declaration.type_expr {
+    Some(ty) =>
+      wesl_ast_collect_type_reference(
+        ty, references, scopes, named_items, import_by_local, imports, current_path,
+      )
+    None => ()
+  }
+  match declaration.initializer_expr {
+    Some(expr) =>
+      wesl_ast_collect_expression_references(
+        expr, references, scopes, named_items, import_by_local, imports, current_path,
+      )
+    None => ()
+  }
+  match declaration.name {
+    Some(name) => wesl_ast_bind_name(scopes, name)
+    None => ()
+  }
+}
+
+///|
+fn wesl_ast_collect_statement_references(
+  statement : Statement,
+  references : Array[ModuleItemRef],
+  scopes : Array[Array[String]],
+  named_items : @hashmap.HashMap[String, Int],
+  import_by_local : @hashmap.HashMap[String, Int],
+  imports : Array[ImportItem],
+  current_path : ModulePath,
+) -> Unit {
+  match statement.expression {
+    Some(expr) =>
+      wesl_ast_collect_expression_references(
+        expr, references, scopes, named_items, import_by_local, imports, current_path,
+      )
+    None => ()
+  }
+  match statement.declaration {
+    Some(declaration) =>
+      wesl_ast_collect_declaration_references(
+        declaration, references, scopes, named_items, import_by_local, imports, current_path,
+      )
+    None => ()
+  }
+  match statement.assignment {
+    Some(assignment) => {
+      wesl_ast_collect_expression_references(
+        assignment.lhs,
+        references,
+        scopes,
+        named_items,
+        import_by_local,
+        imports,
+        current_path,
+      )
+      wesl_ast_collect_expression_references(
+        assignment.rhs,
+        references,
+        scopes,
+        named_items,
+        import_by_local,
+        imports,
+        current_path,
+      )
+    }
+    None => ()
+  }
+  match statement.update_expression {
+    Some(expr) =>
+      wesl_ast_collect_expression_references(
+        expr, references, scopes, named_items, import_by_local, imports, current_path,
+      )
+    None => ()
+  }
+  match statement.control {
+    Some(control) =>
+      wesl_ast_collect_control_references(
+        control, references, scopes, named_items, import_by_local, imports, current_path,
+      )
+    None => ()
+  }
+}
+
+///|
+fn wesl_ast_collect_body_references(
+  body : FunctionBody,
+  references : Array[ModuleItemRef],
+  scopes : Array[Array[String]],
+  named_items : @hashmap.HashMap[String, Int],
+  import_by_local : @hashmap.HashMap[String, Int],
+  imports : Array[ImportItem],
+  current_path : ModulePath,
+) -> Unit {
+  scopes.push([])
+  for statement in body.statements {
+    wesl_ast_collect_statement_references(
+      statement, references, scopes, named_items, import_by_local, imports, current_path,
+    )
+  }
+  ignore(scopes.pop())
+}
+
+///|
+fn wesl_ast_collect_control_references(
+  control : ControlStatement,
+  references : Array[ModuleItemRef],
+  scopes : Array[Array[String]],
+  named_items : @hashmap.HashMap[String, Int],
+  import_by_local : @hashmap.HashMap[String, Int],
+  imports : Array[ImportItem],
+  current_path : ModulePath,
+) -> Unit {
+  match control {
+    Block(block) =>
+      wesl_ast_collect_body_references(
+        block.body,
+        references,
+        scopes,
+        named_items,
+        import_by_local,
+        imports,
+        current_path,
+      )
+    If(if_) => {
+      wesl_ast_collect_expression_references(
+        if_.condition,
+        references,
+        scopes,
+        named_items,
+        import_by_local,
+        imports,
+        current_path,
+      )
+      wesl_ast_collect_body_references(
+        if_.body,
+        references,
+        scopes,
+        named_items,
+        import_by_local,
+        imports,
+        current_path,
+      )
+      match if_.else_body {
+        Some(body) =>
+          wesl_ast_collect_body_references(
+            body, references, scopes, named_items, import_by_local, imports, current_path,
+          )
+        None => ()
+      }
+    }
+    Switch(switch_) => {
+      wesl_ast_collect_expression_references(
+        switch_.selector,
+        references,
+        scopes,
+        named_items,
+        import_by_local,
+        imports,
+        current_path,
+      )
+      for case_ in switch_.cases {
+        for selector in case_.selectors {
+          wesl_ast_collect_expression_references(
+            selector, references, scopes, named_items, import_by_local, imports,
+            current_path,
+          )
+        }
+        wesl_ast_collect_body_references(
+          case_.body,
+          references,
+          scopes,
+          named_items,
+          import_by_local,
+          imports,
+          current_path,
+        )
+      }
+    }
+    Loop(loop_) =>
+      wesl_ast_collect_body_references(
+        loop_.body,
+        references,
+        scopes,
+        named_items,
+        import_by_local,
+        imports,
+        current_path,
+      )
+    For(for_) => {
+      scopes.push([])
+      match for_.initializer {
+        Some(Declaration(declaration)) =>
+          wesl_ast_collect_declaration_references(
+            declaration, references, scopes, named_items, import_by_local, imports,
+            current_path,
+          )
+        Some(Assignment(assignment)) => {
+          wesl_ast_collect_expression_references(
+            assignment.lhs,
+            references,
+            scopes,
+            named_items,
+            import_by_local,
+            imports,
+            current_path,
+          )
+          wesl_ast_collect_expression_references(
+            assignment.rhs,
+            references,
+            scopes,
+            named_items,
+            import_by_local,
+            imports,
+            current_path,
+          )
+        }
+        Some(Expression(expr)) =>
+          wesl_ast_collect_expression_references(
+            expr, references, scopes, named_items, import_by_local, imports, current_path,
+          )
+        None => ()
+      }
+      match for_.condition {
+        Some(expr) =>
+          wesl_ast_collect_expression_references(
+            expr, references, scopes, named_items, import_by_local, imports, current_path,
+          )
+        None => ()
+      }
+      match for_.update {
+        Some(ForUpdate::Assignment(assignment)) => {
+          wesl_ast_collect_expression_references(
+            assignment.lhs,
+            references,
+            scopes,
+            named_items,
+            import_by_local,
+            imports,
+            current_path,
+          )
+          wesl_ast_collect_expression_references(
+            assignment.rhs,
+            references,
+            scopes,
+            named_items,
+            import_by_local,
+            imports,
+            current_path,
+          )
+        }
+        Some(Increment(expr))
+        | Some(Decrement(expr))
+        | Some(ForUpdate::Expression(expr)) =>
+          wesl_ast_collect_expression_references(
+            expr, references, scopes, named_items, import_by_local, imports, current_path,
+          )
+        None => ()
+      }
+      wesl_ast_collect_body_references(
+        for_.body,
+        references,
+        scopes,
+        named_items,
+        import_by_local,
+        imports,
+        current_path,
+      )
+      ignore(scopes.pop())
+    }
+    While(while_) => {
+      wesl_ast_collect_expression_references(
+        while_.condition,
+        references,
+        scopes,
+        named_items,
+        import_by_local,
+        imports,
+        current_path,
+      )
+      wesl_ast_collect_body_references(
+        while_.body,
+        references,
+        scopes,
+        named_items,
+        import_by_local,
+        imports,
+        current_path,
+      )
+    }
+    Continuing(continuing) =>
+      wesl_ast_collect_body_references(
+        continuing.body,
+        references,
+        scopes,
+        named_items,
+        import_by_local,
+        imports,
+        current_path,
+      )
+  }
+}
+
+///|
+fn wesl_collect_ast_item_references(
+  header : GlobalDeclarationHeader,
+  named_items : @hashmap.HashMap[String, Int],
+  import_by_local : @hashmap.HashMap[String, Int],
+  imports : Array[ImportItem],
+  current_path : ModulePath,
+) -> Array[ModuleItemRef] {
+  let references : Array[ModuleItemRef] = []
+  let scopes : Array[Array[String]] = [[]]
+  match header {
+    Alias(alias_decl) =>
+      match alias_decl.target_type {
+        Some(ty) =>
+          wesl_ast_collect_type_reference(
+            ty, references, scopes, named_items, import_by_local, imports, current_path,
+          )
+        None => ()
+      }
+    Const(const_) => {
+      match const_.type_expr {
+        Some(ty) =>
+          wesl_ast_collect_type_reference(
+            ty, references, scopes, named_items, import_by_local, imports, current_path,
+          )
+        None => ()
+      }
+      match const_.initializer_expr {
+        Some(expr) =>
+          wesl_ast_collect_expression_references(
+            expr, references, scopes, named_items, import_by_local, imports, current_path,
+          )
+        None => ()
+      }
+    }
+    Override(override_) => {
+      match override_.type_expr {
+        Some(ty) =>
+          wesl_ast_collect_type_reference(
+            ty, references, scopes, named_items, import_by_local, imports, current_path,
+          )
+        None => ()
+      }
+      match override_.initializer_expr {
+        Some(expr) =>
+          wesl_ast_collect_expression_references(
+            expr, references, scopes, named_items, import_by_local, imports, current_path,
+          )
+        None => ()
+      }
+    }
+    Let(let_) => {
+      match let_.type_expr {
+        Some(ty) =>
+          wesl_ast_collect_type_reference(
+            ty, references, scopes, named_items, import_by_local, imports, current_path,
+          )
+        None => ()
+      }
+      match let_.initializer_expr {
+        Some(expr) =>
+          wesl_ast_collect_expression_references(
+            expr, references, scopes, named_items, import_by_local, imports, current_path,
+          )
+        None => ()
+      }
+    }
+    Var(var_) => {
+      match var_.type_expr {
+        Some(ty) =>
+          wesl_ast_collect_type_reference(
+            ty, references, scopes, named_items, import_by_local, imports, current_path,
+          )
+        None => ()
+      }
+      match var_.initializer_expr {
+        Some(expr) =>
+          wesl_ast_collect_expression_references(
+            expr, references, scopes, named_items, import_by_local, imports, current_path,
+          )
+        None => ()
+      }
+    }
+    Function(function_) => {
+      for parameter in function_.parameters {
+        wesl_ast_bind_name(scopes, parameter.name)
+        wesl_ast_collect_type_reference(
+          parameter.type_expr,
+          references,
+          scopes,
+          named_items,
+          import_by_local,
+          imports,
+          current_path,
+        )
+      }
+      wesl_ast_collect_body_references(
+        function_.body,
+        references,
+        scopes,
+        named_items,
+        import_by_local,
+        imports,
+        current_path,
+      )
+    }
+    Struct(struct_) =>
+      for field in struct_.members {
+        wesl_ast_collect_type_reference(
+          field.type_expr,
+          references,
+          scopes,
+          named_items,
+          import_by_local,
+          imports,
+          current_path,
+        )
+      }
+    ConstAssert
+    | EnableDirective(_)
+    | RequiresDirective(_)
+    | DiagnosticDirective(_)
+    | Other => ()
   }
   references
 }
@@ -1922,6 +2555,7 @@ fn[R : Resolver] wesl_load_module(
         parsed_items.push(ModuleItem::{
           name: decl.ident(),
           kind: wesl_item_kind(decl.header),
+          header: decl.header,
           source: decl.source,
           span: decl.span,
           entrypoint: decl.is_entrypoint(),
@@ -1953,6 +2587,16 @@ fn[R : Resolver] wesl_load_module(
           imports,
           path,
         )
+        for
+          reference in wesl_collect_ast_item_references(
+            parsed.header,
+            named_items,
+            import_by_local,
+            imports,
+            path,
+          ) {
+          wesl_push_unique_item_ref(references, reference)
+        }
         parsed_items[i] = ModuleItem::{ ..parsed, references, }
       }
       let parsed_module = ParsedModule::{
@@ -2152,6 +2796,7 @@ fn wesl_lower_source(source : String) -> String raise WeslCompileError {
     let parsed = ModuleItem::{
       name: decl.ident(),
       kind: wesl_item_kind(decl.header),
+      header: decl.header,
       source: decl.source,
       span: decl.span,
       entrypoint: decl.is_entrypoint(),

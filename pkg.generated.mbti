@@ -186,6 +186,7 @@ pub(all) struct ConstDeclaration {
   type_text : String?
   type_expr : TypeExpression?
   initializer : String?
+  initializer_expr : Expression?
 } derive(Eq, @debug.Debug)
 
 pub(all) struct ContinuingStatement {
@@ -355,6 +356,7 @@ pub(all) struct LetDeclaration {
   type_text : String?
   type_expr : TypeExpression?
   initializer : String?
+  initializer_expr : Expression?
 } derive(Eq, @debug.Debug)
 
 pub(all) struct LoopStatement {
@@ -370,7 +372,7 @@ pub(all) enum ManglerKind {
 pub fn ManglerKind::default() -> Self
 pub fn ManglerKind::mangle(Self, ModulePath, String) -> String
 
-type ModuleItemRef derive(Eq)
+type ModuleItemRef derive(Eq, @debug.Debug)
 
 pub(all) struct ModulePath {
   origin : PathOrigin
@@ -402,6 +404,7 @@ pub(all) struct OverrideDeclaration {
   type_text : String?
   type_expr : TypeExpression?
   initializer : String?
+  initializer_expr : Expression?
 } derive(Eq, @debug.Debug)
 
 pub(all) enum PathOrigin {
@@ -567,6 +570,7 @@ pub(all) struct VarDeclaration {
   type_text : String?
   type_expr : TypeExpression?
   initializer : String?
+  initializer_expr : Expression?
 } derive(Eq, @debug.Debug)
 
 pub struct VirtualResolver {

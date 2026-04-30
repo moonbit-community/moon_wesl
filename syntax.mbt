@@ -475,6 +475,7 @@ pub(all) struct ConstDeclaration {
   type_text : String?
   type_expr : TypeExpression?
   initializer : String?
+  initializer_expr : Expression?
 } derive(Eq, Debug)
 
 ///|
@@ -483,6 +484,7 @@ pub(all) struct OverrideDeclaration {
   type_text : String?
   type_expr : TypeExpression?
   initializer : String?
+  initializer_expr : Expression?
 } derive(Eq, Debug)
 
 ///|
@@ -491,6 +493,7 @@ pub(all) struct LetDeclaration {
   type_text : String?
   type_expr : TypeExpression?
   initializer : String?
+  initializer_expr : Expression?
 } derive(Eq, Debug)
 
 ///|
@@ -500,6 +503,7 @@ pub(all) struct VarDeclaration {
   type_text : String?
   type_expr : TypeExpression?
   initializer : String?
+  initializer_expr : Expression?
 } derive(Eq, Debug)
 
 ///|

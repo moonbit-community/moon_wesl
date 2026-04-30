@@ -581,6 +581,17 @@ fn parser_parse_optional_type_expression(
 }
 
 ///|
+fn parser_parse_optional_initializer_expression(
+  source : String?,
+  item_source : String,
+) -> Expression? raise WeslCompileError {
+  match source {
+    Some(text) => Some(parser_parse_statement_expression(text, item_source))
+    None => None
+  }
+}
+
+///|
 fn parser_unary_operator_from_generated(
   op : @expression_parse.ExpressionUnaryOperator,
 ) -> UnaryOperator {
@@ -2173,6 +2184,10 @@ fn Parser::parse_global_declaration(
         type_text: binding.type_text,
         type_expr: parser_parse_optional_type_expression(binding.type_text),
         initializer: binding.initializer,
+        initializer_expr: parser_parse_optional_initializer_expression(
+          binding.initializer,
+          item_source,
+        ),
       })
     }
     @global_parse.Parsed(@global_parse.Override(name)) => {
@@ -2183,6 +2198,10 @@ fn Parser::parse_global_declaration(
         type_text: binding.type_text,
         type_expr: parser_parse_optional_type_expression(binding.type_text),
         initializer: binding.initializer,
+        initializer_expr: parser_parse_optional_initializer_expression(
+          binding.initializer,
+          item_source,
+        ),
       })
     }
     @global_parse.Parsed(@global_parse.Let(name)) => {
@@ -2193,6 +2212,10 @@ fn Parser::parse_global_declaration(
         type_text: binding.type_text,
         type_expr: parser_parse_optional_type_expression(binding.type_text),
         initializer: binding.initializer,
+        initializer_expr: parser_parse_optional_initializer_expression(
+          binding.initializer,
+          item_source,
+        ),
       })
     }
     @global_parse.Parsed(@global_parse.Var(var_header)) => {
@@ -2207,6 +2230,10 @@ fn Parser::parse_global_declaration(
         type_text: binding.type_text,
         type_expr: parser_parse_optional_type_expression(binding.type_text),
         initializer: binding.initializer,
+        initializer_expr: parser_parse_optional_initializer_expression(
+          binding.initializer,
+          item_source,
+        ),
       })
     }
     @global_parse.Parsed(@global_parse.ConstAssert) =>
