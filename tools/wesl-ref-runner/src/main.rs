@@ -3,10 +3,10 @@ use std::collections::HashMap;
 use std::io::{self, Read};
 
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use wesl::{
-    validate_wesl, validate_wgsl, CompileOptions, Feature, Features, ManglerKind, ModulePath,
-    VirtualResolver, Wesl,
+    CompileOptions, Feature, Features, ManglerKind, ModulePath, VirtualResolver, Wesl, eval_str,
+    validate_wesl, validate_wgsl,
 };
 
 #[derive(Debug, Deserialize)]
@@ -183,6 +183,13 @@ fn run(req: Request) -> Value {
             },
             Err(error) => err("request", error),
         },
+        "eval-str" => match request_source(&req) {
+            Ok(source) => match eval_str(source) {
+                Ok(inst) => ok(json!({ "value": inst.to_string() })),
+                Err(error) => err("eval", error),
+            },
+            Err(error) => err("request", error),
+        },
         "compile-virtual" => {
             let options = match req.options.clone().unwrap_or_default().try_into() {
                 Ok(options) => options,
@@ -213,6 +220,38 @@ fn run(req: Request) -> Value {
                         .collect::<Vec<_>>(),
                     "has_sourcemap": result.sourcemap.is_some(),
                 })),
+                Err(error) => err("compile", error),
+            }
+        }
+        "compile-eval-virtual" => {
+            let eval_source = match request_source(&req) {
+                Ok(source) => source,
+                Err(error) => return err("request", error),
+            };
+            let options = match req.options.clone().unwrap_or_default().try_into() {
+                Ok(options) => options,
+                Err(error) => return err("request", error),
+            };
+            let mangler = match parse_mangler(req.mangler.as_deref()) {
+                Ok(mangler) => mangler,
+                Err(error) => return err("request", error),
+            };
+            let sourcemap = req.sourcemap.unwrap_or(false);
+            let (root, resolver) = match build_virtual_resolver(&req) {
+                Ok(value) => value,
+                Err(error) => return err("request", error),
+            };
+            let mut compiler = Wesl::new_barebones();
+            compiler
+                .set_options(options)
+                .use_sourcemap(sourcemap)
+                .set_mangler(mangler);
+            let compiler = compiler.set_custom_resolver(resolver);
+            match compiler.compile(&root) {
+                Ok(result) => match result.eval(eval_source) {
+                    Ok(value) => ok(json!({ "value": value.to_string() })),
+                    Err(error) => err("eval", error),
+                },
                 Err(error) => err("compile", error),
             }
         }
