@@ -514,86 +514,71 @@ fn Parser::consume_top_level_item(
 }
 
 ///|
-fn Parser::parse_import_segment(self : Parser) -> String raise WeslCompileError {
-  match self.view() {
-    [Ident("as", _, _, _), ..] => self.error("expected import path segment")
-    [Ident(segment, _, _, _), .. rest] => {
-      self.update_view(rest)
-      segment
-    }
-    _ => self.error("expected import path segment")
+fn parser_import_node_from_generated(
+  node : @import_parse.ImportParseNode,
+) -> ImportNode {
+  let children : Array[ImportNode] = []
+  for child in node.children {
+    children.push(parser_import_node_from_generated(child))
+  }
+  ImportNode::{
+    path_segments: node.path_segments,
+    rename: node.rename,
+    children,
   }
 }
 
 ///|
-fn Parser::parse_import_group(
+fn Parser::parse_import_tree_with_yacc(
   self : Parser,
-  entries : Array[ImportNode],
-) -> Unit raise WeslCompileError {
-  if self.view() is [RBrace(_, _, _), ..] {
-    self.error("import group must not be empty")
+  context : String,
+  item_source : String,
+) -> Array[ImportNode] raise WeslCompileError {
+  let first_start = match self.view() {
+    [token, ..] => token.start()
+    [] =>
+      raise WeslCompileError::Parse(
+        "unsupported import statement (\{context}): \{item_source}",
+      )
+  }
+  let tree_end = match self.tokens.last() {
+    Some(Semi(start, _, _)) => start
+    _ =>
+      raise WeslCompileError::Parse(
+        "unsupported import statement (\{context}): \{item_source}",
+      )
+  }
+  let tree_source = self.source_slice(first_start, tree_end)
+  let parsed = @import_parse.parse_import_tree_source(tree_source)
+  let generated_items = match parsed {
+    @import_parse.Parsed(nodes) => nodes
+    @import_parse.Failed(diagnostic) => {
+      let byte_offset = first_start + diagnostic.offset
+      if diagnostic.incomplete {
+        raise WeslCompileError::Parse(
+          "incomplete import statement at byte \{byte_offset} (\{context}): \{item_source}",
+        )
+      }
+      raise WeslCompileError::Parse(
+        "invalid import statement at byte \{byte_offset} (\{context}): \{item_source}",
+      )
+    }
+  }
+  let items : Array[ImportNode] = []
+  for item in generated_items {
+    items.push(parser_import_node_from_generated(item))
   }
   while true {
-    entries.push(self.parse_import_node())
     match self.view() {
-      [Comma(_, _, _), .. rest] => {
-        self.update_view(rest)
-        if self.view() is [RBrace(_, _, _), ..] {
-          return
-        }
-      }
-      [RBrace(_, _, _), ..] => return
-      _ => self.error("expected ',' or '}' in import group")
+      [Semi(_, _, _), ..] => break
+      [_, .. rest] => self.update_view(rest)
+      [] =>
+        raise WeslCompileError::Parse(
+          "unsupported import statement (\{context}): \{item_source}",
+        )
     }
   }
-}
-
-///|
-fn Parser::parse_import_node(
-  self : Parser,
-) -> ImportNode raise WeslCompileError {
-  match self.view() {
-    [LBrace(_, _, _), ..] => self.error("unexpected anonymous import group")
-    _ => {
-      let segments : Array[String] = []
-      segments.push(self.parse_import_segment())
-      while true {
-        match self.view() {
-          [DoubleColon(_, _, _), LBrace(_, _, _), .. rest] => {
-            self.update_view(rest)
-            let children : Array[ImportNode] = []
-            self.parse_import_group(children)
-            match self.view() {
-              [RBrace(_, _, _), .. tail] => {
-                self.update_view(tail)
-                return ImportNode::{
-                  path_segments: segments,
-                  rename: None,
-                  children,
-                }
-              }
-              _ => self.error("expected '}' after import group")
-            }
-          }
-          [DoubleColon(_, _, _), .. rest] => {
-            self.update_view(rest)
-            segments.push(self.parse_import_segment())
-          }
-          _ => break
-        }
-      }
-      let local_name = match self.view() {
-        [Ident("as", _, _, _), Ident(alias_name, _, _, _), .. rest] => {
-          self.update_view(rest)
-          Some(alias_name)
-        }
-        [Ident("as", _, _, _), ..] =>
-          self.error("expected import alias after `as`")
-        _ => None
-      }
-      ImportNode::{ path_segments: segments, rename: local_name, children: [] }
-    }
-  }
+  items
 }
 
 ///|
@@ -619,49 +604,7 @@ fn Parser::parse_import_statement(
     )
   }
   self.update_view(after_import)
-  let items : Array[ImportNode] = []
-  match self.view() {
-    [LBrace(_, _, _), .. rest] => {
-      self.update_view(rest)
-      self.parse_import_group(items) catch {
-        Parse(reason) => raise WeslCompileError::Parse("\{reason} (\{context})")
-        err => raise err
-      }
-      match self.view() {
-        [RBrace(_, _, _), .. tail] => self.update_view(tail)
-        _ =>
-          raise WeslCompileError::Parse(
-            "unsupported import statement (\{context}): \{item_source}",
-          )
-      }
-    }
-    _ => ()
-  }
-  while true {
-    match self.view() {
-      [Semi(_, _, _), ..] => break
-      [] =>
-        raise WeslCompileError::Parse(
-          "unsupported import statement (\{context}): \{item_source}",
-        )
-      _ =>
-        items.push(
-          self.parse_import_node() catch {
-            Parse(reason) =>
-              raise WeslCompileError::Parse("\{reason} (\{context})")
-            err => raise err
-          },
-        )
-    }
-    match self.view() {
-      [Comma(_, _, _), .. rest] => self.update_view(rest)
-      [Semi(_, _, _), ..] => break
-      _ =>
-        raise WeslCompileError::Parse(
-          "unsupported import statement (\{context}): \{item_source}",
-        )
-    }
-  }
+  let items = self.parse_import_tree_with_yacc(context, item_source)
   if items.is_empty() {
     raise WeslCompileError::Parse(
       "unsupported import statement (\{context}): \{item_source}",
