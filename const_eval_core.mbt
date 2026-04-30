@@ -37,10 +37,15 @@ priv enum ConstEvalToken {
   BangEqual
   Less
   LessEqual
+  LeftShift
   Greater
   GreaterEqual
+  RightShift
+  Amp
   AmpAmp
+  Pipe
   PipePipe
+  Caret
   Plus
   Minus
   Star
@@ -150,6 +155,10 @@ fn const_eval_lex(
         }
       60 =>
         if index + 1 < source.length() &&
+          source.code_unit_at(index + 1).to_int() == 60 {
+          tokens.push(ConstEvalToken::LeftShift)
+          index += 2
+        } else if index + 1 < source.length() &&
           source.code_unit_at(index + 1).to_int() == 61 {
           tokens.push(ConstEvalToken::LessEqual)
           index += 2
@@ -159,6 +168,10 @@ fn const_eval_lex(
         }
       62 =>
         if index + 1 < source.length() &&
+          source.code_unit_at(index + 1).to_int() == 62 {
+          tokens.push(ConstEvalToken::RightShift)
+          index += 2
+        } else if index + 1 < source.length() &&
           source.code_unit_at(index + 1).to_int() == 61 {
           tokens.push(ConstEvalToken::GreaterEqual)
           index += 2
@@ -172,7 +185,8 @@ fn const_eval_lex(
           tokens.push(ConstEvalToken::AmpAmp)
           index += 2
         } else {
-          raise WeslCompileError::Parse("unsupported const-eval token `&`")
+          tokens.push(ConstEvalToken::Amp)
+          index += 1
         }
       124 =>
         if index + 1 < source.length() &&
@@ -180,8 +194,13 @@ fn const_eval_lex(
           tokens.push(ConstEvalToken::PipePipe)
           index += 2
         } else {
-          raise WeslCompileError::Parse("unsupported const-eval token `|`")
+          tokens.push(ConstEvalToken::Pipe)
+          index += 1
         }
+      94 => {
+        tokens.push(ConstEvalToken::Caret)
+        index += 1
+      }
       43 => {
         tokens.push(ConstEvalToken::Plus)
         index += 1
@@ -301,6 +320,11 @@ priv enum ConstEvalBinaryOp {
   Le
   Gt
   Ge
+  Shl
+  Shr
+  BitAnd
+  BitOr
+  BitXor
   LogicalAnd
   LogicalOr
 }
@@ -508,10 +532,44 @@ fn ConstEvalParser::parse_additive(
 }
 
 ///|
-fn ConstEvalParser::parse_relational(
+fn ConstEvalParser::parse_shift(
   self : ConstEvalParser,
 ) -> ConstEvalExpr raise WeslCompileError {
   let mut expr = self.parse_additive()
+  for rest = self.view() {
+    match rest {
+      [LeftShift, .. next] => {
+        self.update_view(next)
+        expr = ConstEvalExpr::Binary(
+          ConstEvalBinaryOp::Shl,
+          expr,
+          self.parse_additive(),
+        )
+        continue self.view()
+      }
+      [RightShift, .. next] => {
+        self.update_view(next)
+        expr = ConstEvalExpr::Binary(
+          ConstEvalBinaryOp::Shr,
+          expr,
+          self.parse_additive(),
+        )
+        continue self.view()
+      }
+      rest => {
+        self.update_view(rest)
+        break
+      }
+    }
+  }
+  expr
+}
+
+///|
+fn ConstEvalParser::parse_relational(
+  self : ConstEvalParser,
+) -> ConstEvalExpr raise WeslCompileError {
+  let mut expr = self.parse_shift()
   for rest = self.view() {
     match rest {
       [Less, .. next] => {
@@ -519,7 +577,7 @@ fn ConstEvalParser::parse_relational(
         expr = ConstEvalExpr::Binary(
           ConstEvalBinaryOp::Lt,
           expr,
-          self.parse_additive(),
+          self.parse_shift(),
         )
         continue self.view()
       }
@@ -528,7 +586,7 @@ fn ConstEvalParser::parse_relational(
         expr = ConstEvalExpr::Binary(
           ConstEvalBinaryOp::Le,
           expr,
-          self.parse_additive(),
+          self.parse_shift(),
         )
         continue self.view()
       }
@@ -537,7 +595,7 @@ fn ConstEvalParser::parse_relational(
         expr = ConstEvalExpr::Binary(
           ConstEvalBinaryOp::Gt,
           expr,
-          self.parse_additive(),
+          self.parse_shift(),
         )
         continue self.view()
       }
@@ -546,7 +604,7 @@ fn ConstEvalParser::parse_relational(
         expr = ConstEvalExpr::Binary(
           ConstEvalBinaryOp::Ge,
           expr,
-          self.parse_additive(),
+          self.parse_shift(),
         )
         continue self.view()
       }
@@ -594,10 +652,85 @@ fn ConstEvalParser::parse_equality(
 }
 
 ///|
-fn ConstEvalParser::parse_logical_and(
+fn ConstEvalParser::parse_bitwise_and(
   self : ConstEvalParser,
 ) -> ConstEvalExpr raise WeslCompileError {
   let mut expr = self.parse_equality()
+  for rest = self.view() {
+    match rest {
+      [Amp, .. next] => {
+        self.update_view(next)
+        expr = ConstEvalExpr::Binary(
+          ConstEvalBinaryOp::BitAnd,
+          expr,
+          self.parse_equality(),
+        )
+        continue self.view()
+      }
+      rest => {
+        self.update_view(rest)
+        break
+      }
+    }
+  }
+  expr
+}
+
+///|
+fn ConstEvalParser::parse_bitwise_xor(
+  self : ConstEvalParser,
+) -> ConstEvalExpr raise WeslCompileError {
+  let mut expr = self.parse_bitwise_and()
+  for rest = self.view() {
+    match rest {
+      [Caret, .. next] => {
+        self.update_view(next)
+        expr = ConstEvalExpr::Binary(
+          ConstEvalBinaryOp::BitXor,
+          expr,
+          self.parse_bitwise_and(),
+        )
+        continue self.view()
+      }
+      rest => {
+        self.update_view(rest)
+        break
+      }
+    }
+  }
+  expr
+}
+
+///|
+fn ConstEvalParser::parse_bitwise_or(
+  self : ConstEvalParser,
+) -> ConstEvalExpr raise WeslCompileError {
+  let mut expr = self.parse_bitwise_xor()
+  for rest = self.view() {
+    match rest {
+      [Pipe, .. next] => {
+        self.update_view(next)
+        expr = ConstEvalExpr::Binary(
+          ConstEvalBinaryOp::BitOr,
+          expr,
+          self.parse_bitwise_xor(),
+        )
+        continue self.view()
+      }
+      rest => {
+        self.update_view(rest)
+        break
+      }
+    }
+  }
+  expr
+}
+
+///|
+fn ConstEvalParser::parse_logical_and(
+  self : ConstEvalParser,
+) -> ConstEvalExpr raise WeslCompileError {
+  let mut expr = self.parse_bitwise_or()
   for rest = self.view() {
     match rest {
       [AmpAmp, .. next] => {
@@ -605,7 +738,7 @@ fn ConstEvalParser::parse_logical_and(
         expr = ConstEvalExpr::Binary(
           ConstEvalBinaryOp::LogicalAnd,
           expr,
-          self.parse_equality(),
+          self.parse_bitwise_or(),
         )
         continue self.view()
       }
@@ -896,6 +1029,11 @@ fn ConstEvalBinaryOp::symbol(self : ConstEvalBinaryOp) -> String {
     Le => "<="
     Gt => ">"
     Ge => ">="
+    Shl => "<<"
+    Shr => ">>"
+    BitAnd => "&"
+    BitOr => "|"
+    BitXor => "^"
     LogicalAnd => "&&"
     LogicalOr => "||"
   }
@@ -1341,6 +1479,52 @@ fn const_eval_binary_abstract_float(
 }
 
 ///|
+fn const_eval_bitwise_int(
+  op : ConstEvalBinaryOp,
+  lhs : Int64,
+  rhs : Int64,
+) -> Int64 raise WeslCompileError {
+  match op {
+    BitAnd => lhs & rhs
+    BitOr => lhs | rhs
+    BitXor => lhs ^ rhs
+    _ =>
+      raise WeslCompileError::Validation(
+        "unsupported integer bitwise operator `\{op.symbol()}`",
+      )
+  }
+}
+
+///|
+fn const_eval_shift_count(
+  value : ConstEvalValue,
+  context : String,
+) -> Int raise WeslCompileError {
+  let count = const_eval_require_u32(value, context)
+  if count >= 64 {
+    raise WeslCompileError::Validation("shift count out of range in \{context}")
+  }
+  count.to_int()
+}
+
+///|
+fn const_eval_shift_int(
+  op : ConstEvalBinaryOp,
+  lhs : Int64,
+  rhs : ConstEvalValue,
+) -> Int64 raise WeslCompileError {
+  let count = const_eval_shift_count(rhs, "shift expression")
+  match op {
+    Shl => lhs << count
+    Shr => lhs >> count
+    _ =>
+      raise WeslCompileError::Validation(
+        "unsupported shift operator `\{op.symbol()}`",
+      )
+  }
+}
+
+///|
 fn const_eval_bool_order(value : Bool) -> Int {
   if value {
     1
@@ -1420,6 +1604,113 @@ fn const_eval_binary_type_error(
   raise WeslCompileError::Validation(
     "cannot use binary operator `\{op.symbol()}` with operands `\{lhs.value_type().label()}` and `\{rhs.value_type().label()}`",
   )
+}
+
+///|
+fn const_eval_apply_bitwise(
+  op : ConstEvalBinaryOp,
+  lhs : ConstEvalValue,
+  rhs : ConstEvalValue,
+) -> ConstEvalValue raise WeslCompileError {
+  match (lhs, rhs) {
+    (Bool(left), Bool(right)) =>
+      match op {
+        BitAnd => ConstEvalValue::Bool(left && right)
+        BitOr => ConstEvalValue::Bool(left || right)
+        _ => const_eval_binary_type_error(op, lhs, rhs)
+      }
+    (Bool(_), right) => const_eval_binary_type_error(op, lhs, right)
+    (left, Bool(_)) => const_eval_binary_type_error(op, left, rhs)
+    (AbstractFloat(_), right) => const_eval_binary_type_error(op, lhs, right)
+    (left, AbstractFloat(_)) => const_eval_binary_type_error(op, left, rhs)
+    (F32(_), right) => const_eval_binary_type_error(op, lhs, right)
+    (left, F32(_)) => const_eval_binary_type_error(op, left, rhs)
+    (U32(_), I32(_)) => const_eval_binary_type_error(op, lhs, rhs)
+    (I32(_), U32(_)) => const_eval_binary_type_error(op, lhs, rhs)
+    (U32(left), right) => {
+      let value = const_eval_bitwise_int(
+        op,
+        left,
+        const_eval_require_u32(right, "bitwise expression"),
+      )
+      ConstEvalValue::U32(
+        const_eval_require_u32(
+          ConstEvalValue::AbstractInt(value),
+          "bitwise expression",
+        ),
+      )
+    }
+    (left, U32(right)) => {
+      let value = const_eval_bitwise_int(
+        op,
+        const_eval_require_u32(left, "bitwise expression"),
+        right,
+      )
+      ConstEvalValue::U32(
+        const_eval_require_u32(
+          ConstEvalValue::AbstractInt(value),
+          "bitwise expression",
+        ),
+      )
+    }
+    (I32(left), right) => {
+      let value = const_eval_bitwise_int(
+        op,
+        left,
+        const_eval_require_i32(right, "bitwise expression"),
+      )
+      ConstEvalValue::I32(
+        const_eval_require_i32(
+          ConstEvalValue::AbstractInt(value),
+          "bitwise expression",
+        ),
+      )
+    }
+    (left, I32(right)) => {
+      let value = const_eval_bitwise_int(
+        op,
+        const_eval_require_i32(left, "bitwise expression"),
+        right,
+      )
+      ConstEvalValue::I32(
+        const_eval_require_i32(
+          ConstEvalValue::AbstractInt(value),
+          "bitwise expression",
+        ),
+      )
+    }
+    (AbstractInt(left), AbstractInt(right)) =>
+      ConstEvalValue::AbstractInt(const_eval_bitwise_int(op, left, right))
+  }
+}
+
+///|
+fn const_eval_apply_shift(
+  op : ConstEvalBinaryOp,
+  lhs : ConstEvalValue,
+  rhs : ConstEvalValue,
+) -> ConstEvalValue raise WeslCompileError {
+  match lhs {
+    Bool(_) => const_eval_binary_type_error(op, lhs, rhs)
+    AbstractFloat(_) => const_eval_binary_type_error(op, lhs, rhs)
+    F32(_) => const_eval_binary_type_error(op, lhs, rhs)
+    AbstractInt(left) =>
+      ConstEvalValue::AbstractInt(const_eval_shift_int(op, left, rhs))
+    U32(left) =>
+      ConstEvalValue::U32(
+        const_eval_require_u32(
+          ConstEvalValue::AbstractInt(const_eval_shift_int(op, left, rhs)),
+          "shift expression",
+        ),
+      )
+    I32(left) =>
+      ConstEvalValue::I32(
+        const_eval_require_i32(
+          ConstEvalValue::AbstractInt(const_eval_shift_int(op, left, rhs)),
+          "shift expression",
+        ),
+      )
+  }
 }
 
 ///|
@@ -1513,6 +1804,8 @@ fn const_eval_apply_binary(
   match op {
     Eq | Ne | Lt | Le | Gt | Ge =>
       return const_eval_apply_comparison(op, lhs, rhs)
+    Shl | Shr => return const_eval_apply_shift(op, lhs, rhs)
+    BitAnd | BitOr | BitXor => return const_eval_apply_bitwise(op, lhs, rhs)
     LogicalAnd | LogicalOr => return const_eval_binary_type_error(op, lhs, rhs)
     _ => ()
   }
