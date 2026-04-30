@@ -447,6 +447,7 @@ fn parser_statement_kind_from_generated(
     @statement_parse.Continue => Continue
     @statement_parse.BreakIf => BreakIf
     @statement_parse.ConstAssert => ConstAssert
+    @statement_parse.Const => StatementKind::Const
     @statement_parse.Let => Let
     @statement_parse.Var => Var
     @statement_parse.Assignment => Assignment
@@ -455,6 +456,18 @@ fn parser_statement_kind_from_generated(
     @statement_parse.Decrement => Decrement
     @statement_parse.Call => Call
     @statement_parse.Other => Other
+  }
+}
+
+///|
+fn parser_statement_declaration_kind_from_binding(
+  kind : @binding_parse.BindingParseKind,
+) -> StatementDeclarationKind raise WeslCompileError {
+  match kind {
+    @binding_parse.Const => StatementDeclarationKind::Const
+    @binding_parse.Let => StatementDeclarationKind::Let
+    @binding_parse.Var => StatementDeclarationKind::Var
+    _ => raise WeslCompileError::Parse("expected local declaration statement")
   }
 }
 
@@ -755,6 +768,55 @@ fn parser_statement_expression(
 }
 
 ///|
+fn parser_parse_statement_declaration(
+  source : String,
+  item_source : String,
+) -> StatementDeclaration raise WeslCompileError {
+  let binding = match @binding_parse.parse_binding_source(source) {
+    @binding_parse.Parsed(node) => node
+    @binding_parse.Failed(diagnostic) => {
+      if diagnostic.incomplete {
+        raise WeslCompileError::Parse(
+          "incomplete statement declaration at byte \{diagnostic.offset}: \{item_source}",
+        )
+      }
+      raise WeslCompileError::Parse(
+        "invalid statement declaration at byte \{diagnostic.offset}: \{item_source}",
+      )
+    }
+  }
+  StatementDeclaration::{
+    kind: parser_statement_declaration_kind_from_binding(binding.kind),
+    name: binding.name,
+    template_arguments: binding.var_template,
+    type_text: binding.type_text,
+    type_expr: parser_parse_optional_type_expression(binding.type_text),
+    initializer: binding.initializer,
+    initializer_expr: match binding.initializer {
+      Some(expr) => Some(parser_parse_statement_expression(expr, item_source))
+      None => None
+    },
+  }
+}
+
+///|
+fn parser_statement_declaration(
+  statement : @statement_parse.StatementParseNode,
+  item_source : String,
+) -> StatementDeclaration? raise WeslCompileError {
+  match statement.kind {
+    @statement_parse.Const | @statement_parse.Let | @statement_parse.Var =>
+      Some(
+        parser_parse_statement_declaration(
+          parser_strip_statement_attributes(statement.source),
+          item_source,
+        ),
+      )
+    _ => None
+  }
+}
+
+///|
 fn parser_function_body_from_generated(
   statements : Array[@statement_parse.StatementParseNode],
   item_source : String,
@@ -765,6 +827,7 @@ fn parser_function_body_from_generated(
       kind: parser_statement_kind_from_generated(statement.kind),
       source: statement.source,
       expression: parser_statement_expression(statement, item_source),
+      declaration: parser_statement_declaration(statement, item_source),
     })
   }
   FunctionBody::{ statements: mapped }

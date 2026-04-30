@@ -28,6 +28,7 @@ pub(all) enum StatementParseKind {
   Continue
   BreakIf
   ConstAssert
+  Const
   Let
   Var
   Assignment
@@ -317,6 +318,7 @@ fn statement_parse_kind(
     Some("break") => if text.has_prefix("break if") { BreakIf } else { Break }
     Some("continue") => Continue
     Some("const_assert") => ConstAssert
+    Some("const") => Const
     Some("let") => Let
     Some("var") => Var
     _ =>

@@ -172,7 +172,7 @@ test "parser: generated type parser handles nested WGSL type specifiers" {
   let valid_cases = [
     "f32", "vec4<f32>", "mat4x4<f16>", "array<vec3<f32>, 4>", "array<array<f32, 2>, 3>",
     "ptr<storage, DynamicArray, read_write>", "package::shared::Payload", "foo::bar::Texture<vec2<f32>, N>",
-    "array<u32, 1,>", "ptr<storage,>",
+    "array<u32, 1,>", "ptr<storage,>", "array<i32, 1 << 1>",
   ]
   for ty in valid_cases {
     let result = try? parse_type_specifier(ty)
@@ -368,6 +368,7 @@ test "parser: generated function parser records signature" {
         #|    kind: Return,
         #|    source: "return color;",
         #|    expression: Some(TypeOrIdentifier({ path: [], ident: "color", template_text: None, template_args: [] })),
+        #|    declaration: None,
         #|  },
         #|]
 
@@ -382,6 +383,7 @@ test "parser: generated statement parser classifies function body statements" {
   let source =
     #|fn statements() {
     #|  @if(true) storageBarrier();
+    #|  const offset: u32 = 1u;
     #|  var value: i32 = 0;
     #|  let limit: i32 = 4;
     #|  value += 1;
@@ -406,6 +408,7 @@ test "parser: generated statement parser classifies function body statements" {
       let expected_kinds =
         #|[
         #|  Call,
+        #|  Const,
         #|  Var,
         #|  Let,
         #|  CompoundAssignment,
@@ -444,7 +447,7 @@ test "parser: generated statement parser classifies function body statements" {
         #|    },
         #|  ),
         #|)
-      debug_inspect(header.body.statements[7].expression, content=expected_call)
+      debug_inspect(header.body.statements[8].expression, content=expected_call)
       let expected_conditional_call =
         #|Some(
         #|  FunctionCall(
@@ -463,7 +466,23 @@ test "parser: generated statement parser classifies function body statements" {
         header.body.statements[0].expression,
         content=expected_conditional_call,
       )
-      debug_inspect(header.body.statements[8].expression, content="None")
+      let expected_const_declaration =
+        #|Some(
+        #|  {
+        #|    kind: Const,
+        #|    name: Some("offset"),
+        #|    template_arguments: None,
+        #|    type_text: Some("u32"),
+        #|    type_expr: Some({ path: [], ident: "u32", template_text: None, template_args: [] }),
+        #|    initializer: Some("1u"),
+        #|    initializer_expr: Some(Literal("1u")),
+        #|  },
+        #|)
+      debug_inspect(
+        header.body.statements[1].declaration,
+        content=expected_const_declaration,
+      )
+      debug_inspect(header.body.statements[9].expression, content="None")
     }
     _ => fail("expected function declaration")
   }

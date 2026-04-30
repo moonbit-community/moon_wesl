@@ -41,6 +41,7 @@ pub(all) enum StatementParseKind {
   Continue
   BreakIf
   ConstAssert
+  Const
   Let
   Var
   Assignment

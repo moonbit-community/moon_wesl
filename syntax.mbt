@@ -296,6 +296,7 @@ pub(all) enum StatementKind {
   Continue
   BreakIf
   ConstAssert
+  Const
   Let
   Var
   Assignment
@@ -307,10 +308,29 @@ pub(all) enum StatementKind {
 } derive(Eq, Debug)
 
 ///|
+pub(all) enum StatementDeclarationKind {
+  Const
+  Let
+  Var
+} derive(Eq, Debug)
+
+///|
+pub(all) struct StatementDeclaration {
+  kind : StatementDeclarationKind
+  name : String?
+  template_arguments : String?
+  type_text : String?
+  type_expr : TypeExpression?
+  initializer : String?
+  initializer_expr : Expression?
+} derive(Eq, Debug)
+
+///|
 pub(all) struct Statement {
   kind : StatementKind
   source : String
   expression : Expression?
+  declaration : StatementDeclaration?
 } derive(Eq, Debug)
 
 ///|

@@ -282,6 +282,7 @@ fn type_parse_lex(source : String) -> TypeLexResult {
       44 => type_parse_push_token(tokens, COMMA, index, 1)
       45 => type_parse_push_token(tokens, MINUS, index, 1)
       58 if next == 58 => type_parse_push_token(tokens, DOUBLE_COLON, index, 2)
+      60 if next == 60 => type_parse_push_token(tokens, SHIFT_LEFT, index, 2)
       60 => type_parse_push_token(tokens, LESS, index, 1)
       62 => type_parse_push_token(tokens, GREATER, index, 1)
       _ =>

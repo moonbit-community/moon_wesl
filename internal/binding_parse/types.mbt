@@ -286,6 +286,15 @@ fn binding_parse_segment_end(
         continue
       }
     }
+    let next_code = if cursor + 1 < source.length() {
+      source.code_unit_at(cursor + 1).to_int()
+    } else {
+      -1
+    }
+    if code == 60 && next_code == 60 && track_angle {
+      cursor += 2
+      continue
+    }
     if code == 60 && track_angle {
       angle_depth += 1
     } else if code == 62 && track_angle {

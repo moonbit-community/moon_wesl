@@ -5,6 +5,7 @@ pub(all) enum Token {
   DOUBLE_COLON
   LESS
   GREATER
+  SHIFT_LEFT
   COMMA
   MINUS
 } derive(Debug)
@@ -17,6 +18,7 @@ pub fn Token::kind(self : Token) -> TokenKind {
     DOUBLE_COLON => TK_DOUBLE_COLON
     LESS => TK_LESS
     GREATER => TK_GREATER
+    SHIFT_LEFT => TK_SHIFT_LEFT
     COMMA => TK_COMMA
     MINUS => TK_MINUS
   }
@@ -29,6 +31,7 @@ pub(all) enum TokenKind {
   TK_DOUBLE_COLON
   TK_LESS
   TK_GREATER
+  TK_SHIFT_LEFT
   TK_COMMA
   TK_MINUS
 }
@@ -42,6 +45,7 @@ pub impl Show for TokenKind with output(self, logger) {
       TK_DOUBLE_COLON => "\"::\""
       TK_LESS => "\"<\""
       TK_GREATER => "\">\""
+      TK_SHIFT_LEFT => "\"<<\""
       TK_COMMA => "\",\""
       TK_MINUS => "\"-\""
     },
@@ -56,6 +60,7 @@ pub impl Debug for TokenKind with to_repr(self) {
     TK_DOUBLE_COLON => to_repr("::")
     TK_LESS => to_repr("<")
     TK_GREATER => to_repr(">")
+    TK_SHIFT_LEFT => to_repr("<<")
     TK_COMMA => to_repr(",")
     TK_MINUS => to_repr("-")
   }

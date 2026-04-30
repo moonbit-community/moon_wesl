@@ -23,6 +23,7 @@ pub(all) enum Token {
   DOUBLE_COLON
   LESS
   GREATER
+  SHIFT_LEFT
   COMMA
   MINUS
 } derive(@debug.Debug)
@@ -34,6 +35,7 @@ pub(all) enum TokenKind {
   TK_DOUBLE_COLON
   TK_LESS
   TK_GREATER
+  TK_SHIFT_LEFT
   TK_COMMA
   TK_MINUS
 }
