@@ -424,6 +424,77 @@ fn parser_function_parameters_from_generated(
 }
 
 ///|
+fn parser_statement_kind_from_generated(
+  kind : @statement_parse.StatementParseKind,
+) -> StatementKind {
+  match kind {
+    @statement_parse.Empty => Empty
+    @statement_parse.Block => Block
+    @statement_parse.Return => Return
+    @statement_parse.Discard => Discard
+    @statement_parse.If => If
+    @statement_parse.Switch => Switch
+    @statement_parse.Loop => Loop
+    @statement_parse.For => For
+    @statement_parse.While => While
+    @statement_parse.Continuing => Continuing
+    @statement_parse.Break => Break
+    @statement_parse.Continue => Continue
+    @statement_parse.BreakIf => BreakIf
+    @statement_parse.ConstAssert => ConstAssert
+    @statement_parse.Let => Let
+    @statement_parse.Var => Var
+    @statement_parse.Assignment => Assignment
+    @statement_parse.CompoundAssignment => CompoundAssignment
+    @statement_parse.Increment => Increment
+    @statement_parse.Decrement => Decrement
+    @statement_parse.Call => Call
+    @statement_parse.Other => Other
+  }
+}
+
+///|
+fn parser_function_body_from_generated(
+  statements : Array[@statement_parse.StatementParseNode],
+) -> FunctionBody {
+  let mapped : Array[Statement] = []
+  for statement in statements {
+    mapped.push(Statement::{
+      kind: parser_statement_kind_from_generated(statement.kind),
+      source: statement.source,
+    })
+  }
+  FunctionBody::{ statements: mapped }
+}
+
+///|
+fn Parser::parse_function_body_with_yacc(
+  self : Parser,
+  body_source : String,
+  item_source : String,
+) -> FunctionBody raise WeslCompileError {
+  match @statement_parse.parse_function_body_source(body_source) {
+    @statement_parse.Parsed(node) =>
+      parser_function_body_from_generated(node.statements)
+    @statement_parse.Failed(diagnostic) => {
+      let byte_offset = if self.tokens.length() > 0 {
+        self.tokens[0].start() + diagnostic.offset
+      } else {
+        diagnostic.offset
+      }
+      if diagnostic.incomplete {
+        raise WeslCompileError::Parse(
+          "incomplete function body at byte \{byte_offset}: \{item_source}",
+        )
+      }
+      raise WeslCompileError::Parse(
+        "invalid function body at byte \{byte_offset}: \{item_source}",
+      )
+    }
+  }
+}
+
+///|
 fn Parser::parse_binding_with_yacc(
   self : Parser,
   item_source : String,
@@ -602,6 +673,10 @@ fn Parser::parse_global_declaration(
           function_node.parameters,
         ),
         return_type: function_node.return_type,
+        body: self.parse_function_body_with_yacc(
+          function_node.body_text,
+          item_source,
+        ),
       })
     }
     @global_parse.Parsed(@global_parse.Struct(name)) => {

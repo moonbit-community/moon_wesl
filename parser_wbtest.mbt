@@ -189,6 +189,43 @@ test "parser: generated function parser records signature" {
 
       debug_inspect(header.parameters, content=expected_parameters)
       debug_inspect(header.return_type, content="Some(\"vec4<f32>\")")
+      let expected_body =
+        #|[{ kind: Return, source: "return color;" }]
+
+      debug_inspect(header.body.statements, content=expected_body)
+    }
+    _ => fail("expected function declaration")
+  }
+}
+
+///|
+test "parser: generated statement parser classifies function body statements" {
+  let source =
+    #|fn statements() {
+    #|  var value: i32 = 0;
+    #|  let limit: i32 = 4;
+    #|  value += 1;
+    #|  value++;
+    #|  if (value > limit) { break; }
+    #|  loop { continuing { break if value > 10; } }
+    #|  textureStore(tex, coord, vec4<f32>());
+    #|  return;
+    #|}
+    #|
+  let unit = try! parse_translation_unit(
+    try! parse_module_path("demo"),
+    source,
+    true,
+  )
+  match unit.global_declarations[0].header {
+    Function(header) => {
+      let kinds : Array[StatementKind] = []
+      for statement in header.body.statements {
+        kinds.push(statement.kind)
+      }
+      let expected_kinds =
+        #|[Var, Let, CompoundAssignment, Increment, If, Loop, Call, Return]
+      debug_inspect(kinds, content=expected_kinds)
     }
     _ => fail("expected function declaration")
   }

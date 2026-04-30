@@ -7,7 +7,7 @@ pub(all) enum Token {
   FN
   LEFT_PAREN
   RIGHT_PAREN
-  BODY
+  BODY(String)
 } derive(Debug)
 
 ///|
@@ -20,7 +20,7 @@ pub fn Token::kind(self : Token) -> TokenKind {
     FN => TK_FN
     LEFT_PAREN => TK_LEFT_PAREN
     RIGHT_PAREN => TK_RIGHT_PAREN
-    BODY => TK_BODY
+    BODY(_) => TK_BODY
   }
 }
 

@@ -79,7 +79,7 @@ fn init {
 
 // file:///./parser.mbty
 // 22|    "fn" IDENT opt_generics "(" params ")" opt_return BODY
-// 23|                                  { FunctionParseNode::{ name: $2, generic_parameters: $3, parameters: $5, return_type: $7 } }
+// 23|                                  { FunctionParseNode::{ name: $2, generic_parameters: $3, parameters: $5, return_type: $7, body_text: $8 } }
 
 ///|
 fn yy_action_0(_last_pos : Int, _args : ArrayView[(YYObj, Int, Int)]) -> YYObj {
@@ -87,6 +87,7 @@ fn yy_action_0(_last_pos : Int, _args : ArrayView[(YYObj, Int, Int)]) -> YYObj {
   guard _args[2].0 is YYObj_String_(_dollar3)
   guard _args[4].0 is YYObj_Array_FunctionParameterParseNode_(_dollar5)
   guard _args[6].0 is YYObj_String_(_dollar7)
+  guard _args[7].0 is YYObj_String(_dollar8)
   YYObj_FunctionParseNode(
     {
       ()
@@ -95,6 +96,7 @@ fn yy_action_0(_last_pos : Int, _args : ArrayView[(YYObj, Int, Int)]) -> YYObj {
         generic_parameters: _dollar3,
         parameters: _dollar5,
         return_type: _dollar7,
+        body_text: _dollar8,
       }
     },
   )
@@ -197,7 +199,7 @@ fn yy_input(
     FN => (T_FN, YYObj_Void)
     LEFT_PAREN => (T_LEFT_PAREN, YYObj_Void)
     RIGHT_PAREN => (T_RIGHT_PAREN, YYObj_Void)
-    BODY => (T_BODY, YYObj_Void)
+    BODY(data) => (T_BODY, YYObj_String(data))
   }
 }
 

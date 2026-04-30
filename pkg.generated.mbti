@@ -180,11 +180,16 @@ pub fn FileResolver::new(String) -> Self
 pub fn FileResolver::set_extension(Self, String) -> Self
 pub impl Resolver for FileResolver
 
+pub(all) struct FunctionBody {
+  statements : Array[Statement]
+} derive(Eq, @debug.Debug)
+
 pub(all) struct FunctionDeclaration {
   name : String
   generic_parameters : String?
   parameters : Array[FunctionParameter]
   return_type : String?
+  body : FunctionBody
 } derive(Eq, @debug.Debug)
 
 pub(all) struct FunctionParameter {
@@ -336,6 +341,36 @@ pub fn StandardResolver::add_package(Self, CodegenPkg) -> Unit
 pub fn StandardResolver::generate_constant_module(Self) -> String
 pub fn StandardResolver::new(String) -> Self
 pub impl Resolver for StandardResolver
+
+pub(all) struct Statement {
+  kind : StatementKind
+  source : String
+} derive(Eq, @debug.Debug)
+
+pub(all) enum StatementKind {
+  Empty
+  Block
+  Return
+  Discard
+  If
+  Switch
+  Loop
+  For
+  While
+  Continuing
+  Break
+  Continue
+  BreakIf
+  ConstAssert
+  Let
+  Var
+  Assignment
+  CompoundAssignment
+  Increment
+  Decrement
+  Call
+  Other
+} derive(Eq, @debug.Debug)
 
 pub(all) struct StructDeclaration {
   name : String

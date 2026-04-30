@@ -32,6 +32,7 @@ pub(all) struct FunctionParseNode {
   generic_parameters : String?
   parameters : Array[FunctionParameterParseNode]
   return_type : String?
+  body_text : String
 } derive(Eq, @debug.Debug)
 
 pub(all) enum FunctionParseResult {
@@ -47,7 +48,7 @@ pub(all) enum Token {
   FN
   LEFT_PAREN
   RIGHT_PAREN
-  BODY
+  BODY(String)
 } derive(@debug.Debug)
 pub fn Token::kind(Self) -> TokenKind
 

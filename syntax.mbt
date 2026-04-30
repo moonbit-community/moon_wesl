@@ -216,11 +216,49 @@ pub(all) struct FunctionParameter {
 } derive(Eq, Debug)
 
 ///|
+pub(all) enum StatementKind {
+  Empty
+  Block
+  Return
+  Discard
+  If
+  Switch
+  Loop
+  For
+  While
+  Continuing
+  Break
+  Continue
+  BreakIf
+  ConstAssert
+  Let
+  Var
+  Assignment
+  CompoundAssignment
+  Increment
+  Decrement
+  Call
+  Other
+} derive(Eq, Debug)
+
+///|
+pub(all) struct Statement {
+  kind : StatementKind
+  source : String
+} derive(Eq, Debug)
+
+///|
+pub(all) struct FunctionBody {
+  statements : Array[Statement]
+} derive(Eq, Debug)
+
+///|
 pub(all) struct FunctionDeclaration {
   name : String
   generic_parameters : String?
   parameters : Array[FunctionParameter]
   return_type : String?
+  body : FunctionBody
 } derive(Eq, Debug)
 
 ///|

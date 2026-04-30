@@ -824,6 +824,7 @@ impl ModulePreprocessor for AppendDeclPreprocessor with preprocess_module(
       generic_parameters: None,
       parameters: [],
       return_type: Some("f32"),
+      body: FunctionBody::{ statements: [] },
     }),
     attributes: Array::new(),
     source: "fn injected() -> f32 {\n  return 1.0;\n}",
@@ -847,6 +848,7 @@ impl ModulePreprocessor for ConditionalAppendPreprocessor with preprocess_module
       generic_parameters: None,
       parameters: [],
       return_type: Some("f32"),
+      body: FunctionBody::{ statements: [] },
     }),
     attributes: [
       Attribute::{

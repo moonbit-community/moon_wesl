@@ -24,6 +24,7 @@ pub(all) struct FunctionParseNode {
   generic_parameters : String?
   parameters : Array[FunctionParameterParseNode]
   return_type : String?
+  body_text : String
 } derive(Eq, Debug)
 
 ///|
@@ -586,7 +587,12 @@ fn function_parse_lex(source : String) -> FunctionLexResult {
       incomplete: true,
     })
   }
-  function_parse_push(tokens, BODY, index, body_end)
+  function_parse_push(
+    tokens,
+    BODY(source[index + 1:body_end - 1].to_owned()),
+    index,
+    body_end,
+  )
   Lexed(tokens)
 }
 

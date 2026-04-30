@@ -1,0 +1,18 @@
+import {
+  "moonbitlang/core/list",
+}
+
+options(
+  "pre-build": [
+    {
+      "command": "$mod_dir/.mooncakes/moonbitlang/yacc/moonyacc $input --mode only-tokens -o $output && moonfmt -w $output",
+      "input": "parser.mbty",
+      "output": "parser_tokens.mbt",
+    },
+    {
+      "command": "$mod_dir/.mooncakes/moonbitlang/yacc/moonyacc $input --external-tokens --input-mode array -o $output && moonfmt -w $output",
+      "input": "parser.mbty",
+      "output": "parser.mbt",
+    },
+  ],
+)
