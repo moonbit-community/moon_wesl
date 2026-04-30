@@ -2492,6 +2492,83 @@ fn const_eval_apply_float_binary_builtin(
 }
 
 ///|
+fn const_eval_require_float_builtin_double(
+  value : ConstEvalValue,
+  name : String,
+) -> Double raise WeslCompileError {
+  match value {
+    Bool(_) | I32(_) | U32(_) =>
+      raise WeslCompileError::Validation(
+        "`\{name}` expects a float or vector of float argument",
+      )
+    AbstractInt(number) => number.to_double()
+    AbstractFloat(number, _) => number
+    F32(number) => number.to_double()
+  }
+}
+
+///|
+fn const_eval_apply_step(
+  args : Array[ConstEvalValue],
+) -> ConstEvalValue raise WeslCompileError {
+  if args.length() != 2 {
+    raise WeslCompileError::Validation("`step` expects two arguments")
+  }
+  let edge = const_eval_require_float_builtin_double(args[0], "step")
+  let value = const_eval_require_float_builtin_double(args[1], "step")
+  ConstEvalValue::AbstractFloat(if value < edge { 0.0 } else { 1.0 }, true)
+}
+
+///|
+fn const_eval_mix_type(
+  args : Array[ConstEvalValue],
+) -> ConstEvalType raise WeslCompileError {
+  if args.length() != 3 {
+    raise WeslCompileError::Validation("`mix` expects three arguments")
+  }
+  let mut has_f32 = false
+  for arg in args {
+    match arg {
+      Bool(_) | I32(_) | U32(_) =>
+        raise WeslCompileError::Validation("`mix` arguments are incompatible")
+      F32(_) => has_f32 = true
+      AbstractInt(_) | AbstractFloat(_, _) => ()
+    }
+  }
+  if has_f32 {
+    ConstEvalType::F32
+  } else {
+    ConstEvalType::AbstractFloat
+  }
+}
+
+///|
+fn const_eval_apply_mix(
+  args : Array[ConstEvalValue],
+) -> ConstEvalValue raise WeslCompileError {
+  let target = const_eval_mix_type(args)
+  match target {
+    F32 => {
+      let first = const_eval_require_f32(args[0], "mix")
+      let second = const_eval_require_f32(args[1], "mix")
+      let factor = const_eval_require_f32(args[2], "mix")
+      ConstEvalValue::F32(
+        first * (Float::from_double(1.0) - factor) + second * factor,
+      )
+    }
+    _ => {
+      let first = const_eval_to_abstract_float(args[0], "mix")
+      let second = const_eval_to_abstract_float(args[1], "mix")
+      let factor = const_eval_to_abstract_float(args[2], "mix")
+      ConstEvalValue::AbstractFloat(
+        first * (1.0 - factor) + second * factor,
+        true,
+      )
+    }
+  }
+}
+
+///|
 fn const_eval_sign_i64(value : Int64) -> Int64 {
   if value < 0 {
     -1L
@@ -2627,6 +2704,8 @@ fn const_eval_eval_expr(
         "degrees" => const_eval_apply_float_unary_builtin("degrees", values)
         "pow" => const_eval_apply_float_binary_builtin("pow", values)
         "atan2" => const_eval_apply_float_binary_builtin("atan2", values)
+        "step" => const_eval_apply_step(values)
+        "mix" => const_eval_apply_mix(values)
         "sign" => const_eval_apply_sign(values)
         _ =>
           match ctx.functions.get(name) {
