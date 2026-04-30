@@ -1,11 +1,12 @@
 # moon_wesl vs wesl-rs Parity Tracker
 
-Last updated: 2026-04-15
+Last updated: 2026-04-30
 
-Baseline target for parity planning: `wesl` 0.3.2 and `wesl-cli` 0.3.1
-public surfaces as reviewed on docs.rs on 2026-04-15. This tracker focuses on
-closing the largest product and architecture gaps from the current
-`moon_wesl` implementation.
+Baseline target for parity planning: `wesl` 0.3.2 for both library parity and
+CLI-compatible behavior. Do not fork the parity target by treating the
+standalone `wesl-cli` crate as a separate behavioral baseline. This
+tracker focuses on closing the largest product and architecture gaps from the
+current `moon_wesl` implementation.
 
 ## Status Legend
 

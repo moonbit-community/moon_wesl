@@ -2330,6 +2330,21 @@ fn const_eval_apply_float_unary_builtin(
           "fract" => number.to_double() - number.to_double().floor()
           "sqrt" => number.to_double().sqrt()
           "inverseSqrt" => 1.0 / number.to_double().sqrt()
+          "exp" => @math.exp(number.to_double())
+          "exp2" => @math.pow(2.0, number.to_double())
+          "log" => @math.ln(number.to_double())
+          "log2" => @math.log2(number.to_double())
+          "sin" => @math.sin(number.to_double())
+          "cos" => @math.cos(number.to_double())
+          "tan" => @math.tan(number.to_double())
+          "asin" => @math.asin(number.to_double())
+          "acos" => @math.acos(number.to_double())
+          "atan" => @math.atan(number.to_double())
+          "sinh" => @math.sinh(number.to_double())
+          "cosh" => @math.cosh(number.to_double())
+          "tanh" => @math.tanh(number.to_double())
+          "radians" => number.to_double() * @math.acos(-1.0) / 180.0
+          "degrees" => number.to_double() * 180.0 / @math.acos(-1.0)
           _ =>
             raise WeslCompileError::Validation(
               "unsupported float builtin `\{name}`",
@@ -2347,6 +2362,21 @@ fn const_eval_apply_float_unary_builtin(
           "fract" => number - number.floor()
           "sqrt" => number.sqrt()
           "inverseSqrt" => 1.0 / number.sqrt()
+          "exp" => @math.exp(number)
+          "exp2" => @math.pow(2.0, number)
+          "log" => @math.ln(number)
+          "log2" => @math.log2(number)
+          "sin" => @math.sin(number)
+          "cos" => @math.cos(number)
+          "tan" => @math.tan(number)
+          "asin" => @math.asin(number)
+          "acos" => @math.acos(number)
+          "atan" => @math.atan(number)
+          "sinh" => @math.sinh(number)
+          "cosh" => @math.cosh(number)
+          "tanh" => @math.tanh(number)
+          "radians" => number * @math.acos(-1.0) / 180.0
+          "degrees" => number * 180.0 / @math.acos(-1.0)
           _ =>
             raise WeslCompileError::Validation(
               "unsupported float builtin `\{name}`",
@@ -2364,6 +2394,23 @@ fn const_eval_apply_float_unary_builtin(
           "fract" => number - number.floor()
           "sqrt" => number.sqrt()
           "inverseSqrt" => Float::from_double(1.0) / number.sqrt()
+          "exp" => Float::from_double(@math.exp(number.to_double()))
+          "exp2" => Float::from_double(@math.pow(2.0, number.to_double()))
+          "log" => Float::from_double(@math.ln(number.to_double()))
+          "log2" => Float::from_double(@math.log2(number.to_double()))
+          "sin" => Float::from_double(@math.sin(number.to_double()))
+          "cos" => Float::from_double(@math.cos(number.to_double()))
+          "tan" => Float::from_double(@math.tan(number.to_double()))
+          "asin" => Float::from_double(@math.asin(number.to_double()))
+          "acos" => Float::from_double(@math.acos(number.to_double()))
+          "atan" => Float::from_double(@math.atan(number.to_double()))
+          "sinh" => Float::from_double(@math.sinh(number.to_double()))
+          "cosh" => Float::from_double(@math.cosh(number.to_double()))
+          "tanh" => Float::from_double(@math.tanh(number.to_double()))
+          "radians" =>
+            Float::from_double(number.to_double() * @math.acos(-1.0) / 180.0)
+          "degrees" =>
+            Float::from_double(number.to_double() * 180.0 / @math.acos(-1.0))
           _ =>
             raise WeslCompileError::Validation(
               "unsupported float builtin `\{name}`",
@@ -2374,6 +2421,73 @@ fn const_eval_apply_float_unary_builtin(
       raise WeslCompileError::Validation(
         "`\{name}` expects a float or vector of float argument",
       )
+  }
+}
+
+///|
+fn const_eval_float_binary_type(
+  name : String,
+  args : Array[ConstEvalValue],
+) -> ConstEvalType raise WeslCompileError {
+  if args.length() != 2 {
+    raise WeslCompileError::Validation("`\{name}` expects two arguments")
+  }
+  let mut has_f32 = false
+  for arg in args {
+    match arg {
+      Bool(_) | I32(_) | U32(_) =>
+        raise WeslCompileError::Validation(
+          "`\{name}` expects a float or vector of float argument",
+        )
+      F32(_) => has_f32 = true
+      AbstractInt(_) | AbstractFloat(_, _) => ()
+    }
+  }
+  if has_f32 {
+    ConstEvalType::F32
+  } else {
+    ConstEvalType::AbstractFloat
+  }
+}
+
+///|
+fn const_eval_apply_float_binary_builtin(
+  name : String,
+  args : Array[ConstEvalValue],
+) -> ConstEvalValue raise WeslCompileError {
+  let target = const_eval_float_binary_type(name, args)
+  match target {
+    F32 => {
+      let left = const_eval_require_f32(args[0], name)
+      let right = const_eval_require_f32(args[1], name)
+      ConstEvalValue::F32(
+        Float::from_double(
+          match name {
+            "pow" => @math.pow(left.to_double(), right.to_double())
+            "atan2" => @math.atan2(left.to_double(), right.to_double())
+            _ =>
+              raise WeslCompileError::Validation(
+                "unsupported float builtin `\{name}`",
+              )
+          },
+        ),
+      )
+    }
+    _ => {
+      let left = const_eval_to_abstract_float(args[0], name)
+      let right = const_eval_to_abstract_float(args[1], name)
+      ConstEvalValue::AbstractFloat(
+        match name {
+          "pow" => @math.pow(left, right)
+          "atan2" => @math.atan2(left, right)
+          _ =>
+            raise WeslCompileError::Validation(
+              "unsupported float builtin `\{name}`",
+            )
+        },
+        true,
+      )
+    }
   }
 }
 
@@ -2496,6 +2610,23 @@ fn const_eval_eval_expr(
         "sqrt" => const_eval_apply_float_unary_builtin("sqrt", values)
         "inverseSqrt" =>
           const_eval_apply_float_unary_builtin("inverseSqrt", values)
+        "exp" => const_eval_apply_float_unary_builtin("exp", values)
+        "exp2" => const_eval_apply_float_unary_builtin("exp2", values)
+        "log" => const_eval_apply_float_unary_builtin("log", values)
+        "log2" => const_eval_apply_float_unary_builtin("log2", values)
+        "sin" => const_eval_apply_float_unary_builtin("sin", values)
+        "cos" => const_eval_apply_float_unary_builtin("cos", values)
+        "tan" => const_eval_apply_float_unary_builtin("tan", values)
+        "asin" => const_eval_apply_float_unary_builtin("asin", values)
+        "acos" => const_eval_apply_float_unary_builtin("acos", values)
+        "atan" => const_eval_apply_float_unary_builtin("atan", values)
+        "sinh" => const_eval_apply_float_unary_builtin("sinh", values)
+        "cosh" => const_eval_apply_float_unary_builtin("cosh", values)
+        "tanh" => const_eval_apply_float_unary_builtin("tanh", values)
+        "radians" => const_eval_apply_float_unary_builtin("radians", values)
+        "degrees" => const_eval_apply_float_unary_builtin("degrees", values)
+        "pow" => const_eval_apply_float_binary_builtin("pow", values)
+        "atan2" => const_eval_apply_float_binary_builtin("atan2", values)
         "sign" => const_eval_apply_sign(values)
         _ =>
           match ctx.functions.get(name) {
@@ -2517,7 +2648,20 @@ fn const_eval_eval_expr(
 
 ///|
 fn const_eval_format_f32(value : Float) -> String {
-  let text = value.to_double().to_string()
+  let double_value = value.to_double()
+  let full = double_value.to_string()
+  if full.contains(".") && !full.contains("e") && !full.contains("E") {
+    let mut scale = 1.0
+    for _ in 0..<9 {
+      let rounded = (double_value * scale).round() / scale
+      if Float::from_double(rounded) == value {
+        let text = const_eval_format_abstract_float(rounded)
+        return "\{text}f"
+      }
+      scale *= 10.0
+    }
+  }
+  let text = full
   "\{text}f"
 }
 
