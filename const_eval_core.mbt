@@ -32,6 +32,7 @@ priv enum ConstEvalToken {
   Semi
   Comma
   Equal
+  Bang
   Plus
   Minus
   Star
@@ -122,6 +123,10 @@ fn const_eval_lex(
       }
       61 => {
         tokens.push(ConstEvalToken::Equal)
+        index += 1
+      }
+      33 => {
+        tokens.push(ConstEvalToken::Bang)
         index += 1
       }
       43 => {
@@ -221,6 +226,7 @@ priv enum ConstEvalExpr {
   Literal(String)
   Binding(String)
   UnaryNeg(ConstEvalExpr)
+  UnaryNot(ConstEvalExpr)
   Binary(ConstEvalBinaryOp, ConstEvalExpr, ConstEvalExpr)
   Call(String, Array[ConstEvalExpr])
 }
@@ -349,6 +355,10 @@ fn ConstEvalParser::parse_unary(
     [Minus, .. rest] => {
       self.update_view(rest)
       ConstEvalExpr::UnaryNeg(self.parse_unary())
+    }
+    [Bang, .. rest] => {
+      self.update_view(rest)
+      ConstEvalExpr::UnaryNot(self.parse_unary())
     }
     _ => self.parse_primary()
   }
@@ -1001,6 +1011,13 @@ fn const_eval_unary_neg(
 }
 
 ///|
+fn const_eval_unary_not(
+  value : ConstEvalValue,
+) -> ConstEvalValue raise WeslCompileError {
+  ConstEvalValue::Bool(!const_eval_require_bool(value, "logical not"))
+}
+
+///|
 fn const_eval_to_abstract_float(
   value : ConstEvalValue,
   context : String,
@@ -1256,6 +1273,7 @@ fn const_eval_eval_expr(
           )
       }
     UnaryNeg(inner) => const_eval_unary_neg(const_eval_eval_expr(inner, ctx))
+    UnaryNot(inner) => const_eval_unary_not(const_eval_eval_expr(inner, ctx))
     Binary(op, lhs, rhs) =>
       const_eval_apply_binary(
         op,
