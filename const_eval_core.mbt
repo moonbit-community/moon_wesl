@@ -211,17 +211,6 @@ priv enum ConstEvalType {
 }
 
 ///|
-fn ConstEvalType::label(self : ConstEvalType) -> String {
-  match self {
-    AbstractInt => "AbstractInt"
-    AbstractFloat => "AbstractFloat"
-    I32 => "i32"
-    U32 => "u32"
-    F32 => "f32"
-  }
-}
-
-///|
 priv enum ConstEvalExpr {
   Literal(String)
   Binding(String)
@@ -1129,17 +1118,23 @@ fn const_eval_format_f32(value : Float) -> String {
 }
 
 ///|
-fn const_eval_render_value(
-  value : ConstEvalValue,
-) -> String raise WeslCompileError {
+fn const_eval_format_abstract_float(value : Double) -> String {
+  let text = value.to_string()
+  if text.contains(".") || text.contains("e") || text.contains("E") {
+    text
+  } else {
+    "\{text}.0"
+  }
+}
+
+///|
+fn const_eval_render_value(value : ConstEvalValue) -> String {
   match value {
+    AbstractInt(number) => "\{number}"
+    AbstractFloat(number) => const_eval_format_abstract_float(number)
     I32(number) => "\{number}i"
     U32(number) => "\{number}u"
     F32(number) => const_eval_format_f32(number)
-    _ =>
-      raise WeslCompileError::Validation(
-        "cannot render value of type \{value.value_type().label()}",
-      )
   }
 }
 

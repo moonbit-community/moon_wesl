@@ -35,6 +35,19 @@ fn eval_const_function(
 }
 
 ///|
+fn eval_const_expression(source : String) -> String raise WeslCompileError {
+  let tokens = const_eval_lex(source)
+  let parser = ConstEvalParser::new(tokens)
+  let expr = parser.parse_expression()
+  if !parser.view().is_empty() {
+    raise WeslCompileError::Validation(
+      "unexpected trailing const-eval expression tokens",
+    )
+  }
+  const_eval_render_value(const_eval_eval_expr(expr, @hashmap.HashMap::new()))
+}
+
+///|
 fn const_eval_target_function_name(
   target_expr : String,
 ) -> String raise WeslCompileError {
@@ -88,6 +101,11 @@ pub fn eval_const(
   target_expr : String,
 ) -> EvalResult raise WeslCompileError {
   EvalResult::{ value: eval_const_function(source, target_expr) }
+}
+
+///|
+pub fn eval_str(source : String) -> EvalResult raise WeslCompileError {
+  EvalResult::{ value: eval_const_expression(source) }
 }
 
 ///|

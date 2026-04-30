@@ -140,6 +140,13 @@ test "wesl: public const eval returns upstream literal result" {
 }
 
 ///|
+test "wesl: eval_str evaluates standalone const expressions" {
+  inspect(eval_str("1 + 2").to_string(), content="3")
+  inspect(eval_str("1u + 2u").to_string(), content="3u")
+  inspect(eval_str("1.0 + 2.0").to_string(), content="3.0")
+}
+
+///|
 test "wesl: compile result eval uses compiled const functions" {
   let resolver = VirtualResolver::new()
   let root_path = ModulePath::from_path("/shaders/root")
