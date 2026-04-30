@@ -103,11 +103,7 @@ test "parser: generated type parser handles nested WGSL type specifiers" {
 
 ///|
 test "parser: generated attribute parser preserves leading attributes" {
-  let source =
-    #|@group(0)
-    #|@binding(textureIndex(1 + foo(2)))
-    #|var color_texture: texture_2d<f32>;
-    #|
+  let source = "@group(0)\n@binding(textureIndex(1 + foo(2)))\nvar color_texture: texture_2d<f32>;\n"
 
   let unit = try! parse_translation_unit(
     try! parse_module_path("demo"),

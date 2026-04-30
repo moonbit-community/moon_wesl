@@ -257,11 +257,7 @@ fn Parser::new(source : String) -> Parser {
 }
 
 ///|
-fn Parser::from_view(source : String, view : ArrayView[ParserToken]) -> Parser {
-  let tokens : Array[ParserToken] = []
-  for token in view {
-    tokens.push(token)
-  }
+fn Parser::from_tokens(source : String, tokens : Array[ParserToken]) -> Parser {
   Parser::{ source, tokens, position: 0 }
 }
 
@@ -386,69 +382,14 @@ fn Parser::parse_attributes(
 
 ///|
 fn Parser::item_is_import(self : Parser) -> Bool raise WeslCompileError {
+  let original_position = self.position
   ignore(self.parse_attributes())
-  match self.view() {
+  let result = match self.view() {
     [Ident("import", _, _, _), ..] => true
     _ => false
   }
-}
-
-///|
-fn Parser::consume_top_level_item(
-  self : Parser,
-) -> ArrayView[ParserToken] raise WeslCompileError {
-  let view = self.view()
-  let mut paren_depth = 0
-  let mut bracket_depth = 0
-  let mut brace_depth = 0
-  let mut saw_brace = false
-  let rest = for current = view {
-    match current {
-      [LParen(_, _, _), .. rest] => {
-        paren_depth += 1
-        continue rest
-      }
-      [RParen(_, _, _), .. rest] => {
-        paren_depth -= 1
-        continue rest
-      }
-      [LBracket(_, _, _), .. rest] => {
-        bracket_depth += 1
-        continue rest
-      }
-      [RBracket(_, _, _), .. rest] => {
-        bracket_depth -= 1
-        continue rest
-      }
-      [LBrace(_, _, _), .. rest] => {
-        brace_depth += 1
-        saw_brace = true
-        continue rest
-      }
-      [RBrace(_, _, _), .. rest] => {
-        brace_depth -= 1
-        if paren_depth == 0 &&
-          bracket_depth == 0 &&
-          brace_depth == 0 &&
-          saw_brace {
-          match rest {
-            [Semi(_, _, _), ..] => continue rest
-            _ => break rest
-          }
-        }
-        continue rest
-      }
-      [Semi(_, _, _), .. rest] if paren_depth == 0 &&
-        bracket_depth == 0 &&
-        brace_depth == 0 => break rest
-      [_, .. rest] => continue rest
-      [] => self.error("unexpected end of top-level item")
-    }
-  }
-  let consumed = view.length() - rest.length()
-  let item = view[:consumed]
-  self.update_view(rest)
-  item
+  self.position = original_position
+  result
 }
 
 ///|
@@ -675,19 +616,48 @@ fn Parser::parse_global_declaration(
 }
 
 ///|
+fn parser_top_level_item_parsers(
+  source : String,
+) -> Array[Parser] raise WeslCompileError {
+  let root_parser = Parser::new(source)
+  let spans = match @item_parse.parse_top_level_items_source(source) {
+    @item_parse.Parsed(spans) => spans
+    @item_parse.Failed(diagnostic) => {
+      if diagnostic.incomplete {
+        raise WeslCompileError::Parse(
+          "unexpected end of top-level item at byte \{diagnostic.offset}",
+        )
+      }
+      raise WeslCompileError::Parse(
+        "invalid top-level item at byte \{diagnostic.offset}",
+      )
+    }
+  }
+  let parsers : Array[Parser] = []
+  for span in spans {
+    let tokens : Array[ParserToken] = []
+    for token in root_parser.tokens {
+      if token.start() >= span.start_offset && token.end() <= span.end_offset {
+        tokens.push(token)
+      }
+    }
+    if !tokens.is_empty() {
+      parsers.push(Parser::from_tokens(source, tokens))
+    }
+  }
+  parsers
+}
+
+///|
 pub fn parse_global_declarations(
   source : String,
 ) -> Array[GlobalDeclaration] raise WeslCompileError {
   let declarations : Array[GlobalDeclaration] = []
-  let parser = Parser::new(source)
-  while !parser.view().is_empty() {
-    let item_tokens = parser.consume_top_level_item()
-    if Parser::from_view(source, item_tokens).item_is_import() {
+  for item_parser in parser_top_level_item_parsers(source) {
+    if item_parser.item_is_import() {
       continue
     }
-    declarations.push(
-      Parser::from_view(source, item_tokens).parse_global_declaration(),
-    )
+    declarations.push(item_parser.parse_global_declaration())
   }
   declarations
 }
@@ -700,22 +670,14 @@ pub fn parse_translation_unit(
 ) -> TranslationUnit raise WeslCompileError {
   let imports : Array[ImportStatement] = []
   let global_declarations : Array[GlobalDeclaration] = []
-  let parser = Parser::new(source)
-  while !parser.view().is_empty() {
-    let item_tokens = parser.consume_top_level_item()
-    if Parser::from_view(source, item_tokens).item_is_import() {
+  for item_parser in parser_top_level_item_parsers(source) {
+    if item_parser.item_is_import() {
       if parse_imports {
-        imports.push(
-          Parser::from_view(source, item_tokens).parse_import_statement(
-            current_path,
-          ),
-        )
+        imports.push(item_parser.parse_import_statement(current_path))
       }
       continue
     }
-    global_declarations.push(
-      Parser::from_view(source, item_tokens).parse_global_declaration(),
-    )
+    global_declarations.push(item_parser.parse_global_declaration())
   }
   TranslationUnit::{ imports, global_declarations }
 }
