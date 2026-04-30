@@ -527,6 +527,20 @@ pub fn Router::mount_standard_resolver(Self, ModulePath, StandardResolver) -> Un
 pub fn Router::new() -> Self
 pub impl Resolver for Router
 
+pub struct SourceMapper[R] {
+  root : ModulePath
+  resolver : R
+  mangler : ManglerKind
+  sourcemap : BasicSourceMap
+}
+pub fn[R] SourceMapper::finish(Self[R]) -> BasicSourceMap
+pub fn[R] SourceMapper::mangle(Self[R], ModulePath, String) -> String
+pub fn[R] SourceMapper::mangler(Self[R]) -> ManglerKind
+pub fn[R] SourceMapper::new(ModulePath, R, ManglerKind) -> Self[R]
+pub fn[R] SourceMapper::sourcemap(Self[R]) -> BasicSourceMap
+pub fn[R] SourceMapper::unmangle(Self[R], String) -> (ModulePath, String)?
+pub impl[R : Resolver] Resolver for SourceMapper[R]
+
 pub(all) struct SourcePosition {
   line : Int
   column : Int

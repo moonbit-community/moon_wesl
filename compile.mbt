@@ -465,6 +465,110 @@ pub impl SourceMap for NoSourceMap with get_default_source(_self) {
 }
 
 ///|
+pub struct SourceMapper[R] {
+  root : ModulePath
+  resolver : R
+  mangler : ManglerKind
+  sourcemap : BasicSourceMap
+}
+
+///|
+pub fn[R] SourceMapper::new(
+  root : ModulePath,
+  resolver : R,
+  mangler : ManglerKind,
+) -> SourceMapper[R] {
+  SourceMapper::{
+    root,
+    resolver,
+    mangler,
+    sourcemap: BasicSourceMap::{ ..BasicSourceMap::default(), root, },
+  }
+}
+
+///|
+pub fn[R] SourceMapper::sourcemap(self : SourceMapper[R]) -> BasicSourceMap {
+  self.sourcemap
+}
+
+///|
+pub fn[R] SourceMapper::mangler(self : SourceMapper[R]) -> ManglerKind {
+  self.mangler
+}
+
+///|
+pub fn[R] SourceMapper::mangle(
+  self : SourceMapper[R],
+  path : ModulePath,
+  item : String,
+) -> String {
+  let mangled = ManglerKind::mangle(self.mangler, path, item)
+  self.sourcemap.add_decl(mangled, path, item)
+  mangled
+}
+
+///|
+pub fn[R] SourceMapper::unmangle(
+  self : SourceMapper[R],
+  mangled : String,
+) -> (ModulePath, String)? {
+  match self.sourcemap.get_decl(mangled) {
+    Some((path, item)) => Some((path, item))
+    None => ManglerKind::unmangle(self.mangler, mangled)
+  }
+}
+
+///|
+pub fn[R] SourceMapper::finish(self : SourceMapper[R]) -> BasicSourceMap {
+  match self.sourcemap.get_source(self.root) {
+    Some(source) => self.sourcemap.set_default_source(source)
+    None => ()
+  }
+  self.sourcemap
+}
+
+///|
+pub impl[R : Resolver] Resolver for SourceMapper[R] with resolve_source(
+  self,
+  path,
+) {
+  let source = R::resolve_source(self.resolver, path)
+  self.sourcemap.add_source(path, R::display_name(self.resolver, path), source)
+  source
+}
+
+///|
+pub impl[R : Resolver] Resolver for SourceMapper[R] with resolve_module(
+  self,
+  path,
+) {
+  let source_result = try? R::resolve_source(self.resolver, path)
+  match source_result {
+    Ok(source) =>
+      self.sourcemap.add_source(
+        path,
+        R::display_name(self.resolver, path),
+        source,
+      )
+    Err(_) => ()
+  }
+  R::resolve_module(self.resolver, path)
+}
+
+///|
+pub impl[R : Resolver] Resolver for SourceMapper[R] with display_name(
+  self,
+  path,
+) {
+  R::display_name(self.resolver, path)
+}
+
+///|
+pub impl[R : Resolver] Resolver for SourceMapper[R] with fs_path(self, path) {
+  R::fs_path(self.resolver, path)
+}
+
+///|
 pub struct CompileResult {
   syntax : TranslationUnit
   sourcemap : BasicSourceMap?
@@ -2704,12 +2808,19 @@ fn[R : Resolver] wesl_preload_import_item(
   options : CompileOptions,
   modules : @hashmap.HashMap[ModulePath, ParsedModule],
   order : Array[ModulePath],
+  sourcemap : BasicSourceMap,
+  record_sourcemap : Bool,
+  root : ModulePath,
+  mangler : ManglerKind,
 ) -> Unit raise WeslCompileError {
   let mut missing_named_target : (ModulePath, String)? = None
   match wesl_import_named_target(import_item) {
     Some((import_path, import_name)) =>
       try
-        wesl_load_module(import_path, resolver, options, modules, order)
+        wesl_load_module(
+          import_path, resolver, options, modules, order, sourcemap, record_sourcemap,
+          root, mangler,
+        )
       catch {
         _ => ()
       } noraise {
@@ -2732,6 +2843,10 @@ fn[R : Resolver] wesl_preload_import_item(
       options,
       modules,
       order,
+      sourcemap,
+      record_sourcemap,
+      root,
+      mangler,
     ),
   ) catch {
     err =>
@@ -2744,16 +2859,67 @@ fn[R : Resolver] wesl_preload_import_item(
 }
 
 ///|
+fn[R : Resolver] wesl_record_sourcemap_source(
+  path : ModulePath,
+  resolver : R,
+  sourcemap : BasicSourceMap,
+  record_sourcemap : Bool,
+) -> Unit {
+  if !record_sourcemap || sourcemap.get_source(path) is Some(_) {
+    return
+  }
+  let source_result = try? R::resolve_source(resolver, path)
+  match source_result {
+    Ok(source) =>
+      sourcemap.add_source(path, R::display_name(resolver, path), source)
+    Err(_) => ()
+  }
+}
+
+///|
+fn wesl_record_sourcemap_decls(
+  path : ModulePath,
+  root : ModulePath,
+  items : Array[ModuleItem],
+  options : CompileOptions,
+  mangler : ManglerKind,
+  sourcemap : BasicSourceMap,
+  record_sourcemap : Bool,
+) -> Unit {
+  if !record_sourcemap {
+    return
+  }
+  for item in items {
+    match item.name {
+      Some(name) =>
+        if path != root || options.mangle_root {
+          sourcemap.add_decl(
+            ManglerKind::mangle(mangler, path, name),
+            path,
+            name,
+          )
+        }
+      None => ()
+    }
+  }
+}
+
+///|
 fn[R : Resolver] wesl_load_module(
   path : ModulePath,
   resolver : R,
   options : CompileOptions,
   modules : @hashmap.HashMap[ModulePath, ParsedModule],
   order : Array[ModulePath],
+  sourcemap : BasicSourceMap,
+  record_sourcemap : Bool,
+  root : ModulePath,
+  mangler : ManglerKind,
 ) -> ParsedModule raise WeslCompileError {
   match modules.get(path) {
     Some(existing) => existing
     None => {
+      wesl_record_sourcemap_source(path, resolver, sourcemap, record_sourcemap)
       let translation_unit = if options.condcomp && options.imports {
         let unit = R::resolve_module(resolver, path) catch {
           ResolveError::Error(message) => raise WeslCompileError::Parse(message)
@@ -2861,13 +3027,23 @@ fn[R : Resolver] wesl_load_module(
         items: parsed_items,
         named_items,
       }
+      wesl_record_sourcemap_decls(
+        path,
+        root,
+        parsed_module.items,
+        options,
+        mangler,
+        sourcemap,
+        record_sourcemap,
+      )
       modules.set(path, parsed_module)
       order.push(path)
       if options.imports && (!options.strip || !options.lazy_resolution) {
         for import_item in parsed_module.imports {
           ignore(
             wesl_preload_import_item(
-              import_item, resolver, options, modules, order,
+              import_item, resolver, options, modules, order, sourcemap, record_sourcemap,
+              root, mangler,
             ),
           )
         }
@@ -2886,8 +3062,14 @@ fn[R : Resolver] wesl_mark_module_used(
   order : Array[ModulePath],
   used_modules : @hashmap.HashMap[ModulePath, Bool],
   used_decls : @hashmap.HashMap[String, Bool],
+  sourcemap : BasicSourceMap,
+  record_sourcemap : Bool,
+  root : ModulePath,
+  mangler : ManglerKind,
 ) -> ParsedModule raise WeslCompileError {
-  let parsed_module = wesl_load_module(path, resolver, options, modules, order)
+  let parsed_module = wesl_load_module(
+    path, resolver, options, modules, order, sourcemap, record_sourcemap, root, mangler,
+  )
   if used_modules.contains(path) {
     return parsed_module
   }
@@ -2899,7 +3081,7 @@ fn[R : Resolver] wesl_mark_module_used(
     ignore(
       wesl_mark_item_refs(
         path, parsed_module, item, resolver, options, modules, order, used_modules,
-        used_decls,
+        used_decls, sourcemap, record_sourcemap, root, mangler,
       ),
     )
   }
@@ -2916,9 +3098,14 @@ fn[R : Resolver] wesl_mark_named_decl(
   order : Array[ModulePath],
   used_modules : @hashmap.HashMap[ModulePath, Bool],
   used_decls : @hashmap.HashMap[String, Bool],
+  sourcemap : BasicSourceMap,
+  record_sourcemap : Bool,
+  root : ModulePath,
+  mangler : ManglerKind,
 ) -> Unit raise WeslCompileError {
   let parsed_module = wesl_mark_module_used(
-    path, resolver, options, modules, order, used_modules, used_decls,
+    path, resolver, options, modules, order, used_modules, used_decls, sourcemap,
+    record_sourcemap, root, mangler,
   )
   let key = wesl_decl_key(path, name)
   if used_decls.contains(key) {
@@ -2931,7 +3118,7 @@ fn[R : Resolver] wesl_mark_named_decl(
       ignore(
         wesl_mark_item_refs(
           path, parsed_module, item, resolver, options, modules, order, used_modules,
-          used_decls,
+          used_decls, sourcemap, record_sourcemap, root, mangler,
         ),
       )
     }
@@ -2942,7 +3129,7 @@ fn[R : Resolver] wesl_mark_named_decl(
           ignore(
             wesl_mark_named_decl(
               import_path, import_name, resolver, options, modules, order, used_modules,
-              used_decls,
+              used_decls, sourcemap, record_sourcemap, root, mangler,
             ),
           )
         None => ()
@@ -2997,6 +3184,10 @@ fn[R : Resolver] wesl_mark_item_refs(
   order : Array[ModulePath],
   used_modules : @hashmap.HashMap[ModulePath, Bool],
   used_decls : @hashmap.HashMap[String, Bool],
+  sourcemap : BasicSourceMap,
+  record_sourcemap : Bool,
+  root : ModulePath,
+  mangler : ManglerKind,
 ) -> Unit raise WeslCompileError {
   for reference in item.references {
     match reference {
@@ -3004,6 +3195,7 @@ fn[R : Resolver] wesl_mark_item_refs(
         ignore(
           wesl_mark_named_decl(
             path, name, resolver, options, modules, order, used_modules, used_decls,
+            sourcemap, record_sourcemap, root, mangler,
           ),
         )
       ModuleItemRef::Import(_, import_index) => {
@@ -3013,7 +3205,7 @@ fn[R : Resolver] wesl_mark_item_refs(
             ignore(
               wesl_mark_named_decl(
                 import_path, import_name, resolver, options, modules, order, used_modules,
-                used_decls,
+                used_decls, sourcemap, record_sourcemap, root, mangler,
               ),
             )
           None => ()
@@ -3023,7 +3215,7 @@ fn[R : Resolver] wesl_mark_item_refs(
         ignore(
           wesl_mark_named_decl(
             target_path, target_name, resolver, options, modules, order, used_modules,
-            used_decls,
+            used_decls, sourcemap, record_sourcemap, root, mangler,
           ),
         )
     }
@@ -4049,6 +4241,21 @@ fn[R : Resolver] compile_with_mangler_kind(
   options : CompileOptions,
   use_sourcemap : Bool,
 ) -> CompileResult raise WeslCompileError {
+  let sourcemap = BasicSourceMap::{ ..BasicSourceMap::default(), root, }
+  compile_with_mangler_kind_and_sourcemap(
+    root, resolver, mangler, options, use_sourcemap, sourcemap,
+  )
+}
+
+///|
+fn[R : Resolver] compile_with_mangler_kind_and_sourcemap(
+  root : ModulePath,
+  resolver : R,
+  mangler : ManglerKind,
+  options : CompileOptions,
+  use_sourcemap : Bool,
+  sourcemap : BasicSourceMap,
+) -> CompileResult raise WeslCompileError {
   let _ = options.lower
   let _ = options.generics
   let modules : @hashmap.HashMap[ModulePath, ParsedModule] = @hashmap.HashMap::new()
@@ -4056,7 +4263,8 @@ fn[R : Resolver] compile_with_mangler_kind(
   let used_modules : @hashmap.HashMap[ModulePath, Bool] = @hashmap.HashMap::new()
   let used_decls : @hashmap.HashMap[String, Bool] = @hashmap.HashMap::new()
   let root_module = wesl_mark_module_used(
-    root, resolver, options, modules, order, used_modules, used_decls,
+    root, resolver, options, modules, order, used_modules, used_decls, sourcemap,
+    use_sourcemap, root, mangler,
   )
   if options.validate {
     wesl_validate_loaded_cycles(order, modules)
@@ -4066,6 +4274,7 @@ fn[R : Resolver] compile_with_mangler_kind(
     ignore(
       wesl_mark_named_decl(
         root, keep_name, resolver, options, modules, order, used_modules, used_decls,
+        sourcemap, use_sourcemap, root, mangler,
       ),
     )
   }
@@ -4086,42 +4295,16 @@ fn[R : Resolver] compile_with_mangler_kind(
     assembled
   }
   let syntax = parse_translation_unit(root, source, false)
-  let sourcemap = if use_sourcemap {
-    let map = BasicSourceMap::{ ..BasicSourceMap::default(), root, }
-    for module_path in order {
-      let module_source = R::resolve_source(resolver, module_path) catch {
-        _ =>
-          modules[module_path].items.map(fn(item) { item.source }).join("\n\n")
-      }
-      map.add_source(
-        module_path,
-        R::display_name(resolver, module_path),
-        module_source,
-      )
-      let parsed_module = modules[module_path]
-      for item in parsed_module.items {
-        match item.name {
-          Some(name) =>
-            if module_path != root || options.mangle_root {
-              map.add_decl(
-                ManglerKind::mangle(mangler, module_path, name),
-                module_path,
-                name,
-              )
-            }
-          None => ()
-        }
-      }
-    }
-    match map.get_source(root) {
-      Some(root_source) => map.set_default_source(root_source)
+  let output_sourcemap = if use_sourcemap {
+    match sourcemap.get_source(root) {
+      Some(root_source) => sourcemap.set_default_source(root_source)
       None => ()
     }
-    Some(map)
+    Some(sourcemap)
   } else {
     None
   }
-  CompileResult::{ syntax, sourcemap, modules: order }
+  CompileResult::{ syntax, sourcemap: output_sourcemap, modules: order }
 }
 
 ///|
@@ -4151,24 +4334,27 @@ fn[R : Resolver] wesl_diagnostic_from_compile_error(
   mangler : ManglerKind,
   error : WeslCompileError,
   use_sourcemap : Bool,
+  sourcemap : BasicSourceMap,
 ) -> Diagnostic {
   let mut diagnostic = error
     .diagnostic()
     .with_module_path(root, R::display_name(resolver, root))
     .unmangle_with_mangler(mangler)
   if use_sourcemap {
-    let sourcemap = BasicSourceMap::{ ..BasicSourceMap::default(), root, }
-    let source_result = try? R::resolve_source(resolver, root)
-    match source_result {
-      Ok(source) => {
-        sourcemap.add_source(root, R::display_name(resolver, root), source)
-        sourcemap.set_default_source(source)
-        diagnostic = diagnostic
-          .with_sourcemap(sourcemap)
-          .infer_span_from_message()
+    match sourcemap.get_source(root) {
+      Some(root_source) => sourcemap.set_default_source(root_source)
+      None => {
+        let source_result = try? R::resolve_source(resolver, root)
+        match source_result {
+          Ok(source) => {
+            sourcemap.add_source(root, R::display_name(resolver, root), source)
+            sourcemap.set_default_source(source)
+          }
+          Err(_) => ()
+        }
       }
-      Err(_) => ()
     }
+    diagnostic = diagnostic.with_sourcemap(sourcemap).infer_span_from_message()
   }
   diagnostic
 }
@@ -4181,11 +4367,14 @@ fn[R : Resolver] compile_diagnostic_with_mangler_kind(
   options : CompileOptions,
   use_sourcemap : Bool,
 ) -> CompileResult raise WeslDiagnosticError {
-  compile_with_mangler_kind(root, resolver, mangler, options, use_sourcemap) catch {
+  let sourcemap = BasicSourceMap::{ ..BasicSourceMap::default(), root, }
+  compile_with_mangler_kind_and_sourcemap(
+    root, resolver, mangler, options, use_sourcemap, sourcemap,
+  ) catch {
     err =>
       raise WeslDiagnosticError::Diagnostic(
         wesl_diagnostic_from_compile_error(
-          root, resolver, mangler, err, use_sourcemap,
+          root, resolver, mangler, err, use_sourcemap, sourcemap,
         ),
       )
   }

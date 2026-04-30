@@ -1197,6 +1197,38 @@ test "wesl: diagnostic compile path attaches resolver source context" {
 }
 
 ///|
+test "wesl: source mapper records resolver sources and mangled declarations" {
+  let resolver = VirtualResolver::new()
+  let root_path = ModulePath::from_path("/shaders/root")
+  let util_path = ModulePath::from_path("/shaders/util")
+  resolver.add_module(root_path, "import super::util::make_value;\n")
+  resolver.add_module(util_path, "fn make_value() -> f32 {\n  return 1.0;\n}\n")
+  let mapper = SourceMapper::new(root_path, resolver, ManglerKind::Escape)
+
+  let root_source = mapper.resolve_source(root_path)
+  let mangled = mapper.mangle(util_path, "make_value")
+  let source_map = mapper.finish()
+
+  debug_inspect(root_source.contains("make_value"), content="true")
+  debug_inspect(mangled, content="\"package_shaders_util__1make_value\"")
+  debug_inspect(
+    source_map.get_source(root_path),
+    content="Some(\"import super::util::make_value;\\n\")",
+  )
+  debug_inspect(
+    source_map.get_default_source(),
+    content="Some(\"import super::util::make_value;\\n\")",
+  )
+  match source_map.get_decl(mangled) {
+    Some((path, item)) => {
+      debug_inspect(path.to_string(), content="\"package::shaders::util\"")
+      debug_inspect(item, content="\"make_value\"")
+    }
+    None => fail("expected sourcemapper declaration mapping")
+  }
+}
+
+///|
 test "wesl: facade can select hash mangler" {
   let resolver = VirtualResolver::new()
   let util_path = ModulePath::from_path("/shaders/util")

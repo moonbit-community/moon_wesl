@@ -228,3 +228,53 @@ test "compile: AST reference collector follows qualified import paths" {
     content="true",
   )
 }
+
+///|
+test "compile: sourcemap records loaded imports before failure" {
+  let resolver = VirtualResolver::new()
+  let root_path = ModulePath::from_path("/shaders/root")
+  let util_path = ModulePath::from_path("/shaders/util")
+  resolver.add_module(
+    root_path, "import super::util::missing;\n@fragment\nfn main() -> f32 {\n  return missing();\n}\n",
+  )
+  resolver.add_module(util_path, "fn helper() -> f32 {\n  return 1.0;\n}\n")
+  let source_map = BasicSourceMap::{
+    ..BasicSourceMap::default(),
+    root: root_path,
+  }
+
+  let result = try? compile_with_mangler_kind_and_sourcemap(
+    root_path,
+    resolver,
+    ManglerKind::Escape,
+    CompileOptions::default(),
+    true,
+    source_map,
+  )
+
+  match result {
+    Err(WeslCompileError::MissingDecl(path, item)) => {
+      inspect(path.to_string(), content="package::shaders::util")
+      inspect(item, content="missing")
+      debug_inspect(
+        source_map.get_source(root_path),
+        content="Some(\"import super::util::missing;\\n@fragment\\nfn main() -> f32 {\\n  return missing();\\n}\\n\")",
+      )
+      debug_inspect(
+        source_map.get_source(util_path),
+        content="Some(\"fn helper() -> f32 {\\n  return 1.0;\\n}\\n\")",
+      )
+      match
+        source_map.get_decl(
+          ManglerKind::mangle(ManglerKind::Escape, util_path, "helper"),
+        ) {
+        Some((decl_path, decl_name)) => {
+          inspect(decl_path.to_string(), content="package::shaders::util")
+          inspect(decl_name, content="helper")
+        }
+        None => fail("expected imported helper declaration mapping")
+      }
+    }
+    _ => fail("expected missing imported declaration")
+  }
+}
