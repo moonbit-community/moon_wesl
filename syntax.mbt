@@ -210,8 +210,17 @@ fn ImportStatement::flatten_items(
 }
 
 ///|
+pub(all) struct FunctionParameter {
+  name : String
+  type_text : String
+} derive(Eq, Debug)
+
+///|
 pub(all) struct FunctionDeclaration {
   name : String
+  generic_parameters : String?
+  parameters : Array[FunctionParameter]
+  return_type : String?
 } derive(Eq, Debug)
 
 ///|

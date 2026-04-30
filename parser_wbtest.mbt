@@ -160,3 +160,36 @@ test "parser: generated struct parser records member names and types" {
     _ => fail("expected struct declaration")
   }
 }
+
+///|
+test "parser: generated function parser records signature" {
+  let source =
+    #|@fragment
+    #|fn shade<T>(
+    #|  @location(0) color: vec4<f32>,
+    #|  index: array<u32, 4>,
+    #|) -> @location(0) vec4<f32> {
+    #|  return color;
+    #|}
+    #|
+  let unit = try! parse_translation_unit(
+    try! parse_module_path("demo"),
+    source,
+    true,
+  )
+  match unit.global_declarations[0].header {
+    Function(header) => {
+      debug_inspect(header.name, content="\"shade\"")
+      debug_inspect(header.generic_parameters, content="Some(\"T\")")
+      let expected_parameters =
+        #|[
+        #|  { name: "color", type_text: "vec4<f32>" },
+        #|  { name: "index", type_text: "array<u32, 4>" },
+        #|]
+
+      debug_inspect(header.parameters, content=expected_parameters)
+      debug_inspect(header.return_type, content="Some(\"vec4<f32>\")")
+    }
+    _ => fail("expected function declaration")
+  }
+}

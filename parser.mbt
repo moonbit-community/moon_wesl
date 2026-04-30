@@ -419,6 +419,20 @@ fn parser_struct_members_from_generated(
 }
 
 ///|
+fn parser_function_parameters_from_generated(
+  parameters : Array[@function_parse.FunctionParameterParseNode],
+) -> Array[FunctionParameter] {
+  let mapped : Array[FunctionParameter] = []
+  for parameter in parameters {
+    mapped.push(FunctionParameter::{
+      name: parameter.name,
+      type_text: parameter.type_text,
+    })
+  }
+  mapped
+}
+
+///|
 fn Parser::parse_import_tree_with_yacc(
   self : Parser,
   context : String,
@@ -566,7 +580,33 @@ fn Parser::parse_global_declaration(
   let header = match parsed {
     @global_parse.Parsed(@global_parse.Function(name)) => {
       parser_validate_declaration_ident(name)
-      GlobalDeclarationHeader::Function(FunctionDeclaration::{ name, })
+      let function_node = match
+        @function_parse.parse_function_source(item_source) {
+        @function_parse.Parsed(node) => node
+        @function_parse.Failed(diagnostic) => {
+          let byte_offset = if self.tokens.length() > 0 {
+            self.tokens[0].start() + diagnostic.offset
+          } else {
+            diagnostic.offset
+          }
+          if diagnostic.incomplete {
+            raise WeslCompileError::Parse(
+              "incomplete function declaration at byte \{byte_offset}: \{item_source}",
+            )
+          }
+          raise WeslCompileError::Parse(
+            "invalid function declaration at byte \{byte_offset}: \{item_source}",
+          )
+        }
+      }
+      GlobalDeclarationHeader::Function(FunctionDeclaration::{
+        name,
+        generic_parameters: function_node.generic_parameters,
+        parameters: parser_function_parameters_from_generated(
+          function_node.parameters,
+        ),
+        return_type: function_node.return_type,
+      })
     }
     @global_parse.Parsed(@global_parse.Struct(name)) => {
       parser_validate_declaration_ident(name)

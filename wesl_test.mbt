@@ -818,6 +818,9 @@ impl ModulePreprocessor for AppendDeclPreprocessor with preprocess_module(
   unit.global_declarations.push(GlobalDeclaration::{
     header: GlobalDeclarationHeader::Function(FunctionDeclaration::{
       name: "injected",
+      generic_parameters: None,
+      parameters: [],
+      return_type: Some("f32"),
     }),
     attributes: Array::new(),
     source: "fn injected() -> f32 {\n  return 1.0;\n}",
@@ -838,6 +841,9 @@ impl ModulePreprocessor for ConditionalAppendPreprocessor with preprocess_module
   unit.global_declarations.push(GlobalDeclaration::{
     header: GlobalDeclarationHeader::Function(FunctionDeclaration::{
       name: "injected",
+      generic_parameters: None,
+      parameters: [],
+      return_type: Some("f32"),
     }),
     attributes: [
       Attribute::{

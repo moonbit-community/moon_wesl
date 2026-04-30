@@ -173,6 +173,14 @@ pub impl Resolver for FileResolver
 
 pub(all) struct FunctionDeclaration {
   name : String
+  generic_parameters : String?
+  parameters : Array[FunctionParameter]
+  return_type : String?
+} derive(Eq, @debug.Debug)
+
+pub(all) struct FunctionParameter {
+  name : String
+  type_text : String
 } derive(Eq, @debug.Debug)
 
 pub(all) struct GlobalDeclaration {
