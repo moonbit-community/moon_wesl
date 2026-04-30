@@ -1,4 +1,5 @@
 import {
+  "Milky2018/moon_wesl/internal/global_parse",
   "Milky2018/moon_wesl/internal/import_parse",
   "moonbitlang/core/hashmap",
   "moonbitlang/core/string",

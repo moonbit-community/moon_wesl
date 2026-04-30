@@ -366,37 +366,6 @@ fn Parser::consume_balanced_parens(
 }
 
 ///|
-fn Parser::consume_balanced_angles(
-  self : Parser,
-) -> ParserToken raise WeslCompileError {
-  let mut depth = 1
-  let rest = for current = self.view() {
-    match current {
-      [token, .. rest] =>
-        match token {
-          Lt(_, _, _) => {
-            depth += 1
-            continue rest
-          }
-          Gt(_, _, _) => {
-            depth -= 1
-            if depth == 0 {
-              break rest
-            }
-            continue rest
-          }
-          _ => continue rest
-        }
-      [] => self.error("unclosed generic arguments")
-    }
-  }
-  let closing_index = rest.start() - 1
-  let closing_token = self.tokens[closing_index]
-  self.update_view(rest)
-  closing_token
-}
-
-///|
 fn Parser::parse_attributes(
   self : Parser,
 ) -> Array[Attribute] raise WeslCompileError {
@@ -666,75 +635,72 @@ fn Parser::slice_after_top_level_eq(self : Parser) -> String? {
 }
 
 ///|
-fn Parser::parse_var_declaration(
-  self : Parser,
-) -> VarDeclaration raise WeslCompileError {
-  let mut template_arguments : String? = None
-  match self.view() {
-    [Lt(_, _, _) as lt_token, .. rest] => {
-      self.update_view(rest)
-      let closing_token = self.consume_balanced_angles()
-      template_arguments = Some(
-        self.trim_source_slice(lt_token.end(), closing_token.start()),
-      )
-    }
-    _ => ()
-  }
-  let name = match self.view() {
-    [Ident(ident_name, _, _, _), .. rest] => {
-      parser_validate_declaration_ident(ident_name)
-      self.update_view(rest)
-      Some(ident_name)
-    }
-    _ => None
-  }
-  VarDeclaration::{ name, template_arguments }
-}
-
-///|
 fn Parser::parse_global_declaration(
   self : Parser,
 ) -> GlobalDeclaration raise WeslCompileError {
   let span = self.item_span()
   let item_source = self.item_source().trim().to_owned()
   let attrs = self.parse_attributes()
-  let header = match self.view() {
-    [Ident("fn", _, _, _), Ident(name, _, _, _), ..] => {
+  let parsed = @global_parse.parse_global_header_source(item_source)
+  let header = match parsed {
+    @global_parse.Parsed(@global_parse.Function(name)) => {
       parser_validate_declaration_ident(name)
       GlobalDeclarationHeader::Function(FunctionDeclaration::{ name, })
     }
-    [Ident("struct", _, _, _), Ident(name, _, _, _), ..] => {
+    @global_parse.Parsed(@global_parse.Struct(name)) => {
       parser_validate_declaration_ident(name)
       GlobalDeclarationHeader::Struct(StructDeclaration::{ name, })
     }
-    [Ident("alias", _, _, _), Ident(name, _, _, _), ..] => {
+    @global_parse.Parsed(@global_parse.Alias(name)) => {
       parser_validate_declaration_ident(name)
       GlobalDeclarationHeader::Alias(AliasDeclaration::{
         name,
         target: self.slice_after_top_level_eq(),
       })
     }
-    [Ident("const", _, _, _), Ident(name, _, _, _), ..] => {
+    @global_parse.Parsed(@global_parse.Const(name)) => {
       parser_validate_declaration_ident(name)
       GlobalDeclarationHeader::Const(ConstDeclaration::{
         name,
         initializer: self.slice_after_top_level_eq(),
       })
     }
-    [Ident("override", _, _, _), Ident(name, _, _, _), ..] => {
+    @global_parse.Parsed(@global_parse.Override(name)) => {
       parser_validate_declaration_ident(name)
       GlobalDeclarationHeader::Override(OverrideDeclaration::{ name, })
     }
-    [Ident("let", _, _, _), Ident(name, _, _, _), ..] => {
+    @global_parse.Parsed(@global_parse.Let(name)) => {
       parser_validate_declaration_ident(name)
       GlobalDeclarationHeader::Let(LetDeclaration::{ name, })
     }
-    [Ident("var", _, _, _), .. rest] => {
-      self.update_view(rest)
-      GlobalDeclarationHeader::Var(self.parse_var_declaration())
+    @global_parse.Parsed(@global_parse.Var(var_header)) => {
+      match var_header.name {
+        Some(name) => parser_validate_declaration_ident(name)
+        None => ()
+      }
+      GlobalDeclarationHeader::Var(VarDeclaration::{
+        name: var_header.name,
+        template_arguments: var_header.template_arguments,
+      })
     }
-    [Ident("const_assert", _, _, _), ..] => GlobalDeclarationHeader::ConstAssert
-    _ => GlobalDeclarationHeader::Other
+    @global_parse.Parsed(@global_parse.ConstAssert) =>
+      GlobalDeclarationHeader::ConstAssert
+    @global_parse.Parsed(@global_parse.Other) => GlobalDeclarationHeader::Other
+    @global_parse.Failed(diagnostic) => {
+      let byte_offset = if self.tokens.length() > 0 {
+        self.tokens[0].start() + diagnostic.offset
+      } else {
+        diagnostic.offset
+      }
+      if diagnostic.incomplete {
+        raise WeslCompileError::Parse(
+          "incomplete global declaration at byte \{byte_offset}: \{item_source}",
+        )
+      }
+      raise WeslCompileError::Parse(
+        "invalid global declaration at byte \{byte_offset}: \{item_source}",
+      )
+    }
   }
   GlobalDeclaration::{ header, attributes: attrs, source: item_source, span }
 }
