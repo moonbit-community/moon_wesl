@@ -215,8 +215,15 @@ pub(all) struct FunctionDeclaration {
 } derive(Eq, Debug)
 
 ///|
+pub(all) struct StructMember {
+  name : String
+  type_text : String
+} derive(Eq, Debug)
+
+///|
 pub(all) struct StructDeclaration {
   name : String
+  members : Array[StructMember]
 } derive(Eq, Debug)
 
 ///|

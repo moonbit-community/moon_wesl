@@ -408,6 +408,17 @@ fn parser_import_node_from_generated(
 }
 
 ///|
+fn parser_struct_members_from_generated(
+  members : Array[@struct_parse.StructMemberParseNode],
+) -> Array[StructMember] {
+  let mapped : Array[StructMember] = []
+  for field in members {
+    mapped.push(StructMember::{ name: field.name, type_text: field.type_text })
+  }
+  mapped
+}
+
+///|
 fn Parser::parse_import_tree_with_yacc(
   self : Parser,
   context : String,
@@ -559,7 +570,26 @@ fn Parser::parse_global_declaration(
     }
     @global_parse.Parsed(@global_parse.Struct(name)) => {
       parser_validate_declaration_ident(name)
-      GlobalDeclarationHeader::Struct(StructDeclaration::{ name, })
+      let members = match @struct_parse.parse_struct_source(item_source) {
+        @struct_parse.Parsed(node) =>
+          parser_struct_members_from_generated(node.members)
+        @struct_parse.Failed(diagnostic) => {
+          let byte_offset = if self.tokens.length() > 0 {
+            self.tokens[0].start() + diagnostic.offset
+          } else {
+            diagnostic.offset
+          }
+          if diagnostic.incomplete {
+            raise WeslCompileError::Parse(
+              "incomplete struct declaration at byte \{byte_offset}: \{item_source}",
+            )
+          }
+          raise WeslCompileError::Parse(
+            "invalid struct declaration at byte \{byte_offset}: \{item_source}",
+          )
+        }
+      }
+      GlobalDeclarationHeader::Struct(StructDeclaration::{ name, members })
     }
     @global_parse.Parsed(@global_parse.Alias(name)) => {
       parser_validate_declaration_ident(name)

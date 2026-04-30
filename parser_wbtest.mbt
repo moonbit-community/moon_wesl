@@ -138,3 +138,25 @@ test "parser: generated attribute parser preserves leading attributes" {
     Err(_) => ()
   }
 }
+
+///|
+test "parser: generated struct parser records member names and types" {
+  let unit = try! parse_translation_unit(
+    try! parse_module_path("demo"),
+    "struct VertexOutput {\n  @builtin(position) clip_position: vec4<f32>,\n  color: array<vec3<f32>, 4>,\n  index: u32\n};\n",
+    true,
+  )
+  match unit.global_declarations[0].header {
+    Struct(header) => {
+      let expected_members =
+        #|[
+        #|  { name: "clip_position", type_text: "vec4<f32>" },
+        #|  { name: "color", type_text: "array<vec3<f32>, 4>" },
+        #|  { name: "index", type_text: "u32" },
+        #|]
+
+      debug_inspect(header.members, content=expected_members)
+    }
+    _ => fail("expected struct declaration")
+  }
+}

@@ -314,6 +314,12 @@ pub impl Resolver for StandardResolver
 
 pub(all) struct StructDeclaration {
   name : String
+  members : Array[StructMember]
+} derive(Eq, @debug.Debug)
+
+pub(all) struct StructMember {
+  name : String
+  type_text : String
 } derive(Eq, @debug.Debug)
 
 pub(all) struct SyntaxSpan {
