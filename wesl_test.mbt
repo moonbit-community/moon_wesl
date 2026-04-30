@@ -140,6 +140,23 @@ test "wesl: public const eval returns upstream literal result" {
 }
 
 ///|
+test "wesl: compile result eval uses compiled const functions" {
+  let resolver = VirtualResolver::new()
+  let root_path = ModulePath::from_path("/shaders/root")
+  resolver.add_module(
+    root_path, "@const\nfn test() -> u32 {\n  let base = 40u;\n  return base + 2u;\n}\n",
+  )
+  let compiled = compile(
+    root_path,
+    resolver,
+    EscapeMangler::default(),
+    CompileOptions::default().keep_declarations(["test"]),
+  )
+
+  inspect(compiled.eval("test()").to_string(), content="42u")
+}
+
+///|
 test "wesl: feature default and bool conversion match upstream" {
   debug_inspect(Feature::default(), content="Disable")
   debug_inspect(Feature::from_bool(true), content="Enable")

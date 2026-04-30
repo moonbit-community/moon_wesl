@@ -176,6 +176,7 @@ pub struct CompileResult {
   modules : Array[ModulePath]
 } derive(@debug.Debug)
 pub fn CompileResult::default() -> Self
+pub fn CompileResult::eval(Self, String) -> EvalResult raise WeslCompileError
 pub fn CompileResult::has_sourcemap(Self) -> Bool
 pub fn CompileResult::to_string(Self) -> String
 
