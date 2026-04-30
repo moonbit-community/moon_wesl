@@ -7,4 +7,5 @@ import {
 
 import {
   "Milky2018/moon_wesl/internal/expression_parse",
+  "Milky2018/moon_wesl/internal/type_parse",
 } for "wbtest"

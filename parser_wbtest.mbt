@@ -32,6 +32,25 @@ fn parse_expression(source : String) -> Unit raise WeslCompileError {
 }
 
 ///|
+fn parse_type_specifier(source : String) -> Unit raise WeslCompileError {
+  match @type_parse.parse_type_source(source) {
+    @type_parse.Parsed => ()
+    @type_parse.Failed(diagnostic) => {
+      let message = match diagnostic.message {
+        Some(message) => message
+        None =>
+          if diagnostic.incomplete {
+            "incomplete type"
+          } else {
+            "unsupported type syntax"
+          }
+      }
+      raise WeslCompileError::Parse("\{message}: `\{source}`")
+    }
+  }
+}
+
+///|
 test "parser: generated expression parser handles WGSL operator and template forms" {
   let valid_cases = [
     "vec2<f32>(1.0, 2.0)", "array<vec2<f32>, 2>(vec2<f32>(1, 2), vec2(3, 4))", "a < b || c > d",
@@ -52,6 +71,31 @@ test "parser: generated expression parser handles WGSL operator and template for
     let result = try? parse_expression(expr)
     match result {
       Ok(_) => fail("\{expr}: expected parse failure")
+      Err(_) => ()
+    }
+  }
+}
+
+///|
+test "parser: generated type parser handles nested WGSL type specifiers" {
+  let valid_cases = [
+    "f32", "vec4<f32>", "mat4x4<f16>", "array<vec3<f32>, 4>", "array<array<f32, 2>, 3>",
+    "ptr<storage, DynamicArray, read_write>", "package::shared::Payload", "foo::bar::Texture<vec2<f32>, N>",
+  ]
+  for ty in valid_cases {
+    let result = try? parse_type_specifier(ty)
+    match result {
+      Ok(_) => ()
+      Err(err) => fail("\{ty}: \{err.message()}")
+    }
+  }
+  let invalid_cases = [
+    "", "array<", "vec2<f32", "array<f32,, 2>", "ptr<storage,>", "foo::",
+  ]
+  for ty in invalid_cases {
+    let result = try? parse_type_specifier(ty)
+    match result {
+      Ok(_) => fail("\{ty}: expected parse failure")
       Err(_) => ()
     }
   }

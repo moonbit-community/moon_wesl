@@ -1,0 +1,55 @@
+%derive<Debug> Token
+%derive<Debug> ParseError
+%position<Int>
+%start<Unit> parse_type_specifier
+
+%token<String> IDENT
+%token<String> NUMBER
+%token DOUBLE_COLON "::"
+%token LESS        "<"
+%token GREATER     ">"
+%token COMMA       ","
+%token MINUS       "-"
+
+%type<Unit> type_specifier
+%type<Unit> path_ident
+%type<Unit> opt_template
+%type<Unit> template_arg_list
+%type<Unit> template_arg
+%type<Unit> signed_literal
+
+%%
+
+parse_type_specifier
+  : type_specifier                { () }
+  ;
+
+type_specifier
+  : path_ident opt_template       { () }
+  ;
+
+path_ident
+  : IDENT                         { () }
+  | path_ident "::" IDENT         { () }
+  ;
+
+opt_template
+  :                               { () }
+  | "<" template_arg_list ">"     { () }
+  ;
+
+template_arg_list
+  : template_arg                  { () }
+  | template_arg_list "," template_arg
+                                  { () }
+  ;
+
+template_arg
+  : type_specifier                { () }
+  | signed_literal                { () }
+  ;
+
+signed_literal
+  : NUMBER                        { () }
+  | "-" NUMBER                    { () }
+  ;
