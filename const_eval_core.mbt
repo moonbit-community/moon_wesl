@@ -2637,23 +2637,83 @@ fn const_eval_count_one_bits_width(value : Int64, width : Int) -> Int64 {
 }
 
 ///|
-fn const_eval_apply_count_one_bits(
+fn const_eval_count_leading_zeros_width(value : Int64, width : Int) -> Int64 {
+  let mut count = 0L
+  let mut done = false
+  for offset in 0..<width {
+    if done {
+      continue
+    }
+    let shift = width - 1 - offset
+    if ((value >> shift) & 1L) == 0L {
+      count += 1L
+    } else {
+      done = true
+    }
+  }
+  count
+}
+
+///|
+fn const_eval_count_trailing_zeros_width(value : Int64, width : Int) -> Int64 {
+  let mut bits = value
+  let mut count = 0L
+  let mut done = false
+  for _ in 0..<width {
+    if done {
+      continue
+    }
+    if (bits & 1L) == 0L {
+      count += 1L
+      bits = bits >> 1
+    } else {
+      done = true
+    }
+  }
+  count
+}
+
+///|
+fn const_eval_format_call_signature(
+  name : String,
+  args : Array[ConstEvalValue],
+) -> String {
+  let parts : Array[String] = []
+  for arg in args {
+    parts.push(arg.value_type().label())
+  }
+  let joined = parts.join(", ")
+  "\{name}(\{joined})"
+}
+
+///|
+fn const_eval_require_one_bit_count_arg(
+  name : String,
   args : Array[ConstEvalValue],
 ) -> ConstEvalValue raise WeslCompileError {
   if args.length() != 1 {
-    raise WeslCompileError::Validation("`countOneBits` expects one argument")
+    raise WeslCompileError::Validation(
+      "invalid function call signature: `\{const_eval_format_call_signature(name, args)}`",
+    )
   }
-  match args[0] {
+  args[0]
+}
+
+///|
+fn const_eval_apply_integer_bit_count(
+  name : String,
+  args : Array[ConstEvalValue],
+  count : (Int64, Int) -> Int64,
+) -> ConstEvalValue raise WeslCompileError {
+  let arg = const_eval_require_one_bit_count_arg(name, args)
+  match arg {
     Bool(_) | AbstractFloat(_, _) | F32(_) =>
       raise WeslCompileError::Validation(
-        "`countOneBits` expects a float or vector of float argument",
+        "`\{name}` expects a float or vector of float argument",
       )
-    AbstractInt(number) =>
-      ConstEvalValue::AbstractInt(const_eval_count_one_bits_width(number, 64))
-    I32(number) =>
-      ConstEvalValue::I32(const_eval_count_one_bits_width(number, 32))
-    U32(number) =>
-      ConstEvalValue::U32(const_eval_count_one_bits_width(number, 32))
+    AbstractInt(number) => ConstEvalValue::AbstractInt(count(number, 64))
+    I32(number) => ConstEvalValue::I32(count(number, 32))
+    U32(number) => ConstEvalValue::U32(count(number, 32))
   }
 }
 
@@ -2741,7 +2801,18 @@ fn const_eval_eval_expr(
         "step" => const_eval_apply_step(values)
         "mix" => const_eval_apply_mix(values)
         "sign" => const_eval_apply_sign(values)
-        "countOneBits" => const_eval_apply_count_one_bits(values)
+        "countOneBits" =>
+          const_eval_apply_integer_bit_count(
+            "countOneBits", values, const_eval_count_one_bits_width,
+          )
+        "countLeadingZeros" =>
+          const_eval_apply_integer_bit_count(
+            "countLeadingZeros", values, const_eval_count_leading_zeros_width,
+          )
+        "countTrailingZeros" =>
+          const_eval_apply_integer_bit_count(
+            "countTrailingZeros", values, const_eval_count_trailing_zeros_width,
+          )
         _ =>
           match ctx.functions.get(name) {
             Some(function_) =>
