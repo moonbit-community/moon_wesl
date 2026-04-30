@@ -156,6 +156,15 @@ test "wesl: eval_str evaluates standalone const expressions" {
   inspect(eval_str("true").to_string(), content="true")
   inspect(eval_str("false").to_string(), content="false")
   inspect(eval_str("!true").to_string(), content="false")
+  inspect(eval_str("1 == 1").to_string(), content="true")
+  inspect(eval_str("1 != 2").to_string(), content="true")
+  inspect(eval_str("1 < 2").to_string(), content="true")
+  inspect(eval_str("2 <= 2").to_string(), content="true")
+  inspect(eval_str("3 > 2").to_string(), content="true")
+  inspect(eval_str("3 >= 4").to_string(), content="false")
+  inspect(eval_str("true && false").to_string(), content="false")
+  inspect(eval_str("true || false").to_string(), content="true")
+  inspect(eval_str("(1 < 2) && !false").to_string(), content="true")
 }
 
 ///|
@@ -231,17 +240,20 @@ test "wesl: compile result eval handles bool global constants" {
   let resolver = VirtualResolver::new()
   let root_path = ModulePath::from_path("/shaders/root")
   resolver.add_module(
-    root_path, "const FLAG: bool = true;\nconst DISABLED: bool = !FLAG;\nconst SIZE: u32 = 2u;\n",
+    root_path, "const FLAG: bool = true;\nconst DISABLED: bool = !FLAG;\nconst HAS_SIZE: bool = 2u >= 2u;\nconst SIZE: u32 = 2u;\n",
   )
   let compiled = compile(
     root_path,
     resolver,
     EscapeMangler::default(),
-    CompileOptions::default().keep_declarations(["FLAG", "DISABLED", "SIZE"]),
+    CompileOptions::default().keep_declarations([
+      "FLAG", "DISABLED", "HAS_SIZE", "SIZE",
+    ]),
   )
 
   inspect(compiled.eval("FLAG").to_string(), content="true")
   inspect(compiled.eval("DISABLED").to_string(), content="false")
+  inspect(compiled.eval("HAS_SIZE").to_string(), content="true")
   inspect(compiled.eval("SIZE").to_string(), content="2u")
 }
 
