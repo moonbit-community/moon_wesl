@@ -67,11 +67,34 @@ test "wesl: mangler kind default is escape" {
 test "wesl: default result mirrors upstream empty output" {
   let result = CompileResult::default()
   let source_map = BasicSourceMap::new()
+  let root_path = ModulePath::new_root()
+  source_map.add_source(root_path, Some("root.wesl"), "fn helper() {}\n")
+  source_map.set_default_source("fn helper() {}\n")
+  source_map.add_decl("package_helper", root_path, "helper")
 
   debug_inspect(result.to_string(), content="\"\"")
   debug_inspect(result.has_sourcemap(), content="false")
   debug_inspect(result.modules.length(), content="0")
   debug_inspect(source_map.root.to_string(), content="\"package\"")
+  debug_inspect(
+    source_map.get_source(root_path),
+    content="Some(\"fn helper() {}\\n\")",
+  )
+  debug_inspect(
+    source_map.get_display_name(root_path),
+    content="Some(\"root.wesl\")",
+  )
+  debug_inspect(
+    source_map.get_default_source(),
+    content="Some(\"fn helper() {}\\n\")",
+  )
+  match source_map.get_decl("package_helper") {
+    Some((path, item)) => {
+      debug_inspect(path.to_string(), content="\"package\"")
+      debug_inspect(item, content="\"helper\"")
+    }
+    None => fail("expected source map declaration")
+  }
 }
 
 ///|
@@ -535,6 +558,23 @@ test "wesl: facade compile uses custom resolver and sourcemap option" {
   debug_inspect(compiled.modules.length(), content="1")
   debug_inspect(compiled.syntax.global_declarations.length(), content="1")
   debug_inspect(compiled.to_string().contains("@compute"), content="true")
+  match compiled.sourcemap {
+    Some(source_map) => {
+      debug_inspect(
+        source_map.get_source(root_path),
+        content="Some(\"@compute @workgroup_size(1)\\nfn main() {\\n}\\n\")",
+      )
+      debug_inspect(
+        source_map.get_display_name(root_path),
+        content="Some(\"package::shaders::root\")",
+      )
+      debug_inspect(
+        source_map.get_default_source(),
+        content="Some(\"@compute @workgroup_size(1)\\nfn main() {\\n}\\n\")",
+      )
+    }
+    None => fail("expected sourcemap")
+  }
 }
 
 ///|

@@ -251,16 +251,87 @@ pub fn CompileOptions::set_missing_feature_behavior(
 ///|
 pub struct BasicSourceMap {
   root : ModulePath
+  mappings : @hashmap.HashMap[String, (ModulePath, String)]
+  sources : @hashmap.HashMap[ModulePath, (String?, String)]
+  mut default_source : String?
 } derive(Debug)
 
 ///|
 pub fn BasicSourceMap::default() -> BasicSourceMap {
-  BasicSourceMap::{ root: ModulePath::new_root() }
+  BasicSourceMap::{
+    root: ModulePath::new_root(),
+    mappings: @hashmap.HashMap::new(),
+    sources: @hashmap.HashMap::new(),
+    default_source: None,
+  }
 }
 
 ///|
 pub fn BasicSourceMap::new() -> BasicSourceMap {
   BasicSourceMap::default()
+}
+
+///|
+pub fn BasicSourceMap::add_decl(
+  self : BasicSourceMap,
+  decl : String,
+  path : ModulePath,
+  item : String,
+) -> Unit {
+  self.mappings.set(decl, (path, item))
+}
+
+///|
+pub fn BasicSourceMap::add_source(
+  self : BasicSourceMap,
+  file : ModulePath,
+  name : String?,
+  source : String,
+) -> Unit {
+  self.sources.set(file, (name, source))
+}
+
+///|
+pub fn BasicSourceMap::set_default_source(
+  self : BasicSourceMap,
+  source : String,
+) -> Unit {
+  self.default_source = Some(source)
+}
+
+///|
+pub fn BasicSourceMap::get_decl(
+  self : BasicSourceMap,
+  decl : String,
+) -> (ModulePath, String)? {
+  self.mappings.get(decl)
+}
+
+///|
+pub fn BasicSourceMap::get_source(
+  self : BasicSourceMap,
+  path : ModulePath,
+) -> String? {
+  match self.sources.get(path) {
+    Some((_, source)) => Some(source)
+    None => None
+  }
+}
+
+///|
+pub fn BasicSourceMap::get_display_name(
+  self : BasicSourceMap,
+  path : ModulePath,
+) -> String? {
+  match self.sources.get(path) {
+    Some((name, _)) => name
+    None => None
+  }
+}
+
+///|
+pub fn BasicSourceMap::get_default_source(self : BasicSourceMap) -> String? {
+  self.default_source
 }
 
 ///|
@@ -2897,15 +2968,42 @@ fn[R : Resolver] compile_with_mangler_kind(
     assembled
   }
   let syntax = parse_translation_unit(root, source, false)
-  CompileResult::{
-    syntax,
-    sourcemap: if use_sourcemap {
-      Some(BasicSourceMap::{ root, })
-    } else {
-      None
-    },
-    modules: order,
+  let sourcemap = if use_sourcemap {
+    let map = BasicSourceMap::{ ..BasicSourceMap::default(), root, }
+    for module_path in order {
+      let module_source = R::resolve_source(resolver, module_path) catch {
+        _ =>
+          modules[module_path].items.map(fn(item) { item.source }).join("\n\n")
+      }
+      map.add_source(
+        module_path,
+        R::display_name(resolver, module_path),
+        module_source,
+      )
+      let parsed_module = modules[module_path]
+      for item in parsed_module.items {
+        match item.name {
+          Some(name) =>
+            if module_path != root || options.mangle_root {
+              map.add_decl(
+                ManglerKind::mangle(mangler, module_path, name),
+                module_path,
+                name,
+              )
+            }
+          None => ()
+        }
+      }
+    }
+    match map.get_source(root) {
+      Some(root_source) => map.set_default_source(root_source)
+      None => ()
+    }
+    Some(map)
+  } else {
+    None
   }
+  CompileResult::{ syntax, sourcemap, modules: order }
 }
 
 ///|

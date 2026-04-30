@@ -59,9 +59,19 @@ pub(all) struct Attribute {
 
 pub struct BasicSourceMap {
   root : ModulePath
+  mappings : @hashmap.HashMap[String, (ModulePath, String)]
+  sources : @hashmap.HashMap[ModulePath, (String?, String)]
+  mut default_source : String?
 } derive(@debug.Debug)
+pub fn BasicSourceMap::add_decl(Self, String, ModulePath, String) -> Unit
+pub fn BasicSourceMap::add_source(Self, ModulePath, String?, String) -> Unit
 pub fn BasicSourceMap::default() -> Self
+pub fn BasicSourceMap::get_decl(Self, String) -> (ModulePath, String)?
+pub fn BasicSourceMap::get_default_source(Self) -> String?
+pub fn BasicSourceMap::get_display_name(Self, ModulePath) -> String?
+pub fn BasicSourceMap::get_source(Self, ModulePath) -> String?
 pub fn BasicSourceMap::new() -> Self
+pub fn BasicSourceMap::set_default_source(Self, String) -> Unit
 
 pub struct CodegenModule {
   name : String
