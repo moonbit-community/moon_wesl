@@ -226,6 +226,30 @@ test "wesl: strip keeps entrypoints and their transitive dependencies only" {
 }
 
 ///|
+test "wesl: strip keeps declarations referenced by attribute expressions" {
+  let resolver = VirtualResolver::new()
+  let root_path = ModulePath::from_path("/shaders/root")
+  resolver.add_module(
+    root_path, "const GROUP_SIZE = 64;\n\nfn helper_unused() -> u32 {\n  return 1u;\n}\n\n@compute\n@workgroup_size(GROUP_SIZE)\nfn main() {\n  return;\n}\n",
+  )
+
+  let compiled = compile(
+    root_path,
+    resolver,
+    EscapeMangler::default(),
+    CompileOptions::default(),
+  )
+  let compiled_text = compiled.to_string()
+
+  debug_inspect(compiled_text.contains("const GROUP_SIZE"), content="true")
+  debug_inspect(compiled_text.contains("helper_unused"), content="false")
+  debug_inspect(
+    compiled_text.contains("@workgroup_size(GROUP_SIZE)"),
+    content="true",
+  )
+}
+
+///|
 test "wesl: lowering removes aliases and global const declarations" {
   let resolver = VirtualResolver::new()
   let root_path = ModulePath::from_path("/shaders/root")

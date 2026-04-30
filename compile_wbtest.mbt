@@ -45,6 +45,30 @@ fn compile_test_ast_refs(
 }
 
 ///|
+fn compile_test_module_item_refs(
+  decl : GlobalDeclaration,
+  names : Array[String],
+) -> Array[ModuleItemRef] {
+  wesl_collect_module_item_references(
+    ModuleItem::{
+      name: decl.ident(),
+      kind: wesl_item_kind(decl.header),
+      header: decl.header,
+      attributes: decl.attributes,
+      source: decl.source,
+      span: decl.span,
+      entrypoint: decl.is_entrypoint(),
+      is_const_assert: decl.is_const_assert(),
+      references: [],
+    },
+    compile_test_named_items(names),
+    @hashmap.HashMap::new(),
+    [],
+    try! parse_module_path("root"),
+  )
+}
+
+///|
 fn compile_test_ast_refs_with_import(
   header : GlobalDeclarationHeader,
   namespace_path : ModulePath,
@@ -70,6 +94,28 @@ fn compile_test_ast_refs_with_import(
     imports,
     try! parse_module_path("root"),
   )
+}
+
+///|
+test "compile: AST reference collector follows attribute expression refs" {
+  let source =
+    #|const GROUP_SIZE = 64;
+    #|const INPUT_LOCATION = 0;
+    #|const OUTPUT_LOCATION = 1;
+    #|
+    #|@compute
+    #|@workgroup_size(GROUP_SIZE)
+    #|fn main(@location(INPUT_LOCATION) value: f32) -> @location(OUTPUT_LOCATION) f32 {
+    #|  return value;
+    #|}
+  let unit = compile_test_module(source)
+  let refs = compile_test_module_item_refs(unit.global_declarations[3], [
+    "GROUP_SIZE", "INPUT_LOCATION", "OUTPUT_LOCATION", "main",
+  ])
+  inspect(refs.length(), content="3")
+  inspect(refs[0] == ModuleItemRef::Local("GROUP_SIZE"), content="true")
+  inspect(refs[1] == ModuleItemRef::Local("INPUT_LOCATION"), content="true")
+  inspect(refs[2] == ModuleItemRef::Local("OUTPUT_LOCATION"), content="true")
 }
 
 ///|

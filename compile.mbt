@@ -415,6 +415,7 @@ priv struct ModuleItem {
   name : String?
   kind : ModuleItemKind
   header : GlobalDeclarationHeader
+  attributes : Array[Attribute]
   source : String
   span : SyntaxSpan
   entrypoint : Bool
@@ -1755,6 +1756,40 @@ fn wesl_ast_collect_expression_references(
 }
 
 ///|
+fn wesl_ast_collect_attribute_references(
+  attribute : Attribute,
+  references : Array[ModuleItemRef],
+  scopes : Array[Array[String]],
+  named_items : @hashmap.HashMap[String, Int],
+  import_by_local : @hashmap.HashMap[String, Int],
+  imports : Array[ImportItem],
+  current_path : ModulePath,
+) -> Unit {
+  for expr in attribute.argument_exprs {
+    wesl_ast_collect_expression_references(
+      expr, references, scopes, named_items, import_by_local, imports, current_path,
+    )
+  }
+}
+
+///|
+fn wesl_ast_collect_attributes_references(
+  attributes : Array[Attribute],
+  references : Array[ModuleItemRef],
+  scopes : Array[Array[String]],
+  named_items : @hashmap.HashMap[String, Int],
+  import_by_local : @hashmap.HashMap[String, Int],
+  imports : Array[ImportItem],
+  current_path : ModulePath,
+) -> Unit {
+  for attribute in attributes {
+    wesl_ast_collect_attribute_references(
+      attribute, references, scopes, named_items, import_by_local, imports, current_path,
+    )
+  }
+}
+
+///|
 fn wesl_ast_collect_declaration_references(
   declaration : StatementDeclaration,
   references : Array[ModuleItemRef],
@@ -1794,6 +1829,15 @@ fn wesl_ast_collect_statement_references(
   imports : Array[ImportItem],
   current_path : ModulePath,
 ) -> Unit {
+  wesl_ast_collect_attributes_references(
+    statement.attributes,
+    references,
+    scopes,
+    named_items,
+    import_by_local,
+    imports,
+    current_path,
+  )
   match statement.expression {
     Some(expr) =>
       wesl_ast_collect_expression_references(
@@ -1925,6 +1969,15 @@ fn wesl_ast_collect_control_references(
         current_path,
       )
       for case_ in switch_.cases {
+        wesl_ast_collect_attributes_references(
+          case_.attributes,
+          references,
+          scopes,
+          named_items,
+          import_by_local,
+          imports,
+          current_path,
+        )
         for selector in case_.selectors {
           wesl_ast_collect_expression_references(
             selector, references, scopes, named_items, import_by_local, imports,
@@ -2151,6 +2204,15 @@ fn wesl_collect_ast_item_references(
     }
     Function(function_) => {
       for parameter in function_.parameters {
+        wesl_ast_collect_attributes_references(
+          parameter.attributes,
+          references,
+          scopes,
+          named_items,
+          import_by_local,
+          imports,
+          current_path,
+        )
         wesl_ast_collect_type_reference(
           parameter.type_expr,
           references,
@@ -2168,6 +2230,15 @@ fn wesl_collect_ast_item_references(
           )
         None => ()
       }
+      wesl_ast_collect_attributes_references(
+        function_.return_attributes,
+        references,
+        scopes,
+        named_items,
+        import_by_local,
+        imports,
+        current_path,
+      )
       for parameter in function_.parameters {
         wesl_ast_bind_name(scopes, parameter.name)
       }
@@ -2183,6 +2254,15 @@ fn wesl_collect_ast_item_references(
     }
     Struct(struct_) =>
       for field in struct_.members {
+        wesl_ast_collect_attributes_references(
+          field.attributes,
+          references,
+          scopes,
+          named_items,
+          import_by_local,
+          imports,
+          current_path,
+        )
         wesl_ast_collect_type_reference(
           field.type_expr,
           references,
@@ -2219,13 +2299,27 @@ fn wesl_collect_module_item_references(
   imports : Array[ImportItem],
   current_path : ModulePath,
 ) -> Array[ModuleItemRef] {
-  let references = wesl_collect_ast_item_references(
-    item.header,
+  let references : Array[ModuleItemRef] = []
+  let scopes : Array[Array[String]] = [[]]
+  wesl_ast_collect_attributes_references(
+    item.attributes,
+    references,
+    scopes,
     named_items,
     import_by_local,
     imports,
     current_path,
   )
+  for
+    reference in wesl_collect_ast_item_references(
+      item.header,
+      named_items,
+      import_by_local,
+      imports,
+      current_path,
+    ) {
+    wesl_push_unique_item_ref(references, reference)
+  }
   for
     reference in wesl_collect_legacy_item_references(
       item.source,
@@ -2629,6 +2723,7 @@ fn[R : Resolver] wesl_load_module(
           name: decl.ident(),
           kind: wesl_item_kind(decl.header),
           header: decl.header,
+          attributes: decl.attributes,
           source: decl.source,
           span: decl.span,
           entrypoint: decl.is_entrypoint(),
@@ -2855,6 +2950,7 @@ fn wesl_lower_source(source : String) -> String raise WeslCompileError {
       name: decl.ident(),
       kind: wesl_item_kind(decl.header),
       header: decl.header,
+      attributes: decl.attributes,
       source: decl.source,
       span: decl.span,
       entrypoint: decl.is_entrypoint(),
