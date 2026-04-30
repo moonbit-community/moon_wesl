@@ -300,6 +300,8 @@ priv enum ConstEvalType {
   I32
   U32
   F32
+  FrexpAbstractResult
+  FrexpF32Result
 }
 
 ///|
@@ -963,6 +965,8 @@ priv enum ConstEvalValue {
   I32(Int64)
   U32(Int64)
   F32(Float)
+  FrexpAbstract(Double, Int64)
+  FrexpF32(Float, Int64)
 }
 
 ///|
@@ -1010,6 +1014,8 @@ fn ConstEvalValue::value_type(self : ConstEvalValue) -> ConstEvalType {
     I32(_) => ConstEvalType::I32
     U32(_) => ConstEvalType::U32
     F32(_) => ConstEvalType::F32
+    FrexpAbstract(_, _) => ConstEvalType::FrexpAbstractResult
+    FrexpF32(_, _) => ConstEvalType::FrexpF32Result
   }
 }
 
@@ -1022,6 +1028,8 @@ fn ConstEvalType::label(self : ConstEvalType) -> String {
     I32 => "i32"
     U32 => "u32"
     F32 => "f32"
+    FrexpAbstractResult => "__frexp_result_abstract"
+    FrexpF32Result => "__frexp_result_f32"
   }
 }
 
@@ -1310,6 +1318,10 @@ fn const_eval_require_i32(
       raise WeslCompileError::Validation(
         "cannot convert f32 to i32 in \{context}",
       )
+    FrexpAbstract(_, _) | FrexpF32(_, _) =>
+      raise WeslCompileError::Validation(
+        "cannot convert frexp result to i32 in \{context}",
+      )
   }
 }
 
@@ -1348,6 +1360,10 @@ fn const_eval_require_u32(
       raise WeslCompileError::Validation(
         "cannot convert f32 to u32 in \{context}",
       )
+    FrexpAbstract(_, _) | FrexpF32(_, _) =>
+      raise WeslCompileError::Validation(
+        "cannot convert frexp result to u32 in \{context}",
+      )
   }
 }
 
@@ -1377,6 +1393,10 @@ fn const_eval_require_f32(
     U32(_) =>
       raise WeslCompileError::Validation(
         "cannot convert u32 to f32 in \{context}",
+      )
+    FrexpAbstract(_, _) | FrexpF32(_, _) =>
+      raise WeslCompileError::Validation(
+        "cannot convert frexp result to f32 in \{context}",
       )
   }
 }
@@ -1422,6 +1442,7 @@ fn const_eval_convert_to_type(
     I32 => ConstEvalValue::I32(const_eval_require_i32(value, context))
     U32 => ConstEvalValue::U32(const_eval_require_u32(value, context))
     F32 => ConstEvalValue::F32(const_eval_require_f32(value, context))
+    FrexpAbstractResult | FrexpF32Result => value
   }
 }
 
@@ -1437,6 +1458,8 @@ fn const_eval_unary_neg(
     I32(number) => ConstEvalValue::I32(-number)
     U32(_) => raise WeslCompileError::Validation("cannot negate u32 literal")
     F32(number) => ConstEvalValue::F32(-number)
+    FrexpAbstract(_, _) | FrexpF32(_, _) =>
+      raise WeslCompileError::Validation("cannot negate frexp result")
   }
 }
 
@@ -1473,6 +1496,10 @@ fn const_eval_unary_bit_not(
       raise WeslCompileError::Validation(
         "cannot use unary operator `~` on type `f32`",
       )
+    FrexpAbstract(_, _) | FrexpF32(_, _) =>
+      raise WeslCompileError::Validation(
+        "cannot use unary operator `~` on type `frexp result`",
+      )
   }
 }
 
@@ -1496,6 +1523,10 @@ fn const_eval_to_abstract_float(
     U32(_) =>
       raise WeslCompileError::Validation(
         "cannot use u32 with abstract float in \{context}",
+      )
+    FrexpAbstract(_, _) | FrexpF32(_, _) =>
+      raise WeslCompileError::Validation(
+        "cannot use frexp result with abstract float in \{context}",
       )
   }
 }
@@ -1704,6 +1735,10 @@ fn const_eval_apply_bitwise(
     (left, AbstractFloat(_, _)) => const_eval_binary_type_error(op, left, rhs)
     (F32(_), right) => const_eval_binary_type_error(op, lhs, right)
     (left, F32(_)) => const_eval_binary_type_error(op, left, rhs)
+    (FrexpAbstract(_, _) | FrexpF32(_, _), right) =>
+      const_eval_binary_type_error(op, lhs, right)
+    (left, FrexpAbstract(_, _) | FrexpF32(_, _)) =>
+      const_eval_binary_type_error(op, left, rhs)
     (U32(_), I32(_)) => const_eval_binary_type_error(op, lhs, rhs)
     (I32(_), U32(_)) => const_eval_binary_type_error(op, lhs, rhs)
     (U32(left), right) => {
@@ -1773,6 +1808,8 @@ fn const_eval_apply_shift(
     Bool(_) => const_eval_binary_type_error(op, lhs, rhs)
     AbstractFloat(_, _) => const_eval_binary_type_error(op, lhs, rhs)
     F32(_) => const_eval_binary_type_error(op, lhs, rhs)
+    FrexpAbstract(_, _) | FrexpF32(_, _) =>
+      const_eval_binary_type_error(op, lhs, rhs)
     AbstractInt(left) =>
       ConstEvalValue::AbstractInt(const_eval_shift_int(op, left, rhs))
     U32(left) =>
@@ -1803,6 +1840,10 @@ fn const_eval_apply_comparison(
       ConstEvalValue::Bool(const_eval_compare_bool(op, left, right))
     (Bool(_), right) => const_eval_binary_type_error(op, lhs, right)
     (left, Bool(_)) => const_eval_binary_type_error(op, left, rhs)
+    (FrexpAbstract(_, _) | FrexpF32(_, _), right) =>
+      const_eval_binary_type_error(op, lhs, right)
+    (left, FrexpAbstract(_, _) | FrexpF32(_, _)) =>
+      const_eval_binary_type_error(op, left, rhs)
     (F32(left), right) =>
       ConstEvalValue::Bool(
         const_eval_compare_float(
@@ -1889,6 +1930,10 @@ fn const_eval_apply_binary(
     _ => ()
   }
   match (lhs, rhs) {
+    (FrexpAbstract(_, _) | FrexpF32(_, _), _) =>
+      const_eval_binary_type_error(op, lhs, rhs)
+    (_, FrexpAbstract(_, _) | FrexpF32(_, _)) =>
+      const_eval_binary_type_error(op, lhs, rhs)
     (Bool(_), _) =>
       raise WeslCompileError::Validation(
         "cannot use bool in arithmetic expression",
@@ -2098,6 +2143,10 @@ fn const_eval_render_value(value : ConstEvalValue) -> String {
     I32(number) => "\{number}i"
     U32(number) => "\{number}u"
     F32(number) => const_eval_format_f32(number)
+    FrexpAbstract(fract, exp) =>
+      "__frexp_result_abstract(\{const_eval_format_abstract_float(fract)}, \{exp})"
+    FrexpF32(fract, exp) =>
+      "__frexp_result_f32(\{const_eval_format_f32(fract)}, \{exp}i)"
   }
 }
 

@@ -259,6 +259,30 @@ test "wesl: eval_str evaluates standalone const expressions" {
   inspect(eval_str("sign(-3.0)").to_string(), content="-1.0")
   inspect(eval_str("sign(0)").to_string(), content="0")
   inspect(eval_str("sign(2u)").to_string(), content="1u")
+  inspect(
+    eval_str("frexp(1.5)").to_string(),
+    content="__frexp_result_abstract(0.75, 1)",
+  )
+  inspect(
+    eval_str("frexp(-1.5)").to_string(),
+    content="__frexp_result_abstract(-0.75, 1)",
+  )
+  inspect(
+    eval_str("frexp(0.0)").to_string(),
+    content="__frexp_result_abstract(0.0, 0)",
+  )
+  inspect(
+    eval_str("frexp(4.0)").to_string(),
+    content="__frexp_result_abstract(0.5, 3)",
+  )
+  inspect(
+    eval_str("frexp(1.5f)").to_string(),
+    content="__frexp_result_f32(0.75f, 1i)",
+  )
+  inspect(
+    eval_str("frexp(0f)").to_string(),
+    content="__frexp_result_f32(0f, 0i)",
+  )
   inspect(eval_str("1.0 + 2.0").to_string(), content="3.0")
   inspect(eval_str("true").to_string(), content="true")
   inspect(eval_str("false").to_string(), content="false")

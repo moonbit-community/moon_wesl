@@ -31,6 +31,10 @@ fn const_eval_clamp_type(
       I32 => has_i32 = true
       U32 => has_u32 = true
       AbstractInt => ()
+      FrexpAbstractResult | FrexpF32Result =>
+        raise WeslCompileError::Validation(
+          "cannot use frexp result with clamp arguments",
+        )
     }
   }
   if has_u32 && has_i32 {
@@ -68,6 +72,10 @@ fn const_eval_numeric_join_type(
       I32 => has_i32 = true
       U32 => has_u32 = true
       AbstractInt => ()
+      FrexpAbstractResult | FrexpF32Result =>
+        raise WeslCompileError::Validation(
+          "cannot use frexp result with \{context} arguments",
+        )
     }
   }
   if has_u32 && has_i32 {
@@ -145,6 +153,8 @@ fn const_eval_apply_saturate(
   }
   match args[0] {
     Bool(_) | I32(_) | U32(_) =>
+      raise WeslCompileError::Validation("`clamp` arguments are incompatible")
+    FrexpAbstract(_, _) | FrexpF32(_, _) =>
       raise WeslCompileError::Validation("`clamp` arguments are incompatible")
     AbstractInt(number) =>
       ConstEvalValue::AbstractFloat(
@@ -268,6 +278,10 @@ fn const_eval_apply_min_or_max(
       raise WeslCompileError::Validation(
         "cannot use bool with `\{name}` arguments",
       )
+    FrexpAbstractResult | FrexpF32Result =>
+      raise WeslCompileError::Validation(
+        "cannot use frexp result with `\{name}` arguments",
+      )
   }
 }
 
@@ -317,6 +331,10 @@ fn const_eval_apply_abs(
     AbstractFloat(number, f32_lossless) =>
       ConstEvalValue::AbstractFloat(const_eval_abs_double(number), f32_lossless)
     F32(number) => ConstEvalValue::F32(const_eval_abs_float(number))
+    FrexpAbstract(_, _) | FrexpF32(_, _) =>
+      raise WeslCompileError::Validation(
+        "`abs` expects a scalar or vector of scalar argument",
+      )
   }
 }
 
@@ -359,7 +377,7 @@ fn const_eval_require_float_builtin_arg(
     raise WeslCompileError::Validation("`\{name}` expects one argument")
   }
   match args[0] {
-    Bool(_) | I32(_) | U32(_) =>
+    Bool(_) | I32(_) | U32(_) | FrexpAbstract(_, _) | FrexpF32(_, _) =>
       raise WeslCompileError::Validation(
         "`\{name}` expects a float or vector of float argument",
       )
@@ -471,7 +489,7 @@ fn const_eval_apply_float_unary_builtin(
             )
         },
       )
-    Bool(_) | I32(_) | U32(_) =>
+    Bool(_) | I32(_) | U32(_) | FrexpAbstract(_, _) | FrexpF32(_, _) =>
       raise WeslCompileError::Validation(
         "`\{name}` expects a float or vector of float argument",
       )
@@ -489,7 +507,7 @@ fn const_eval_float_binary_type(
   let mut has_f32 = false
   for arg in args {
     match arg {
-      Bool(_) | I32(_) | U32(_) =>
+      Bool(_) | I32(_) | U32(_) | FrexpAbstract(_, _) | FrexpF32(_, _) =>
         raise WeslCompileError::Validation(
           "`\{name}` expects a float or vector of float argument",
         )
@@ -569,7 +587,7 @@ fn const_eval_apply_ldexp(
       )
   }
   match args[0] {
-    Bool(_) | I32(_) | U32(_) =>
+    Bool(_) | I32(_) | U32(_) | FrexpAbstract(_, _) | FrexpF32(_, _) =>
       raise WeslCompileError::Validation(
         "`ldexp` with scalar arguments expects a float and a i32 arguments",
       )
@@ -614,7 +632,7 @@ fn const_eval_require_float_builtin_double(
   name : String,
 ) -> Double raise WeslCompileError {
   match value {
-    Bool(_) | I32(_) | U32(_) =>
+    Bool(_) | I32(_) | U32(_) | FrexpAbstract(_, _) | FrexpF32(_, _) =>
       raise WeslCompileError::Validation(
         "`\{name}` expects a float or vector of float argument",
       )
@@ -646,7 +664,7 @@ fn const_eval_mix_type(
   let mut has_f32 = false
   for arg in args {
     match arg {
-      Bool(_) | I32(_) | U32(_) =>
+      Bool(_) | I32(_) | U32(_) | FrexpAbstract(_, _) | FrexpF32(_, _) =>
         raise WeslCompileError::Validation("`mix` arguments are incompatible")
       F32(_) => has_f32 = true
       AbstractInt(_) | AbstractFloat(_, _) => ()
@@ -737,6 +755,10 @@ fn const_eval_apply_sign(
     AbstractFloat(number, _) =>
       ConstEvalValue::AbstractFloat(const_eval_sign_double(number), true)
     F32(number) => ConstEvalValue::F32(const_eval_sign_float(number))
+    FrexpAbstract(_, _) | FrexpF32(_, _) =>
+      raise WeslCompileError::Validation(
+        "`sign` expects a float or vector of float argument",
+      )
   }
 }
 
@@ -824,13 +846,67 @@ fn const_eval_apply_integer_bit_count(
 ) -> ConstEvalValue raise WeslCompileError {
   let arg = const_eval_require_one_bit_count_arg(name, args)
   match arg {
-    Bool(_) | AbstractFloat(_, _) | F32(_) =>
+    Bool(_)
+    | AbstractFloat(_, _)
+    | F32(_)
+    | FrexpAbstract(_, _)
+    | FrexpF32(_, _) =>
       raise WeslCompileError::Validation(
         "`\{name}` expects a float or vector of float argument",
       )
     AbstractInt(number) => ConstEvalValue::AbstractInt(count(number, 64))
     I32(number) => ConstEvalValue::I32(count(number, 32))
     U32(number) => ConstEvalValue::U32(count(number, 32))
+  }
+}
+
+///|
+fn const_eval_frexp_parts(value : Double) -> (Double, Int64) {
+  if value == 0.0 {
+    return (value, 0L)
+  }
+  let mut fract = value
+  let mut exponent = 0L
+  let mut magnitude = const_eval_abs_double(fract)
+  while magnitude < 0.5 {
+    fract = fract * 2.0
+    exponent -= 1L
+    magnitude = const_eval_abs_double(fract)
+  }
+  while magnitude >= 1.0 {
+    fract = fract / 2.0
+    exponent += 1L
+    magnitude = const_eval_abs_double(fract)
+  }
+  (fract, exponent)
+}
+
+///|
+fn const_eval_frexp_abstract(value : Double) -> ConstEvalValue {
+  let (fract, exponent) = const_eval_frexp_parts(value)
+  ConstEvalValue::FrexpAbstract(fract, exponent)
+}
+
+///|
+fn const_eval_frexp_f32(value : Float) -> ConstEvalValue {
+  let (fract, exponent) = const_eval_frexp_parts(value.to_double())
+  ConstEvalValue::FrexpF32(Float::from_double(fract), exponent)
+}
+
+///|
+fn const_eval_apply_frexp(
+  args : Array[ConstEvalValue],
+) -> ConstEvalValue raise WeslCompileError {
+  if args.length() != 1 {
+    let signature = const_eval_format_call_signature("frexp", args)
+    raise WeslCompileError::Validation(
+      "invalid function call signature: `\{signature}`",
+    )
+  }
+  match args[0] {
+    AbstractFloat(value, _) => const_eval_frexp_abstract(value)
+    F32(value) => const_eval_frexp_f32(value)
+    _ => raise WeslCompileError::Validation("not implemented: `frexp`")
   }
 }
 
@@ -877,6 +953,7 @@ fn const_eval_dispatch_builtin(
     "step" => Some(const_eval_apply_step(values))
     "mix" => Some(const_eval_apply_mix(values))
     "sign" => Some(const_eval_apply_sign(values))
+    "frexp" => Some(const_eval_apply_frexp(values))
     "countOneBits" =>
       Some(
         const_eval_apply_integer_bit_count(
@@ -899,7 +976,6 @@ fn const_eval_dispatch_builtin(
     | "firstLeadingBit"
     | "firstTrailingBit"
     | "fma"
-    | "frexp"
     | "insertBits"
     | "modf"
     | "quantizeToF16"
