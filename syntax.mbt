@@ -267,6 +267,9 @@ pub(all) enum GlobalDeclarationHeader {
   Let(LetDeclaration)
   Var(VarDeclaration)
   ConstAssert
+  EnableDirective
+  RequiresDirective
+  DiagnosticDirective
   Other
 } derive(Eq, Debug)
 
@@ -292,6 +295,9 @@ fn GlobalDeclaration::ident(self : GlobalDeclaration) -> String? {
       header.ident()
     }
     ConstAssert => None
+    EnableDirective => None
+    RequiresDirective => None
+    DiagnosticDirective => None
     Other => None
   }
 }

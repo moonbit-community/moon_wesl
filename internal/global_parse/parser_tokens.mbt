@@ -11,6 +11,9 @@ pub(all) enum Token {
   LET
   VAR
   CONST_ASSERT
+  ENABLE
+  REQUIRES
+  DIAGNOSTIC
   OTHER
 } derive(Debug)
 
@@ -28,6 +31,9 @@ pub fn Token::kind(self : Token) -> TokenKind {
     LET => TK_LET
     VAR => TK_VAR
     CONST_ASSERT => TK_CONST_ASSERT
+    ENABLE => TK_ENABLE
+    REQUIRES => TK_REQUIRES
+    DIAGNOSTIC => TK_DIAGNOSTIC
     OTHER => TK_OTHER
   }
 }
@@ -45,6 +51,9 @@ pub(all) enum TokenKind {
   TK_LET
   TK_VAR
   TK_CONST_ASSERT
+  TK_ENABLE
+  TK_REQUIRES
+  TK_DIAGNOSTIC
   TK_OTHER
 }
 
@@ -63,6 +72,9 @@ pub impl Show for TokenKind with output(self, logger) {
       TK_LET => "\"let\""
       TK_VAR => "\"var\""
       TK_CONST_ASSERT => "\"const_assert\""
+      TK_ENABLE => "\"enable\""
+      TK_REQUIRES => "\"requires\""
+      TK_DIAGNOSTIC => "\"diagnostic\""
       TK_OTHER => "OTHER"
     },
   )
@@ -82,6 +94,9 @@ pub impl Debug for TokenKind with to_repr(self) {
     TK_LET => to_repr("let")
     TK_VAR => to_repr("var")
     TK_CONST_ASSERT => to_repr("const_assert")
+    TK_ENABLE => to_repr("enable")
+    TK_REQUIRES => to_repr("requires")
+    TK_DIAGNOSTIC => to_repr("diagnostic")
     TK_OTHER => to_repr("OTHER")
   }
 }

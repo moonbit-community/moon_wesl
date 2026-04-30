@@ -367,6 +367,23 @@ test "wesl: parser handles attribute arguments and generic var declarations" {
 }
 
 ///|
+test "wesl: parser classifies global directives" {
+  let unit = parse_translation_unit(
+    ModulePath::from_path("/shaders/root"),
+    "enable f16;\nrequires readonly_and_readwrite_storage_textures;\ndiagnostic(error, derivative_uniformity);\n",
+    true,
+  )
+  let headers : Array[GlobalDeclarationHeader] = []
+  for declaration in unit.global_declarations {
+    headers.push(declaration.header)
+  }
+  debug_inspect(
+    headers,
+    content="[EnableDirective, RequiresDirective, DiagnosticDirective]",
+  )
+}
+
+///|
 test "wesl: nested grouped imports resolve through syntax tree flattening" {
   let resolver = VirtualResolver::new()
   let util_path = ModulePath::from_path("/shaders/util")

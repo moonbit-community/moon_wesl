@@ -28,6 +28,9 @@ pub(all) enum GlobalParseHeader {
   Let(String)
   Var(GlobalParseVar)
   ConstAssert
+  EnableDirective
+  RequiresDirective
+  DiagnosticDirective
   Other
 } derive(Eq, Debug)
 
@@ -151,6 +154,9 @@ fn global_parse_keyword_token(name : String) -> Token {
     "let" => LET
     "var" => VAR
     "const_assert" => CONST_ASSERT
+    "enable" => ENABLE
+    "requires" => REQUIRES
+    "diagnostic" => DIAGNOSTIC
     _ => IDENT(name)
   }
 }

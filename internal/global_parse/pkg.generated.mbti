@@ -31,6 +31,9 @@ pub(all) enum GlobalParseHeader {
   Let(String)
   Var(GlobalParseVar)
   ConstAssert
+  EnableDirective
+  RequiresDirective
+  DiagnosticDirective
   Other
 } derive(Eq, @debug.Debug)
 
@@ -56,6 +59,9 @@ pub(all) enum Token {
   LET
   VAR
   CONST_ASSERT
+  ENABLE
+  REQUIRES
+  DIAGNOSTIC
   OTHER
 } derive(@debug.Debug)
 pub fn Token::kind(Self) -> TokenKind
@@ -72,6 +78,9 @@ pub(all) enum TokenKind {
   TK_LET
   TK_VAR
   TK_CONST_ASSERT
+  TK_ENABLE
+  TK_REQUIRES
+  TK_DIAGNOSTIC
   TK_OTHER
 }
 pub impl Show for TokenKind

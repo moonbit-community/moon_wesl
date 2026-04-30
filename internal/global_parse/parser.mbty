@@ -14,6 +14,9 @@
 %token LET          "let"
 %token VAR          "var"
 %token CONST_ASSERT "const_assert"
+%token ENABLE       "enable"
+%token REQUIRES     "requires"
+%token DIAGNOSTIC   "diagnostic"
 %token OTHER
 
 %type<GlobalParseHeader> parse_global_header
@@ -43,6 +46,9 @@ parse_global_header
                                  { GlobalParseHeader::Var(GlobalParseVar::{ name: Some($4), template_arguments: $3 }) }
   | attributes "const_assert" tail
                                  { GlobalParseHeader::ConstAssert }
+  | attributes "enable" tail      { GlobalParseHeader::EnableDirective }
+  | attributes "requires" tail    { GlobalParseHeader::RequiresDirective }
+  | attributes "diagnostic" tail  { GlobalParseHeader::DiagnosticDirective }
   | attributes other_global       { GlobalParseHeader::Other }
   ;
 
@@ -73,6 +79,9 @@ tail_item
   | "let"                         { () }
   | "var"                         { () }
   | "const_assert"                { () }
+  | "enable"                      { () }
+  | "requires"                    { () }
+  | "diagnostic"                  { () }
   | OTHER                         { () }
   ;
 

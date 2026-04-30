@@ -595,6 +595,12 @@ fn Parser::parse_global_declaration(
     }
     @global_parse.Parsed(@global_parse.ConstAssert) =>
       GlobalDeclarationHeader::ConstAssert
+    @global_parse.Parsed(@global_parse.EnableDirective) =>
+      GlobalDeclarationHeader::EnableDirective
+    @global_parse.Parsed(@global_parse.RequiresDirective) =>
+      GlobalDeclarationHeader::RequiresDirective
+    @global_parse.Parsed(@global_parse.DiagnosticDirective) =>
+      GlobalDeclarationHeader::DiagnosticDirective
     @global_parse.Parsed(@global_parse.Other) => GlobalDeclarationHeader::Other
     @global_parse.Failed(diagnostic) => {
       let byte_offset = if self.tokens.length() > 0 {

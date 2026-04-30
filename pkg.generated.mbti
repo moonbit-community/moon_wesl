@@ -191,6 +191,9 @@ pub(all) enum GlobalDeclarationHeader {
   Let(LetDeclaration)
   Var(VarDeclaration)
   ConstAssert
+  EnableDirective
+  RequiresDirective
+  DiagnosticDirective
   Other
 } derive(Eq, @debug.Debug)
 
