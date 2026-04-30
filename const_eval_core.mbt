@@ -520,6 +520,42 @@ priv enum ConstEvalValue {
 }
 
 ///|
+priv struct ConstEvalContext {
+  bindings : @hashmap.HashMap[String, ConstEvalValue]
+  functions : @hashmap.HashMap[String, ConstEvalFunction]
+}
+
+///|
+fn ConstEvalContext::new() -> ConstEvalContext {
+  ConstEvalContext::{
+    bindings: @hashmap.HashMap::new(),
+    functions: @hashmap.HashMap::new(),
+  }
+}
+
+///|
+fn const_eval_clone_bindings(
+  bindings : @hashmap.HashMap[String, ConstEvalValue],
+) -> @hashmap.HashMap[String, ConstEvalValue] {
+  let copy : @hashmap.HashMap[String, ConstEvalValue] = @hashmap.HashMap::new()
+  for entry in bindings.iter() {
+    let (name, value) = entry
+    copy.set(name, value)
+  }
+  copy
+}
+
+///|
+fn ConstEvalContext::new_call_scope(
+  self : ConstEvalContext,
+) -> ConstEvalContext {
+  ConstEvalContext::{
+    bindings: const_eval_clone_bindings(self.bindings),
+    functions: self.functions,
+  }
+}
+
+///|
 fn ConstEvalValue::value_type(self : ConstEvalValue) -> ConstEvalType {
   match self {
     AbstractInt(_) => ConstEvalType::AbstractInt
@@ -1072,36 +1108,50 @@ fn const_eval_apply_clamp(
 ///|
 fn const_eval_eval_expr(
   expr : ConstEvalExpr,
-  env : @hashmap.HashMap[String, ConstEvalValue],
+  ctx : ConstEvalContext,
 ) -> ConstEvalValue raise WeslCompileError {
   match expr {
     Literal(text) => const_eval_parse_literal(text)
     Binding(name) =>
-      match env.get(name) {
+      match ctx.bindings.get(name) {
         Some(value) => value
         None =>
           raise WeslCompileError::Validation(
             "unknown const-eval binding `\{name}`",
           )
       }
-    UnaryNeg(inner) => const_eval_unary_neg(const_eval_eval_expr(inner, env))
+    UnaryNeg(inner) => const_eval_unary_neg(const_eval_eval_expr(inner, ctx))
     Binary(op, lhs, rhs) =>
       const_eval_apply_binary(
         op,
-        const_eval_eval_expr(lhs, env),
-        const_eval_eval_expr(rhs, env),
+        const_eval_eval_expr(lhs, ctx),
+        const_eval_eval_expr(rhs, ctx),
       )
     Call(name, args) => {
       let values : Array[ConstEvalValue] = []
       for arg in args {
-        values.push(const_eval_eval_expr(arg, env))
+        values.push(const_eval_eval_expr(arg, ctx))
       }
       match name {
         "clamp" => const_eval_apply_clamp(values)
         _ =>
-          raise WeslCompileError::Validation(
-            "unsupported const-eval call `\{name}`",
-          )
+          match ctx.functions.get(name) {
+            Some(function_) =>
+              if values.length() == 0 {
+                const_eval_execute_function_value(
+                  function_,
+                  ctx.new_call_scope(),
+                )
+              } else {
+                raise WeslCompileError::Validation(
+                  "unsupported const-eval call `\{name}`",
+                )
+              }
+            None =>
+              raise WeslCompileError::Validation(
+                "unsupported const-eval call `\{name}`",
+              )
+          }
       }
     }
   }
@@ -1139,29 +1189,28 @@ fn const_eval_render_value(value : ConstEvalValue) -> String {
 }
 
 ///|
-fn const_eval_execute_function(
+fn const_eval_execute_function_value(
   function : ConstEvalFunction,
-) -> String raise WeslCompileError {
-  let env : @hashmap.HashMap[String, ConstEvalValue] = @hashmap.HashMap::new()
+  ctx : ConstEvalContext,
+) -> ConstEvalValue raise WeslCompileError {
   for statement in function.statements {
     match statement {
       Binding(binding) => {
-        let value = const_eval_eval_expr(binding.expr, env)
+        let value = const_eval_eval_expr(binding.expr, ctx)
         let stored = match binding.declared_type {
           Some(target) =>
             const_eval_convert_to_type(value, target, binding.name)
           None => value
         }
-        env.set(binding.name, stored)
+        ctx.bindings.set(binding.name, stored)
       }
       Return(expr) => {
-        let value = const_eval_eval_expr(expr, env)
-        let result = const_eval_convert_to_type(
+        let value = const_eval_eval_expr(expr, ctx)
+        return const_eval_convert_to_type(
           value,
           function.return_type,
           function.name,
         )
-        return const_eval_render_value(result)
       }
     }
   }

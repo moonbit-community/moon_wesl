@@ -164,6 +164,23 @@ test "wesl: compile result eval uses compiled const functions" {
 }
 
 ///|
+test "wesl: compile result eval sees global const context" {
+  let resolver = VirtualResolver::new()
+  let root_path = ModulePath::from_path("/shaders/root")
+  resolver.add_module(
+    root_path, "const BASE: u32 = 40u;\n\n@const\nfn add_two() -> u32 {\n  return BASE + 2u;\n}\n",
+  )
+  let compiled = compile(
+    root_path,
+    resolver,
+    EscapeMangler::default(),
+    CompileOptions::default().keep_declarations(["BASE", "add_two"]),
+  )
+
+  inspect(compiled.eval("BASE + add_two()").to_string(), content="82u")
+}
+
+///|
 test "wesl: feature default and bool conversion match upstream" {
   debug_inspect(Feature::default(), content="Disable")
   debug_inspect(Feature::from_bool(true), content="Enable")

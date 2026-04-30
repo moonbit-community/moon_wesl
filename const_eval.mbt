@@ -31,11 +31,16 @@ fn eval_const_function(
   let parser = ConstEvalParser::new(tokens)
   let function = parser.parse_function()
   const_eval_validate_target(target_expr.trim().to_owned(), function.name)
-  const_eval_execute_function(function)
+  const_eval_render_value(
+    const_eval_execute_function_value(function, ConstEvalContext::new()),
+  )
 }
 
 ///|
-fn eval_const_expression(source : String) -> String raise WeslCompileError {
+fn const_eval_parse_expression_value(
+  source : String,
+  ctx : ConstEvalContext,
+) -> ConstEvalValue raise WeslCompileError {
   let tokens = const_eval_lex(source)
   let parser = ConstEvalParser::new(tokens)
   let expr = parser.parse_expression()
@@ -44,27 +49,80 @@ fn eval_const_expression(source : String) -> String raise WeslCompileError {
       "unexpected trailing const-eval expression tokens",
     )
   }
-  const_eval_render_value(const_eval_eval_expr(expr, @hashmap.HashMap::new()))
+  const_eval_eval_expr(expr, ctx)
 }
 
 ///|
-fn const_eval_target_function_name(
-  target_expr : String,
-) -> String raise WeslCompileError {
-  let tokens = const_eval_lex(target_expr.trim().to_owned())
-  let parser = ConstEvalParser::new(tokens)
-  match parser.view() {
-    [Ident(name), LeftParen, RightParen, .. rest] => {
-      parser.update_view(rest)
-      if parser.view().is_empty() {
-        return name
-      }
-    }
-    _ => ()
-  }
-  raise WeslCompileError::Validation(
-    "unsupported const-eval target `\{target_expr}`",
+fn eval_const_expression(source : String) -> String raise WeslCompileError {
+  const_eval_render_value(
+    const_eval_parse_expression_value(source, ConstEvalContext::new()),
   )
+}
+
+///|
+fn const_eval_parse_type_source(
+  source : String,
+) -> ConstEvalType raise WeslCompileError {
+  let tokens = const_eval_lex(source)
+  let parser = ConstEvalParser::new(tokens)
+  let type_ = parser.parse_type()
+  if !parser.view().is_empty() {
+    raise WeslCompileError::Validation(
+      "unexpected trailing const-eval type tokens",
+    )
+  }
+  type_
+}
+
+///|
+fn const_eval_function_from_source(
+  source : String,
+) -> ConstEvalFunction raise WeslCompileError {
+  let tokens = const_eval_lex(source)
+  let parser = ConstEvalParser::new(tokens)
+  parser.parse_function()
+}
+
+///|
+fn const_eval_context_from_translation_unit(
+  unit : TranslationUnit,
+) -> ConstEvalContext raise WeslCompileError {
+  let ctx = ConstEvalContext::new()
+  for declaration in unit.global_declarations {
+    match declaration.header {
+      Function(function_) =>
+        if syntax_has_attribute(declaration.attributes, "const") {
+          ctx.functions.set(
+            function_.name,
+            const_eval_function_from_source(declaration.source),
+          )
+        }
+      _ => ()
+    }
+  }
+  for declaration in unit.global_declarations {
+    match declaration.header {
+      Const(const_) =>
+        match const_.initializer {
+          Some(initializer) => {
+            let value = const_eval_parse_expression_value(initializer, ctx)
+            let stored = match const_.type_text {
+              Some(type_source) =>
+                const_eval_convert_to_type(
+                  value,
+                  const_eval_parse_type_source(type_source),
+                  const_.name,
+                )
+              None => value
+            }
+            ctx.bindings.set(const_.name, stored)
+          }
+          None => ()
+        }
+      _ => ()
+    }
+  }
+  ctx
 }
 
 ///|
@@ -72,27 +130,8 @@ fn const_eval_from_translation_unit(
   unit : TranslationUnit,
   target_expr : String,
 ) -> String raise WeslCompileError {
-  let target_name = const_eval_target_function_name(target_expr)
-  let mut found_function = false
-  for declaration in unit.global_declarations {
-    match declaration.header {
-      Function(function_) if function_.name == target_name => {
-        found_function = true
-        if syntax_has_attribute(declaration.attributes, "const") {
-          return eval_const_function(declaration.source, target_expr)
-        }
-      }
-      _ => ()
-    }
-  }
-  if found_function {
-    raise WeslCompileError::Validation(
-      "function `\{target_name}` is not marked @const",
-    )
-  }
-  raise WeslCompileError::Validation(
-    "unknown const-eval function `\{target_name}`",
-  )
+  let ctx = const_eval_context_from_translation_unit(unit)
+  const_eval_render_value(const_eval_parse_expression_value(target_expr, ctx))
 }
 
 ///|
