@@ -1583,6 +1583,103 @@ test "wesl: package resolver reads codegen modules" {
 }
 
 ///|
+fn wesl_test_ensure_dir(path : String) -> Unit {
+  if !@fs.path_exists(path) {
+    try! @fs.create_dir(path)
+  }
+}
+
+///|
+test "wesl: package builder scans filesystem artifacts" {
+  let base = "_build/pkg_builder_fixture"
+  let root_dir = base + "/shaders"
+  wesl_test_ensure_dir("_build")
+  wesl_test_ensure_dir(base)
+  wesl_test_ensure_dir(root_dir)
+  wesl_test_ensure_dir(root_dir + "/nested")
+  try! @fs.write_string_to_file(
+    root_dir + ".wesl",
+    "fn root_value() -> f32 {\n  return 1.0;\n}\n",
+  )
+  try! @fs.write_string_to_file(
+    root_dir + "/util.wesl",
+    "fn make_value() -> f32 {\n  return 2.0;\n}\n",
+  )
+  try! @fs.write_string_to_file(
+    root_dir + "/nested/math.wgsl",
+    "fn triple(value: f32) -> f32 {\n  return value * 3.0;\n}\n",
+  )
+  try! @fs.write_string_to_file(
+    root_dir + "/bad-name.wesl",
+    "fn skipped() -> f32 {\n  return 9.0;\n}\n",
+  )
+
+  let pkg = PkgBuilder::new("demo-crate").scan_root(root_dir).validate()
+  let artifact_path = base + "/demo_artifact.mbt.txt"
+  pkg.build_artifact(artifact_path)
+  let artifact = try! @fs.read_file_to_string(artifact_path)
+  debug_inspect(artifact.contains("CodegenPkg::"), content="true")
+  debug_inspect(artifact.contains("demo_crate"), content="true")
+  let codegen_pkg = pkg.to_codegen_pkg()
+  let resolver = PkgResolver::new()
+  resolver.add_package(codegen_pkg)
+
+  debug_inspect(
+    resolver.resolve_source(try! parse_module_path("demo_crate")),
+    content="\"fn root_value() -> f32 {\\n  return 1.0;\\n}\\n\"",
+  )
+  debug_inspect(
+    resolver.resolve_source(try! parse_module_path("demo_crate::util")),
+    content="\"fn make_value() -> f32 {\\n  return 2.0;\\n}\\n\"",
+  )
+  debug_inspect(
+    resolver.resolve_source(try! parse_module_path("demo_crate::nested::math")),
+    content="\"fn triple(value: f32) -> f32 {\\n  return value * 3.0;\\n}\\n\"",
+  )
+  let skipped = try? resolver.resolve_source(
+    try! parse_module_path("demo_crate::bad-name"),
+  )
+  match skipped {
+    Err(ResolveError::ModuleNotFound(_, _)) => ()
+    _ => fail("expected invalid module filename to be skipped")
+  }
+}
+
+///|
+test "wesl: package builder artifacts compile through standard resolver" {
+  let base = "_build/pkg_builder_compile_fixture"
+  let root_dir = base + "/lib"
+  wesl_test_ensure_dir("_build")
+  wesl_test_ensure_dir(base)
+  wesl_test_ensure_dir(base + "/app")
+  wesl_test_ensure_dir(root_dir)
+  try! @fs.write_string_to_file(root_dir + ".wesl", "")
+  try! @fs.write_string_to_file(
+    root_dir + "/util.wesl",
+    "fn make_value() -> f32 {\n  return 4.0;\n}\n",
+  )
+  try! @fs.write_string_to_file(
+    base + "/app/root.wesl",
+    "import shader_lib::util::make_value;\n@fragment\nfn fragment() -> f32 {\n  return make_value();\n}\n",
+  )
+
+  let pkg = PkgBuilder::new("shader-lib").scan_root(root_dir).validate()
+  let compiled = Wesl::new(base)
+    .add_scanned_package(pkg)
+    .use_lower(true)
+    .compile(ModulePath::from_path("/app/root"))
+  let compiled_text = compiled.to_string()
+  let expected = ManglerKind::mangle(
+    ManglerKind::Escape,
+    try! parse_module_path("shader_lib::util"),
+    "make_value",
+  )
+
+  debug_inspect(compiled_text.contains("fn \{expected}"), content="true")
+  debug_inspect(compiled_text.contains("return \{expected}();"), content="true")
+}
+
+///|
 test "wesl: standard resolver delegates package imports to codegen resolver" {
   let root = CodegenModule::new("demo", "fn root() {}\n")
   root.add_submodule(CodegenModule::new("util", "fn util() {}\n"))

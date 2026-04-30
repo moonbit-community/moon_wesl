@@ -209,6 +209,15 @@ pub fn Wesl::add_package(
 }
 
 ///|
+pub fn Wesl::add_scanned_package(
+  self : Wesl[StandardResolver],
+  pkg : Pkg,
+) -> Wesl[StandardResolver] {
+  self.resolver.add_package(pkg.to_codegen_pkg())
+  self
+}
+
+///|
 pub fn Wesl::add_packages(
   self : Wesl[StandardResolver],
   pkgs : Array[CodegenPkg],

@@ -41,6 +41,13 @@ pub(all) suberror ResolveError {
 }
 pub fn ResolveError::message(Self) -> String
 
+pub(all) suberror ScanDirectoryError {
+  RootNotFound(String)
+  ReservedModName(String)
+  Io(String)
+}
+pub fn ScanDirectoryError::message(Self) -> String
+
 pub(all) suberror WeslCompileError {
   Resolve(ResolveError)
   Parse(String)
@@ -495,6 +502,25 @@ pub(all) enum PathOrigin {
   Package(String)
 } derive(Eq, Hash, @debug.Debug)
 
+pub(all) struct Pkg {
+  crate_name : String
+  root : CodegenModule
+  dependencies : Array[CodegenPkg]
+}
+pub fn Pkg::build_artifact(Self, String) -> Unit raise ScanDirectoryError
+pub fn Pkg::codegen(Self) -> String
+pub fn Pkg::to_codegen_pkg(Self) -> CodegenPkg
+pub fn Pkg::validate(Self) -> Self raise WeslCompileError
+
+pub struct PkgBuilder {
+  name : String
+  dependencies : Array[CodegenPkg]
+}
+pub fn PkgBuilder::add_package(Self, CodegenPkg) -> Self
+pub fn PkgBuilder::add_packages(Self, Array[CodegenPkg]) -> Self
+pub fn PkgBuilder::new(String) -> Self
+pub fn PkgBuilder::scan_root(Self, String) -> Pkg raise ScanDirectoryError
+
 pub struct PkgResolver {
   packages : Array[CodegenPkg]
 }
@@ -562,6 +588,7 @@ pub struct StandardResolver {
 }
 pub fn StandardResolver::add_constant(Self, String, Double) -> Unit
 pub fn StandardResolver::add_package(Self, CodegenPkg) -> Unit
+pub fn StandardResolver::add_scanned_package(Self, Pkg) -> Unit
 pub fn StandardResolver::generate_constant_module(Self) -> String
 pub fn StandardResolver::new(String) -> Self
 pub impl Resolver for StandardResolver
@@ -705,6 +732,7 @@ pub fn Wesl::add_constant(Self[StandardResolver], String, Double) -> Self[Standa
 pub fn Wesl::add_constants(Self[StandardResolver], Array[(String, Double)]) -> Self[StandardResolver]
 pub fn Wesl::add_package(Self[StandardResolver], CodegenPkg) -> Self[StandardResolver]
 pub fn Wesl::add_packages(Self[StandardResolver], Array[CodegenPkg]) -> Self[StandardResolver]
+pub fn Wesl::add_scanned_package(Self[StandardResolver], Pkg) -> Self[StandardResolver]
 pub fn[R : Resolver] Wesl::compile(Self[R], ModulePath) -> CompileResult raise WeslCompileError
 pub fn[R : Resolver] Wesl::compile_diagnostic(Self[R], ModulePath) -> CompileResult raise WeslDiagnosticError
 pub fn[R] Wesl::keep_all_entrypoints(Self[R]) -> Self[R]

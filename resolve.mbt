@@ -266,6 +266,347 @@ pub fn CodegenPkg::add_dependency(
 }
 
 ///|
+pub(all) suberror ScanDirectoryError {
+  RootNotFound(String)
+  ReservedModName(String)
+  Io(String)
+}
+
+///|
+pub fn ScanDirectoryError::message(self : ScanDirectoryError) -> String {
+  match self {
+    RootNotFound(path) => "Package root was not found: `\{path}`"
+    ReservedModName(name) => "Module name `\{name}` is reserved"
+    Io(message) => "I/O error while scanning package root: \{message}"
+  }
+}
+
+///|
+pub struct PkgBuilder {
+  name : String
+  dependencies : Array[CodegenPkg]
+}
+
+///|
+pub(all) struct Pkg {
+  crate_name : String
+  root : CodegenModule
+  dependencies : Array[CodegenPkg]
+}
+
+///|
+pub fn PkgBuilder::new(name : String) -> PkgBuilder {
+  PkgBuilder::{ name: name.replace_all(old="-", new="_"), dependencies: [] }
+}
+
+///|
+pub fn PkgBuilder::add_package(
+  self : PkgBuilder,
+  pkg : CodegenPkg,
+) -> PkgBuilder {
+  let dependencies = self.dependencies.copy()
+  dependencies.push(pkg)
+  PkgBuilder::{ ..self, dependencies, }
+}
+
+///|
+pub fn PkgBuilder::add_packages(
+  self : PkgBuilder,
+  pkgs : Array[CodegenPkg],
+) -> PkgBuilder {
+  let dependencies = self.dependencies.copy()
+  for pkg in pkgs {
+    dependencies.push(pkg)
+  }
+  PkgBuilder::{ ..self, dependencies, }
+}
+
+///|
+fn pkg_scan_is_ident_start(code : Int) -> Bool {
+  (code >= 65 && code <= 90) || (code >= 97 && code <= 122) || code == 95
+}
+
+///|
+fn pkg_scan_is_ident_char(code : Int) -> Bool {
+  pkg_scan_is_ident_start(code) || (code >= 48 && code <= 57)
+}
+
+///|
+fn pkg_scan_is_mod_ident(name : String) -> Bool {
+  if name.length() == 0 {
+    return false
+  }
+  if !pkg_scan_is_ident_start(name.code_unit_at(0).to_int()) {
+    return false
+  }
+  for index in 1..<name.length() {
+    if !pkg_scan_is_ident_char(name.code_unit_at(index).to_int()) {
+      return false
+    }
+  }
+  true
+}
+
+///|
+fn pkg_scan_is_reserved_mod_name(name : String) -> Bool {
+  match name {
+    "const_assert"
+    | "continue"
+    | "continuing"
+    | "default"
+    | "diagnostic"
+    | "discard"
+    | "else"
+    | "enable"
+    | "false"
+    | "fn"
+    | "for"
+    | "if"
+    | "let"
+    | "loop"
+    | "override"
+    | "requires"
+    | "return"
+    | "struct"
+    | "switch"
+    | "true"
+    | "var"
+    | "while"
+    | "self"
+    | "super"
+    | "package"
+    | "as"
+    | "import" => true
+    _ => false
+  }
+}
+
+///|
+fn pkg_scan_trim_trailing_slash(path : String) -> String {
+  let mut end = path.length()
+  while end > 1 {
+    let code = path.code_unit_at(end - 1).to_int()
+    if code == 47 || code == 92 {
+      end -= 1
+    } else {
+      break
+    }
+  }
+  path[:end].to_owned()
+}
+
+///|
+fn pkg_scan_basename(path : String) -> String {
+  let trimmed = pkg_scan_trim_trailing_slash(path)
+  let mut start = 0
+  for index in 0..<trimmed.length() {
+    let code = trimmed.code_unit_at(index).to_int()
+    if code == 47 || code == 92 {
+      start = index + 1
+    }
+  }
+  trimmed[start:trimmed.length()].to_owned()
+}
+
+///|
+fn pkg_scan_without_extension(path : String) -> String {
+  module_path_drop_extension(pkg_scan_trim_trailing_slash(path))
+}
+
+///|
+fn pkg_scan_with_extension(path : String, extension : String) -> String {
+  pkg_scan_without_extension(path) + "." + extension
+}
+
+///|
+fn pkg_scan_join(base : String, child : String) -> String {
+  if base == "" || base == "." {
+    child
+  } else if base.has_suffix("/") || base.has_suffix("\\") {
+    base + child
+  } else {
+    base + "/" + child
+  }
+}
+
+///|
+fn pkg_scan_sort_strings(items : Array[String]) -> Array[String] {
+  let sorted = items.copy()
+  for i in 0..<sorted.length() {
+    let mut min_index = i
+    for j in (i + 1)..<sorted.length() {
+      if sorted[j] < sorted[min_index] {
+        min_index = j
+      }
+    }
+    if min_index != i {
+      let value = sorted[i]
+      sorted[i] = sorted[min_index]
+      sorted[min_index] = value
+    }
+  }
+  sorted
+}
+
+///|
+fn pkg_scan_unique_stems(
+  dir : String,
+) -> Array[String] raise ScanDirectoryError {
+  let entries = @fs.read_dir(dir) catch {
+    err => raise ScanDirectoryError::Io(err.to_string())
+  }
+  let stems : Array[String] = []
+  for entry in entries {
+    let stem = pkg_scan_without_extension(entry)
+    if stem != "" && !stems.contains(stem) {
+      stems.push(stem)
+    }
+  }
+  pkg_scan_sort_strings(stems)
+}
+
+///|
+fn pkg_scan_process_path(
+  path : String,
+) -> CodegenModule? raise ScanDirectoryError {
+  let path_without_ext = pkg_scan_without_extension(path)
+  let path_with_wesl = pkg_scan_with_extension(path, "wesl")
+  let path_with_wgsl = pkg_scan_with_extension(path, "wgsl")
+  let name = pkg_scan_basename(path_without_ext)
+  let has_wesl = @fs.is_file(path_with_wesl) catch { _ => false }
+  let has_wgsl = @fs.is_file(path_with_wgsl) catch { _ => false }
+  let has_dir = @fs.is_dir(path_without_ext) catch { _ => false }
+  if !has_wesl && !has_wgsl && !has_dir {
+    return None
+  }
+  if pkg_scan_is_reserved_mod_name(name) {
+    raise ScanDirectoryError::ReservedModName(name)
+  }
+  if !pkg_scan_is_mod_ident(name) {
+    return None
+  }
+  let source = if has_wesl {
+    @fs.read_file_to_string(path_with_wesl) catch {
+      err => raise ScanDirectoryError::Io(err.to_string())
+    }
+  } else if has_wgsl {
+    @fs.read_file_to_string(path_with_wgsl) catch {
+      err => raise ScanDirectoryError::Io(err.to_string())
+    }
+  } else {
+    ""
+  }
+  let submodules : Array[CodegenModule] = []
+  if has_dir {
+    for stem in pkg_scan_unique_stems(path_without_ext) {
+      match pkg_scan_process_path(pkg_scan_join(path_without_ext, stem)) {
+        Some(module_) => submodules.push(module_)
+        None => ()
+      }
+    }
+  }
+  if source == "" && submodules.length() == 0 {
+    return None
+  }
+  Some(CodegenModule::{ name, source, submodules })
+}
+
+///|
+pub fn PkgBuilder::scan_root(
+  self : PkgBuilder,
+  path : String,
+) -> Pkg raise ScanDirectoryError {
+  match pkg_scan_process_path(path) {
+    Some(module_) =>
+      Pkg::{
+        crate_name: self.name,
+        root: CodegenModule::{ ..module_, name: self.name },
+        dependencies: self.dependencies,
+      }
+    None => raise ScanDirectoryError::RootNotFound(path)
+  }
+}
+
+///|
+pub fn Pkg::to_codegen_pkg(self : Pkg) -> CodegenPkg {
+  CodegenPkg::{
+    crate_name: self.crate_name,
+    root: self.root,
+    dependencies: self.dependencies,
+  }
+}
+
+///|
+pub fn Pkg::validate(self : Pkg) -> Pkg raise WeslCompileError {
+  fn validate_module(
+    module_ : CodegenModule,
+    path : ModulePath,
+  ) -> Unit raise WeslCompileError {
+    if module_.source != "" {
+      ignore(parse_translation_unit(path, module_.source, true))
+    }
+    for submodule in module_.submodules {
+      validate_module(submodule, path.join([submodule.name]))
+    }
+  }
+  validate_module(self.root, ModulePath::new(Package(self.root.name), []))
+  self
+}
+
+///|
+fn pkg_codegen_escape_string(text : String) -> String {
+  text
+  .replace_all(old="\\", new="\\\\")
+  .replace_all(old="\"", new="\\\"")
+  .replace_all(old="\n", new="\\n")
+  .replace_all(old="\r", new="\\r")
+}
+
+///|
+fn pkg_codegen_module(module_ : CodegenModule, indent : String) -> String {
+  let children : Array[String] = []
+  for submodule in module_.submodules {
+    children.push(pkg_codegen_module(submodule, indent + "  "))
+  }
+  let submodules = if children.length() == 0 {
+    "[]"
+  } else {
+    let joined = children.join(",\n")
+    "[\n\{joined}\n\{indent}]"
+  }
+  "\{indent}CodegenModule::{ name: \"\{pkg_codegen_escape_string(module_.name)}\", source: \"\{pkg_codegen_escape_string(module_.source)}\", submodules: \{submodules} }"
+}
+
+///|
+pub fn Pkg::codegen(self : Pkg) -> String {
+  let dependencies : Array[String] = []
+  for dependency in self.dependencies {
+    let root_code = pkg_codegen_module(dependency.root, "")
+    dependencies.push(
+      "CodegenPkg::{ crate_name: \"\{pkg_codegen_escape_string(dependency.crate_name)}\", root: \{root_code}, dependencies: [] }",
+    )
+  }
+  let deps = if dependencies.length() == 0 {
+    "[]"
+  } else {
+    let joined = dependencies.join(",\n")
+    "[\n\{joined}\n]"
+  }
+  let root_code = pkg_codegen_module(self.root, "")
+  "CodegenPkg::{ crate_name: \"\{pkg_codegen_escape_string(self.crate_name)}\", root: \{root_code}, dependencies: \{deps} }"
+}
+
+///|
+pub fn Pkg::build_artifact(
+  self : Pkg,
+  path : String,
+) -> Unit raise ScanDirectoryError {
+  @fs.write_string_to_file(path, self.codegen()) catch {
+    err => raise ScanDirectoryError::Io(err.to_string())
+  }
+}
+
+///|
 pub struct PkgResolver {
   packages : Array[CodegenPkg]
 }
@@ -483,6 +824,14 @@ pub fn StandardResolver::add_package(
   pkg : CodegenPkg,
 ) -> Unit {
   self.pkg.add_package(pkg)
+}
+
+///|
+pub fn StandardResolver::add_scanned_package(
+  self : StandardResolver,
+  pkg : Pkg,
+) -> Unit {
+  self.add_package(pkg.to_codegen_pkg())
 }
 
 ///|
