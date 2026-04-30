@@ -238,6 +238,7 @@ test "parser: generated attribute parser preserves leading attributes" {
     #|    name: "group",
     #|    arguments: Some("0"),
     #|    argument_exprs: [Literal("0")],
+    #|    condition_expr: None,
     #|    span: { start_line: 1, end_line: 1 },
     #|  },
     #|  {
@@ -267,6 +268,7 @@ test "parser: generated attribute parser preserves leading attributes" {
     #|        },
     #|      ),
     #|    ],
+    #|    condition_expr: None,
     #|    span: { start_line: 2, end_line: 2 },
     #|  },
     #|]
@@ -318,6 +320,7 @@ test "parser: generated struct parser records member names and types" {
         #|            },
         #|          ),
         #|        ],
+        #|        condition_expr: None,
         #|        span: { start_line: 1, end_line: 1 },
         #|      },
         #|    ],
@@ -393,6 +396,7 @@ test "parser: generated function parser records signature" {
         #|        name: "location",
         #|        arguments: Some("0"),
         #|        argument_exprs: [Literal("0")],
+        #|        condition_expr: None,
         #|        span: { start_line: 1, end_line: 1 },
         #|      },
         #|    ],
@@ -421,6 +425,7 @@ test "parser: generated function parser records signature" {
         #|    name: "location",
         #|    arguments: Some("0"),
         #|    argument_exprs: [Literal("0")],
+        #|    condition_expr: None,
         #|    span: { start_line: 1, end_line: 1 },
         #|  },
         #|]
@@ -559,6 +564,7 @@ test "parser: generated statement parser classifies function body statements" {
         #|    name: "if",
         #|    arguments: Some("true"),
         #|    argument_exprs: [],
+        #|    condition_expr: Some(Literal(true)),
         #|    span: { start_line: 1, end_line: 1 },
         #|  },
         #|]
@@ -751,6 +757,7 @@ test "parser: generated statement parser classifies function body statements" {
             #|    name: "if",
             #|    arguments: Some("true"),
             #|    argument_exprs: [],
+            #|    condition_expr: Some(Literal(true)),
             #|    span: { start_line: 1, end_line: 1 },
             #|  },
             #|]
@@ -764,6 +771,7 @@ test "parser: generated statement parser classifies function body statements" {
             #|    name: "else",
             #|    arguments: None,
             #|    argument_exprs: [],
+            #|    condition_expr: None,
             #|    span: { start_line: 1, end_line: 1 },
             #|  },
             #|]

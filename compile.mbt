@@ -555,6 +555,26 @@ fn wesl_eval_cond_expr_node(
 }
 
 ///|
+fn wesl_eval_cond_expression(
+  node : CondExpression,
+  features : Features,
+) -> CondValue raise WeslCompileError {
+  match node {
+    Literal(value) => Known(value)
+    Feature(name) => features.eval_cond(name)
+    Not(inner) => wesl_eval_cond_expression(inner, features).not()
+    And(left, right) =>
+      wesl_eval_cond_expression(left, features).and_value(
+        wesl_eval_cond_expression(right, features),
+      )
+    Or(left, right) =>
+      wesl_eval_cond_expression(left, features).or_value(
+        wesl_eval_cond_expression(right, features),
+      )
+  }
+}
+
+///|
 fn wesl_parse_if_value(
   expr : String,
   features : Features,
@@ -981,12 +1001,16 @@ fn wesl_condcomp_attr_value(
   attr : Attribute,
   features : Features,
 ) -> CondValue raise WeslCompileError {
-  match attr.arguments {
-    Some(expr) => wesl_parse_if_value(expr, features)
+  match attr.condition_expr {
+    Some(expr) => wesl_eval_cond_expression(expr, features)
     None =>
-      raise WeslCompileError::InvalidExpression(
-        "missing @\{attr.name} expression",
-      )
+      match attr.arguments {
+        Some(expr) => wesl_parse_if_value(expr, features)
+        None =>
+          raise WeslCompileError::InvalidExpression(
+            "missing @\{attr.name} expression",
+          )
+      }
   }
 }
 
@@ -1044,6 +1068,7 @@ fn wesl_transform_condcomp_node(
                     name: "else",
                     arguments: None,
                     argument_exprs: [],
+                    condition_expr: None,
                   })
                   replacement_source = Some("@else")
                 }

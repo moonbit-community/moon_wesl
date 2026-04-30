@@ -37,10 +37,20 @@ fn SyntaxSpan::symbol_context(
 }
 
 ///|
+pub(all) enum CondExpression {
+  Literal(Bool)
+  Feature(String)
+  Not(CondExpression)
+  And(CondExpression, CondExpression)
+  Or(CondExpression, CondExpression)
+} derive(Eq, Debug)
+
+///|
 pub(all) struct Attribute {
   name : String
   arguments : String?
   argument_exprs : Array[Expression]
+  condition_expr : CondExpression?
   span : SyntaxSpan
 } derive(Eq, Debug)
 

@@ -366,6 +366,10 @@ fn Parser::parse_attributes(
         attr.arguments,
         item_source,
       ),
+      condition_expr: parser_parse_attribute_condition_expr(
+        attr.name,
+        attr.arguments,
+      ),
       span: SyntaxSpan::{
         start_line: line_base + attr.start_line,
         end_line: line_base + attr.end_line,
@@ -394,6 +398,47 @@ fn parser_parse_attribute_argument_exprs(
       expressions
     }
     None => []
+  }
+}
+
+///|
+fn parser_cond_expression_from_generated(
+  node : @cond_expr_parse.CondExprNode,
+) -> CondExpression {
+  match node {
+    Literal(value) => CondExpression::Literal(value)
+    Feature(name) => CondExpression::Feature(name)
+    Not(inner) =>
+      CondExpression::Not(parser_cond_expression_from_generated(inner))
+    And(left, right) =>
+      CondExpression::And(
+        parser_cond_expression_from_generated(left),
+        parser_cond_expression_from_generated(right),
+      )
+    Or(left, right) =>
+      CondExpression::Or(
+        parser_cond_expression_from_generated(left),
+        parser_cond_expression_from_generated(right),
+      )
+  }
+}
+
+///|
+fn parser_parse_attribute_condition_expr(
+  name : String,
+  arguments : String?,
+) -> CondExpression? {
+  if name != "if" && name != "elif" {
+    return None
+  }
+  match arguments {
+    Some(text) =>
+      match @cond_expr_parse.parse_cond_expr_source(text) {
+        @cond_expr_parse.Parsed(node) =>
+          Some(parser_cond_expression_from_generated(node))
+        @cond_expr_parse.Failed(_) => None
+      }
+    None => None
   }
 }
 
@@ -1836,6 +1881,10 @@ fn parser_statement_attributes(
             attr.name,
             attr.arguments,
             source,
+          ),
+          condition_expr: parser_parse_attribute_condition_expr(
+            attr.name,
+            attr.arguments,
           ),
           span: SyntaxSpan::{
             start_line: attr.start_line,

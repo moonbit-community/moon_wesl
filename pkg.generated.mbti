@@ -76,6 +76,7 @@ pub(all) struct Attribute {
   name : String
   arguments : String?
   argument_exprs : Array[Expression]
+  condition_expr : CondExpression?
   span : SyntaxSpan
 } derive(Eq, @debug.Debug)
 
@@ -181,6 +182,14 @@ pub struct CondCompPreprocessor {
 }
 pub fn CondCompPreprocessor::new(Features) -> Self
 pub impl ModulePreprocessor for CondCompPreprocessor
+
+pub(all) enum CondExpression {
+  Literal(Bool)
+  Feature(String)
+  Not(CondExpression)
+  And(CondExpression, CondExpression)
+  Or(CondExpression, CondExpression)
+} derive(Eq, @debug.Debug)
 
 pub(all) struct ConstAssertDeclaration {
   assertion : String

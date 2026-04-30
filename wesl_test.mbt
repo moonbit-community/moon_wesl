@@ -952,6 +952,7 @@ impl ModulePreprocessor for ConditionalAppendPreprocessor with preprocess_module
         name: "if",
         arguments: Some("EXTRA"),
         argument_exprs: [],
+        condition_expr: Some(Feature("EXTRA")),
         span: SyntaxSpan::{ start_line: 1, end_line: 1 },
       },
     ],
