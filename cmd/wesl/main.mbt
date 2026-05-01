@@ -16,6 +16,7 @@
 struct CliRunResult {
   status : Int
   stdout : String
+  stdout_bytes : Bytes?
   stderr : String
 } derive(Eq, Debug)
 
@@ -87,12 +88,22 @@ fn CliCompArgs::compile_options(
 
 ///|
 fn cli_ok(stdout : String) -> CliRunResult {
-  CliRunResult::{ status: 0, stdout, stderr: "" }
+  CliRunResult::{ status: 0, stdout, stdout_bytes: None, stderr: "" }
+}
+
+///|
+fn cli_ok_bytes(stdout : Bytes) -> CliRunResult {
+  CliRunResult::{
+    status: 0,
+    stdout: "",
+    stdout_bytes: Some(stdout),
+    stderr: "",
+  }
 }
 
 ///|
 fn cli_err(message : String) -> CliRunResult {
-  CliRunResult::{ status: 1, stdout: "", stderr: message }
+  CliRunResult::{ status: 1, stdout: "", stdout_bytes: None, stderr: message }
 }
 
 ///|
@@ -168,6 +179,58 @@ fn cli_parse_feature_assignment(
       Err(err) => Err(err)
     }
   }
+}
+
+///|
+fn cli_parse_override_assignment(
+  text : String,
+) -> Result[@moon_wesl.OverrideValue, String] {
+  let mut eq = -1
+  for i in 0..<text.length() {
+    if text.code_unit_at(i).to_int() == 61 {
+      eq = i
+      break
+    }
+  }
+  if eq < 0 {
+    Err("expected override assignment NAME=EXPRESSION")
+  } else {
+    let name = text[:eq].to_owned()
+    let value = text[eq + 1:].to_owned()
+    if name.trim().to_owned() == "" || value.trim().to_owned() == "" {
+      Err("expected override assignment NAME=EXPRESSION")
+    } else {
+      Ok(@moon_wesl.OverrideValue::{ name, value })
+    }
+  }
+}
+
+///|
+fn cli_parse_resource_binding(
+  text : String,
+) -> Result[@moon_wesl.ResourceBinding, String] {
+  let parts : Array[String] = []
+  for part in text.split(":") {
+    parts.push(part.to_owned())
+  }
+  if parts.length() != 4 {
+    return Err("expected resource binding GROUP:BINDING:TYPE:PATH")
+  }
+  let group = @string.parse_int(parts[0][:]) catch {
+    _ => return Err("invalid resource group `\{parts[0]}`")
+  }
+  let binding = @string.parse_int(parts[1][:]) catch {
+    _ => return Err("invalid resource binding `\{parts[1]}`")
+  }
+  let kind = parts[2]
+  match kind {
+    "uniform" | "storage" | "read-only-storage" => ()
+    _ => return Err("unsupported resource binding type `\{kind}`")
+  }
+  let data = @fs.read_file_to_bytes(parts[3]) catch {
+    err => return Err(err.to_string())
+  }
+  Ok(@moon_wesl.ResourceBinding::{ group, binding, kind, data })
 }
 
 ///|
@@ -370,23 +433,55 @@ fn cli_compile_file(
     .use_sourcemap(options.sourcemap)
     .set_mangler(options.mangler)
     .set_custom_resolver(@moon_wesl.StandardResolver::new(base))
-  let result = compiler.compile(root) catch { err => return Err(err.message()) }
+  let result = compiler.compile_diagnostic(root) catch {
+    err => return Err(err.message())
+  }
   Ok(result)
 }
 
 ///|
-fn cli_check_source(kind : String, source : String) -> Result[Unit, String] {
-  let path = @moon_wesl.ModulePath::from_path("/stdin")
+fn cli_check_diagnostic(
+  err : @moon_wesl.WeslCompileError,
+  path : @moon_wesl.ModulePath,
+  display_name : String,
+  source : String,
+) -> String {
+  err
+  .diagnostic()
+  .with_source(source)
+  .with_module_path(path, Some(display_name))
+  .infer_span_from_message()
+  .to_string()
+}
+
+///|
+fn cli_check_source(
+  kind : String,
+  source : String,
+  display_name : String,
+) -> Result[Unit, String] {
+  let stem = cli_stem(display_name)
+  let path = if stem == "" {
+    @moon_wesl.ModulePath::from_path("/stdin")
+  } else {
+    @moon_wesl.ModulePath::from_path("/\{stem}")
+  }
   match kind {
     "wesl" => {
-      ignore(@moon_wesl.parse_translation_unit(path, source, true)) catch {
-        err => return Err(err.message())
+      let unit = @moon_wesl.parse_translation_unit(path, source, true) catch {
+        err => return Err(cli_check_diagnostic(err, path, display_name, source))
+      }
+      @moon_wesl.validate_wesl(unit) catch {
+        err => return Err(cli_check_diagnostic(err, path, display_name, source))
       }
       Ok(())
     }
     "wgsl" => {
-      ignore(@moon_wesl.parse_translation_unit(path, source, false)) catch {
-        err => return Err(err.message())
+      let unit = @moon_wesl.parse_translation_unit(path, source, false) catch {
+        err => return Err(cli_check_diagnostic(err, path, display_name, source))
+      }
+      @moon_wesl.validate_wgsl(unit) catch {
+        err => return Err(cli_check_diagnostic(err, path, display_name, source))
       }
       Ok(())
     }
@@ -398,6 +493,7 @@ fn cli_check_source(kind : String, source : String) -> Result[Unit, String] {
 fn cli_run_check(args : ArrayView[String]) -> CliRunResult {
   let mut kind = "wesl"
   let mut file : String? = None
+  let mut use_naga = false
   let mut index = 0
   while index < args.length() {
     let arg = args[index]
@@ -410,7 +506,10 @@ fn cli_run_check(args : ArrayView[String]) -> CliRunResult {
         }
         index = index + 2
       }
-      "--naga" => index = index + 1
+      "--naga" => {
+        use_naga = true
+        index = index + 1
+      }
       _ => {
         if arg.has_prefix("--") {
           return cli_err("unknown option `\{arg}`")
@@ -420,12 +519,15 @@ fn cli_run_check(args : ArrayView[String]) -> CliRunResult {
       }
     }
   }
+  if use_naga {
+    return cli_err("Naga validation is not available in this MoonBit build")
+  }
   match file {
     Some(path) => {
       let source = @fs.read_file_to_string(path) catch {
         _ => return cli_err("input file not found")
       }
-      match cli_check_source(kind, source) {
+      match cli_check_source(kind, source, path) {
         Ok(_) => cli_ok("OK")
         Err(err) => cli_err(err)
       }
@@ -480,11 +582,6 @@ fn cli_run_eval(args : ArrayView[String]) -> CliRunResult {
       }
     }
   }
-  if binary {
-    return cli_err(
-      "binary eval output is not available in this MoonBit port yet",
-    )
-  }
   let parsed = match cli_parse_common_args(filtered[:]) {
     Ok(value) => value
     Err(err) => return cli_err(err)
@@ -500,7 +597,17 @@ fn cli_run_eval(args : ArrayView[String]) -> CliRunResult {
           let eval = result.eval(positionals[0]) catch {
             err => return cli_err(err.message())
           }
-          cli_ok(eval.to_string())
+          if binary {
+            match eval.to_buffer() {
+              Some(buffer) => cli_ok_bytes(buffer)
+              None =>
+                cli_err(
+                  "Could not convert instance to buffer (type is not storable)",
+                )
+            }
+          } else {
+            cli_ok(eval.to_string())
+          }
         }
         Err(err) => cli_err(err)
       }
@@ -508,19 +615,106 @@ fn cli_run_eval(args : ArrayView[String]) -> CliRunResult {
       let eval = @moon_wesl.eval_str(positionals[0]) catch {
         err => return cli_err(err.message())
       }
-      cli_ok(eval.to_string())
+      if binary {
+        match eval.to_buffer() {
+          Some(buffer) => cli_ok_bytes(buffer)
+          None =>
+            cli_err(
+              "Could not convert instance to buffer (type is not storable)",
+            )
+        }
+      } else {
+        cli_ok(eval.to_string())
+      }
     }
   }
 }
 
 ///|
 fn cli_run_exec(args : ArrayView[String]) -> CliRunResult {
-  if args.length() == 1 && (args[0] == "-h" || args[0] == "--help") {
-    return cli_ok(cli_exec_usage())
+  let mut entrypoint = "main"
+  let resources : Array[@moon_wesl.ResourceBinding] = []
+  let overrides : Array[@moon_wesl.OverrideValue] = []
+  let filtered : Array[String] = []
+  let mut binary = false
+  let mut index = 0
+  while index < args.length() {
+    let arg = args[index]
+    match arg {
+      "-h" | "--help" => return cli_ok(cli_exec_usage())
+      "-b" | "--out-binary" => {
+        binary = true
+        index = index + 1
+      }
+      "--entrypoint" => {
+        match cli_take_arg(args, index, arg) {
+          Ok(value) => entrypoint = value
+          Err(err) => return cli_err(err)
+        }
+        index = index + 2
+      }
+      "--resource" => {
+        match cli_take_arg(args, index, arg) {
+          Ok(value) =>
+            match cli_parse_resource_binding(value) {
+              Ok(resource) => resources.push(resource)
+              Err(err) => return cli_err(err)
+            }
+          Err(err) => return cli_err(err)
+        }
+        index = index + 2
+      }
+      "--override" => {
+        match cli_take_arg(args, index, arg) {
+          Ok(value) =>
+            match cli_parse_override_assignment(value) {
+              Ok(override_) => overrides.push(override_)
+              Err(err) => return cli_err(err)
+            }
+          Err(err) => return cli_err(err)
+        }
+        index = index + 2
+      }
+      _ => {
+        filtered.push(arg)
+        index = index + 1
+      }
+    }
   }
-  cli_err(
-    "exec is unavailable until the MoonBit eval runtime implements wesl-rs CPU execution",
-  )
+  let parsed = match cli_parse_common_args(filtered[:]) {
+    Ok(value) => value
+    Err(err) => return cli_err(err)
+  }
+  let (options, positionals) = parsed
+  if positionals.length() > 1 {
+    return cli_err(cli_exec_usage())
+  }
+  let compiled = if positionals.length() == 1 {
+    match cli_compile_file(positionals[0], options) {
+      Ok(result) => result
+      Err(err) => return cli_err(err)
+    }
+  } else {
+    @moon_wesl.CompileResult::default()
+  }
+  let exec = compiled.exec(
+    entrypoint,
+    @moon_wesl.Inputs::new_zero_initialized(),
+    resources,
+    overrides,
+  ) catch {
+    err => return cli_err(err.message())
+  }
+  if binary {
+    match (exec.return_value(), exec.to_buffer()) {
+      (Some(_), Some(buffer)) => cli_ok_bytes(buffer)
+      (Some(_), None) =>
+        cli_err("Could not convert instance to buffer (type is not storable)")
+      (None, _) => cli_ok_bytes(Bytes::new(0))
+    }
+  } else {
+    cli_ok(exec.to_string())
+  }
 }
 
 ///|
@@ -536,6 +730,14 @@ fn cli_run_package(args : ArrayView[String]) -> CliRunResult {
   }
   let validated = pkg.validate() catch { err => return cli_err(err.message()) }
   cli_ok(validated.codegen())
+}
+
+///|
+fn cli_write_stdout_bytes(bytes : Bytes) -> String? {
+  @fs.write_bytes_to_file("/dev/stdout", bytes) catch {
+    err => return Some(err.to_string())
+  }
+  None
 }
 
 ///|
@@ -557,6 +759,19 @@ fn wesl_cli_run(args : ArrayView[String]) -> CliRunResult {
 ///|
 fn main {
   let result = wesl_cli_run(@sys.get_cli_args()[1:])
+  match result.stdout_bytes {
+    Some(bytes) =>
+      if bytes.length() > 0 {
+        match cli_write_stdout_bytes(bytes) {
+          Some(err) => {
+            println(err)
+            @sys.exit(1)
+          }
+          None => ()
+        }
+      }
+    None => ()
+  }
   if result.stdout != "" {
     println(result.stdout)
   }

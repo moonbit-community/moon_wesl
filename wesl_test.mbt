@@ -355,6 +355,97 @@ test "wesl: eval_str evaluates standalone const expressions" {
 }
 
 ///|
+test "wesl: eval result exposes scalar memory buffers" {
+  let i32_buffer = eval_str("42i").to_buffer()
+  match i32_buffer {
+    Some(buffer) =>
+      inspect(
+        buffer.to_array(),
+        content="[b'\\x2A', b'\\x00', b'\\x00', b'\\x00']",
+      )
+    None => fail("expected i32 buffer")
+  }
+  let u32_buffer = eval_str("42u").to_buffer()
+  match u32_buffer {
+    Some(buffer) =>
+      inspect(
+        buffer.to_array(),
+        content="[b'\\x2A', b'\\x00', b'\\x00', b'\\x00']",
+      )
+    None => fail("expected u32 buffer")
+  }
+  let f32_buffer = eval_str("1.0f").to_buffer()
+  match f32_buffer {
+    Some(buffer) =>
+      inspect(
+        buffer.to_array(),
+        content="[b'\\x00', b'\\x00', b'\\x80', b'\\x3F']",
+      )
+    None => fail("expected f32 buffer")
+  }
+}
+
+///|
+test "wesl: eval result rejects non-storable buffers" {
+  match eval_str("true").to_buffer() {
+    Some(_) => fail("expected bool to be non-storable")
+    None => ()
+  }
+  match eval_str("42").to_buffer() {
+    Some(_) => fail("expected abstract int to be non-storable")
+    None => ()
+  }
+}
+
+///|
+test "wesl: eval result exposes vector memory buffers" {
+  let result = eval_str("vec3<u32>(1u, 2u, 3u)")
+  inspect(result.to_string(), content="vec3<u32>(1u, 2u, 3u)")
+  match result.to_buffer() {
+    Some(buffer) =>
+      inspect(
+        buffer.to_array(),
+        content="[b'\\x01', b'\\x00', b'\\x00', b'\\x00', b'\\x02', b'\\x00', b'\\x00', b'\\x00', b'\\x03', b'\\x00', b'\\x00', b'\\x00']",
+      )
+    None => fail("expected vector buffer")
+  }
+}
+
+///|
+test "wesl: const eval applies vector operators and builtins component-wise" {
+  inspect(
+    eval_str("vec3<u32>(1u, 2u, 3u) + 1u").to_string(),
+    content="vec3<u32>(2u, 3u, 4u)",
+  )
+  inspect(
+    eval_str("vec3<i32>(5i, -2i, 7i) - vec3<i32>(1i, 2i, 3i)").to_string(),
+    content="vec3<i32>(4i, -4i, 4i)",
+  )
+  inspect(
+    eval_str("abs(vec3<i32>(-1i, 0i, 2i))").to_string(),
+    content="vec3<i32>(1i, 0i, 2i)",
+  )
+  inspect(
+    eval_str("clamp(vec3<u32>(0u, 5u, 9u), 2u, 6u)").to_string(),
+    content="vec3<u32>(2u, 5u, 6u)",
+  )
+  inspect(
+    eval_str(
+      "select(vec2<u32>(1u, 2u), vec2<u32>(3u, 4u), vec2<bool>(false, true))",
+    ).to_string(),
+    content="vec2<u32>(1u, 4u)",
+  )
+  inspect(
+    eval_str("all(vec3<bool>(true, true, false))").to_string(),
+    content="false",
+  )
+  inspect(
+    eval_str("any(vec3<bool>(false, false, true))").to_string(),
+    content="true",
+  )
+}
+
+///|
 test "wesl: eval_str reports known unimplemented builtins like upstream" {
   let result = try? eval_str("fma(2.0, 0.5, 0.5)")
   match result {
@@ -395,6 +486,810 @@ test "wesl: compile result eval uses compiled const functions" {
   )
 
   inspect(compiled.eval("test()").to_string(), content="42u")
+}
+
+///|
+test "wesl: compile result exec runs simple entrypoint" {
+  let resolver = VirtualResolver::new()
+  let root_path = ModulePath::from_path("/shaders/root")
+  resolver.add_module(
+    root_path, "const BASE: i32 = 40i;\n@compute @workgroup_size(1)\nfn main() -> i32 {\n  return BASE + 2i;\n}\n",
+  )
+  let compiled = compile(
+    root_path,
+    resolver,
+    EscapeMangler::default(),
+    CompileOptions::default(),
+  )
+  let exec = compiled.exec("main", Inputs::new_zero_initialized(), [], [])
+
+  match exec.return_value() {
+    Some(value) => inspect(value, content="42i")
+    None => fail("expected exec return value")
+  }
+  match exec.to_buffer() {
+    Some(buffer) =>
+      inspect(
+        buffer.to_array(),
+        content="[b'\\x2A', b'\\x00', b'\\x00', b'\\x00']",
+      )
+    None => fail("expected exec return buffer")
+  }
+  inspect(exec.to_string(), content="return: 42i")
+}
+
+///|
+test "wesl: compile result exec passes scalar builtin inputs" {
+  let resolver = VirtualResolver::new()
+  let root_path = ModulePath::from_path("/shaders/root")
+  resolver.add_module(
+    root_path, "@compute @workgroup_size(1)\nfn main(@builtin(vertex_index) vertex_index: u32) -> u32 {\n  return vertex_index + 1u;\n}\n",
+  )
+  let compiled = compile(
+    root_path,
+    resolver,
+    EscapeMangler::default(),
+    CompileOptions::default(),
+  )
+  let inputs = Inputs::{
+    ..Inputs::new_zero_initialized(),
+    vertex_index: Some(41),
+  }
+  let exec = compiled.exec("main", inputs, [], [])
+  match exec.return_value() {
+    Some(value) => inspect(value, content="42u")
+    None => fail("expected builtin input return")
+  }
+  match exec.to_buffer() {
+    Some(buffer) =>
+      inspect(
+        buffer.to_array(),
+        content="[b'\\x2A', b'\\x00', b'\\x00', b'\\x00']",
+      )
+    None => fail("expected builtin input return buffer")
+  }
+}
+
+///|
+test "wesl: compile result exec passes vector builtin inputs" {
+  let resolver = VirtualResolver::new()
+  let root_path = ModulePath::from_path("/shaders/root")
+  resolver.add_module(
+    root_path, "@compute @workgroup_size(1)\nfn main(@builtin(global_invocation_id) id: vec3<u32>) -> vec3<u32> {\n  return id;\n}\n",
+  )
+  let compiled = compile(
+    root_path,
+    resolver,
+    EscapeMangler::default(),
+    CompileOptions::default(),
+  )
+  let inputs = Inputs::{
+    ..Inputs::new_zero_initialized(),
+    global_invocation_id: Some([3, 4, 5]),
+  }
+  let exec = compiled.exec("main", inputs, [], [])
+  match exec.return_value() {
+    Some(value) => assert_true(value.contains("vec3<u32>"))
+    None => fail("expected vector builtin input return")
+  }
+  match exec.to_buffer() {
+    Some(buffer) =>
+      inspect(
+        buffer.to_array(),
+        content="[b'\\x03', b'\\x00', b'\\x00', b'\\x00', b'\\x04', b'\\x00', b'\\x00', b'\\x00', b'\\x05', b'\\x00', b'\\x00', b'\\x00']",
+      )
+    None => fail("expected vector builtin input return buffer")
+  }
+}
+
+///|
+test "wesl: compile result exec passes extended builtin inputs" {
+  let resolver = VirtualResolver::new()
+  let root_path = ModulePath::from_path("/shaders/root")
+  resolver.add_module(
+    root_path, "@compute @workgroup_size(1)\nfn main(@builtin(subgroup_id) subgroup_id: u32, @builtin(num_subgroups) num_subgroups: u32, @builtin(primitive_index) primitive_index: u32, @builtin(view_index) view_index: u32) -> u32 {\n  return subgroup_id + num_subgroups + primitive_index + view_index;\n}\n",
+  )
+  let compiled = compile(
+    root_path,
+    resolver,
+    EscapeMangler::default(),
+    CompileOptions::default(),
+  )
+  let inputs = Inputs::{
+    ..Inputs::new_zero_initialized(),
+    subgroup_id: Some(1),
+    num_subgroups: Some(2),
+    primitive_index: Some(4),
+    view_index: Some(8),
+  }
+  let exec = compiled.exec("main", inputs, [], [])
+  match exec.return_value() {
+    Some(value) => inspect(value, content="15u")
+    None => fail("expected extended builtin input return")
+  }
+}
+
+///|
+test "wesl: compile result exec passes user-defined scalar location inputs" {
+  let resolver = VirtualResolver::new()
+  let root_path = ModulePath::from_path("/shaders/root")
+  resolver.add_module(
+    root_path, "@vertex\nfn main(@location(0) color: u32) -> u32 {\n  return color + 1u;\n}\n",
+  )
+  let compiled = compile(
+    root_path,
+    resolver,
+    EscapeMangler::default(),
+    CompileOptions::default(),
+  )
+  let inputs = Inputs::{
+    ..Inputs::new_zero_initialized(),
+    user_defined: [UserInput::{ location: 0, value: UserInputValue::U32(41) }],
+  }
+  let exec = compiled.exec("main", inputs, [], [])
+  match exec.return_value() {
+    Some(value) => inspect(value, content="42u")
+    None => fail("expected user-defined scalar input return")
+  }
+}
+
+///|
+test "wesl: compile result exec passes user-defined vector location inputs" {
+  let resolver = VirtualResolver::new()
+  let root_path = ModulePath::from_path("/shaders/root")
+  resolver.add_module(
+    root_path, "@vertex\nfn main(@location(1) uv: vec2<f32>) -> vec2<f32> {\n  return uv;\n}\n",
+  )
+  let compiled = compile(
+    root_path,
+    resolver,
+    EscapeMangler::default(),
+    CompileOptions::default(),
+  )
+  let inputs = Inputs::{
+    ..Inputs::new_zero_initialized(),
+    user_defined: [
+      UserInput::{ location: 1, value: UserInputValue::F32Vector([1.0, 2.0]) },
+    ],
+  }
+  let exec = compiled.exec("main", inputs, [], [])
+  match exec.return_value() {
+    Some(value) => assert_true(value.contains("vec2<f32>"))
+    None => fail("expected user-defined vector input return")
+  }
+  match exec.to_buffer() {
+    Some(buffer) =>
+      inspect(
+        buffer.to_array(),
+        content="[b'\\x00', b'\\x00', b'\\x80', b'\\x3F', b'\\x00', b'\\x00', b'\\x00', b'\\x40']",
+      )
+    None => fail("expected user-defined vector input return buffer")
+  }
+}
+
+///|
+test "wesl: compile result exec builds struct entrypoint inputs" {
+  let resolver = VirtualResolver::new()
+  let root_path = ModulePath::from_path("/shaders/root")
+  resolver.add_module(
+    root_path, "struct VertexInput {\n  @builtin(vertex_index) index: u32,\n  @location(0) color: u32,\n}\n\n@vertex\nfn main(input: VertexInput) -> VertexInput {\n  return input;\n}\n",
+  )
+  let compiled = compile(
+    root_path,
+    resolver,
+    EscapeMangler::default(),
+    CompileOptions::default(),
+  )
+  let inputs = Inputs::{
+    ..Inputs::new_zero_initialized(),
+    vertex_index: Some(7),
+    user_defined: [UserInput::{ location: 0, value: UserInputValue::U32(35) }],
+  }
+  let exec = compiled.exec("main", inputs, [], [])
+  match exec.return_value() {
+    Some(value) => {
+      assert_true(value.contains("index: 7u"))
+      assert_true(value.contains("color: 35u"))
+    }
+    None => fail("expected struct input return")
+  }
+  match exec.to_buffer() {
+    Some(buffer) =>
+      inspect(
+        buffer.to_array(),
+        content="[b'\\x07', b'\\x00', b'\\x00', b'\\x00', b'\\x23', b'\\x00', b'\\x00', b'\\x00']",
+      )
+    None => fail("expected struct input return buffer")
+  }
+}
+
+///|
+test "wesl: compile result exec reads struct entrypoint fields" {
+  let resolver = VirtualResolver::new()
+  let root_path = ModulePath::from_path("/shaders/root")
+  resolver.add_module(
+    root_path, "struct VertexInput {\n  @builtin(vertex_index) index: u32,\n  @location(0) color: u32,\n}\n\n@vertex\nfn main(input: VertexInput) -> u32 {\n  return input.index + input.color;\n}\n",
+  )
+  let compiled = compile(
+    root_path,
+    resolver,
+    EscapeMangler::default(),
+    CompileOptions::default(),
+  )
+  let inputs = Inputs::{
+    ..Inputs::new_zero_initialized(),
+    vertex_index: Some(7),
+    user_defined: [UserInput::{ location: 0, value: UserInputValue::U32(35) }],
+  }
+  let exec = compiled.exec("main", inputs, [], [])
+  match exec.return_value() {
+    Some(value) => inspect(value, content="42u")
+    None => fail("expected struct field return")
+  }
+}
+
+///|
+test "wesl: compile result exec evaluates vector swizzles" {
+  let resolver = VirtualResolver::new()
+  let root_path = ModulePath::from_path("/shaders/root")
+  resolver.add_module(
+    root_path, "@vertex\nfn main(@location(0) uv: vec3<f32>) -> vec2<f32> {\n  return uv.yx;\n}\n",
+  )
+  let compiled = compile(
+    root_path,
+    resolver,
+    EscapeMangler::default(),
+    CompileOptions::default(),
+  )
+  let inputs = Inputs::{
+    ..Inputs::new_zero_initialized(),
+    user_defined: [
+      UserInput::{
+        location: 0,
+        value: UserInputValue::F32Vector([1.0, 2.0, 3.0]),
+      },
+    ],
+  }
+  let exec = compiled.exec("main", inputs, [], [])
+  match exec.return_value() {
+    Some(value) => assert_true(value.contains("vec2<f32>"))
+    None => fail("expected swizzle return")
+  }
+  match exec.to_buffer() {
+    Some(buffer) =>
+      inspect(
+        buffer.to_array(),
+        content="[b'\\x00', b'\\x00', b'\\x00', b'\\x40', b'\\x00', b'\\x00', b'\\x80', b'\\x3F']",
+      )
+    None => fail("expected swizzle return buffer")
+  }
+}
+
+///|
+test "wesl: compile result exec evaluates if else control flow" {
+  let resolver = VirtualResolver::new()
+  let root_path = ModulePath::from_path("/shaders/root")
+  resolver.add_module(
+    root_path, "@compute @workgroup_size(1)\nfn main(@builtin(local_invocation_index) index: u32) -> u32 {\n  if (index == 0u) {\n    return 1u;\n  } else {\n    return index + 1u;\n  }\n}\n",
+  )
+  let compiled = compile(
+    root_path,
+    resolver,
+    EscapeMangler::default(),
+    CompileOptions::default(),
+  )
+  let first = compiled.exec(
+    "main",
+    Inputs::{
+      ..Inputs::new_zero_initialized(),
+      local_invocation_index: Some(0),
+    },
+    [],
+    [],
+  )
+  match first.return_value() {
+    Some(value) => inspect(value, content="1u")
+    None => fail("expected first branch return")
+  }
+  let second = compiled.exec(
+    "main",
+    Inputs::{
+      ..Inputs::new_zero_initialized(),
+      local_invocation_index: Some(41),
+    },
+    [],
+    [],
+  )
+  match second.return_value() {
+    Some(value) => inspect(value, content="42u")
+    None => fail("expected else branch return")
+  }
+}
+
+///|
+test "wesl: compile result exec evaluates while break continue control flow" {
+  let resolver = VirtualResolver::new()
+  let root_path = ModulePath::from_path("/shaders/root")
+  resolver.add_module(
+    root_path, "@compute @workgroup_size(1)\nfn main(@builtin(local_invocation_index) limit: u32) -> u32 {\n  var i: u32 = 0u;\n  var sum: u32 = 0u;\n  while (i < limit) {\n    i = i + 1u;\n    if (i == 2u) {\n      continue;\n    }\n    if (i == 5u) {\n      break;\n    }\n    sum = sum + i;\n  }\n  return sum;\n}\n",
+  )
+  let compiled = compile(
+    root_path,
+    resolver,
+    EscapeMangler::default(),
+    CompileOptions::default(),
+  )
+  let exec = compiled.exec(
+    "main",
+    Inputs::{
+      ..Inputs::new_zero_initialized(),
+      local_invocation_index: Some(10),
+    },
+    [],
+    [],
+  )
+  match exec.return_value() {
+    Some(value) => inspect(value, content="8u")
+    None => fail("expected while loop return")
+  }
+  match exec.to_buffer() {
+    Some(buffer) =>
+      inspect(
+        buffer.to_array(),
+        content="[b'\\x08', b'\\x00', b'\\x00', b'\\x00']",
+      )
+    None => fail("expected while loop return buffer")
+  }
+}
+
+///|
+test "wesl: compile result exec evaluates for loop control flow" {
+  let resolver = VirtualResolver::new()
+  let root_path = ModulePath::from_path("/shaders/root")
+  resolver.add_module(
+    root_path, "@compute @workgroup_size(1)\nfn main(@builtin(local_invocation_index) limit: u32) -> u32 {\n  var sum: u32 = 0u;\n  for (var i: u32 = 0u; i < limit; i++) {\n    if (i == 2u) {\n      continue;\n    }\n    if (i == 5u) {\n      break;\n    }\n    sum = sum + i;\n  }\n  return sum;\n}\n",
+  )
+  let compiled = compile(
+    root_path,
+    resolver,
+    EscapeMangler::default(),
+    CompileOptions::default(),
+  )
+  let exec = compiled.exec(
+    "main",
+    Inputs::{
+      ..Inputs::new_zero_initialized(),
+      local_invocation_index: Some(10),
+    },
+    [],
+    [],
+  )
+  match exec.return_value() {
+    Some(value) => inspect(value, content="8u")
+    None => fail("expected for loop return")
+  }
+  match exec.to_buffer() {
+    Some(buffer) =>
+      inspect(
+        buffer.to_array(),
+        content="[b'\\x08', b'\\x00', b'\\x00', b'\\x00']",
+      )
+    None => fail("expected for loop return buffer")
+  }
+}
+
+///|
+test "wesl: compile result exec runs for update after continue" {
+  let resolver = VirtualResolver::new()
+  let root_path = ModulePath::from_path("/shaders/root")
+  resolver.add_module(
+    root_path, "@compute @workgroup_size(1)\nfn main() -> u32 {\n  var sum: u32 = 0u;\n  for (var i: u32 = 0u; i < 4u; i = i + 1u) {\n    if (i < 3u) {\n      continue;\n    }\n    sum = sum + i;\n  }\n  return sum;\n}\n",
+  )
+  let compiled = compile(
+    root_path,
+    resolver,
+    EscapeMangler::default(),
+    CompileOptions::default(),
+  )
+  let exec = compiled.exec("main", Inputs::new_zero_initialized(), [], [])
+  match exec.return_value() {
+    Some(value) => inspect(value, content="3u")
+    None => fail("expected for continue update return")
+  }
+}
+
+///|
+test "wesl: compile result exec evaluates loop break continue control flow" {
+  let resolver = VirtualResolver::new()
+  let root_path = ModulePath::from_path("/shaders/root")
+  resolver.add_module(
+    root_path, "@compute @workgroup_size(1)\nfn main() -> u32 {\n  var i: u32 = 0u;\n  var sum: u32 = 0u;\n  loop {\n    i++;\n    if (i == 2u) {\n      continue;\n    }\n    if (i == 5u) {\n      break;\n    }\n    sum += i;\n  }\n  return sum;\n}\n",
+  )
+  let compiled = compile(
+    root_path,
+    resolver,
+    EscapeMangler::default(),
+    CompileOptions::default(),
+  )
+  let exec = compiled.exec("main", Inputs::new_zero_initialized(), [], [])
+  match exec.return_value() {
+    Some(value) => inspect(value, content="8u")
+    None => fail("expected loop return")
+  }
+}
+
+///|
+test "wesl: compile result exec evaluates loop continuing break-if" {
+  let resolver = VirtualResolver::new()
+  let root_path = ModulePath::from_path("/shaders/root")
+  resolver.add_module(
+    root_path, "@compute @workgroup_size(1)\nfn main() -> u32 {\n  var i: u32 = 0u;\n  var sum: u32 = 0u;\n  loop {\n    i += 1u;\n    if (i == 2u) {\n      continue;\n    }\n    sum += i;\n    continuing {\n      break if i == 5u;\n    }\n  }\n  return sum;\n}\n",
+  )
+  let compiled = compile(
+    root_path,
+    resolver,
+    EscapeMangler::default(),
+    CompileOptions::default(),
+  )
+  let exec = compiled.exec("main", Inputs::new_zero_initialized(), [], [])
+  match exec.return_value() {
+    Some(value) => inspect(value, content="13u")
+    None => fail("expected loop continuing return")
+  }
+}
+
+///|
+test "wesl: compile result exec rejects non-storable return buffers" {
+  let resolver = VirtualResolver::new()
+  let root_path = ModulePath::from_path("/shaders/root")
+  resolver.add_module(
+    root_path, "@compute @workgroup_size(1)\nfn main() -> bool {\n  return true;\n}\n",
+  )
+  let compiled = compile(
+    root_path,
+    resolver,
+    EscapeMangler::default(),
+    CompileOptions::default(),
+  )
+  let exec = compiled.exec("main", Inputs::new_zero_initialized(), [], [])
+
+  debug_inspect(exec.return_value(), content="Some(\"true\")")
+  inspect(exec.to_buffer() is None, content="true")
+}
+
+///|
+test "wesl: compile result exec applies override values" {
+  let resolver = VirtualResolver::new()
+  let root_path = ModulePath::from_path("/shaders/root")
+  resolver.add_module(
+    root_path, "override SCALE: u32 = 2u;\n@compute @workgroup_size(1)\nfn main() -> u32 {\n  return SCALE + 1u;\n}\n",
+  )
+  let compiled = compile(
+    root_path,
+    resolver,
+    EscapeMangler::default(),
+    CompileOptions::default(),
+  )
+
+  let default_exec = compiled.exec("main", Inputs::new_zero_initialized(), [], [])
+  match default_exec.return_value() {
+    Some(value) => inspect(value, content="3u")
+    None => fail("expected default override return")
+  }
+
+  let overridden = compiled.exec("main", Inputs::new_zero_initialized(), [], [
+    OverrideValue::{ name: "SCALE", value: "41u" },
+  ])
+  match overridden.return_value() {
+    Some(value) => inspect(value, content="42u")
+    None => fail("expected overridden return")
+  }
+  match overridden.to_buffer() {
+    Some(buffer) =>
+      inspect(
+        buffer.to_array(),
+        content="[b'\\x2A', b'\\x00', b'\\x00', b'\\x00']",
+      )
+    None => fail("expected override return buffer")
+  }
+}
+
+///|
+test "wesl: compile result exec rejects uninitialized overrides" {
+  let resolver = VirtualResolver::new()
+  let root_path = ModulePath::from_path("/shaders/root")
+  resolver.add_module(
+    root_path, "override SCALE: u32;\n@compute @workgroup_size(1)\nfn main() -> u32 {\n  return SCALE;\n}\n",
+  )
+  let compiled = compile(
+    root_path,
+    resolver,
+    EscapeMangler::default(),
+    CompileOptions::default(),
+  )
+  let exec = try? compiled.exec("main", Inputs::new_zero_initialized(), [], [])
+  match exec {
+    Err(WeslCompileError::Validation(message)) =>
+      assert_true(message.contains("uninitialized override"))
+    _ => fail("expected uninitialized override to be rejected")
+  }
+}
+
+///|
+test "wesl: compile result exec reads scalar resource buffers" {
+  let resolver = VirtualResolver::new()
+  let root_path = ModulePath::from_path("/shaders/root")
+  resolver.add_module(
+    root_path, "@group(0) @binding(0) var<uniform> DATA: u32;\n@compute @workgroup_size(1)\nfn main() -> u32 {\n  return DATA + 1u;\n}\n",
+  )
+  let compiled = compile(
+    root_path,
+    resolver,
+    EscapeMangler::default(),
+    CompileOptions::default(),
+  )
+  let exec = compiled.exec(
+    "main",
+    Inputs::new_zero_initialized(),
+    [
+      ResourceBinding::{
+        group: 0,
+        binding: 0,
+        kind: "uniform",
+        data: Bytes::from_array([b'\x29', b'\x00', b'\x00', b'\x00']),
+      },
+    ],
+    [],
+  )
+  match exec.return_value() {
+    Some(value) => inspect(value, content="42u")
+    None => fail("expected resource return")
+  }
+  match exec.to_buffer() {
+    Some(buffer) =>
+      inspect(
+        buffer.to_array(),
+        content="[b'\\x2A', b'\\x00', b'\\x00', b'\\x00']",
+      )
+    None => fail("expected resource return buffer")
+  }
+  match exec.resource(0, 0) {
+    Some(resource) => {
+      inspect(resource.kind, content="uniform")
+      inspect(
+        resource.data.to_array(),
+        content="[b'\\x29', b'\\x00', b'\\x00', b'\\x00']",
+      )
+    }
+    None => fail("expected resource")
+  }
+}
+
+///|
+test "wesl: compile result exec reads vector resource buffers" {
+  let resolver = VirtualResolver::new()
+  let root_path = ModulePath::from_path("/shaders/root")
+  resolver.add_module(
+    root_path, "@group(0) @binding(0) var<uniform> DATA: vec4<f32>;\n@compute @workgroup_size(1)\nfn main() -> vec4<f32> {\n  return DATA + vec4<f32>(1.0f);\n}\n",
+  )
+  let compiled = compile(
+    root_path,
+    resolver,
+    EscapeMangler::default(),
+    CompileOptions::default(),
+  )
+  let input = Bytes::from_array([
+    b'\x00', b'\x00', b'\x80', b'\x3F', b'\x00', b'\x00', b'\x00', b'\x40', b'\x00',
+    b'\x00', b'\x40', b'\x40', b'\x00', b'\x00', b'\x80', b'\x40',
+  ])
+  let exec = compiled.exec(
+    "main",
+    Inputs::new_zero_initialized(),
+    [ResourceBinding::{ group: 0, binding: 0, kind: "uniform", data: input }],
+    [],
+  )
+  match exec.return_value() {
+    Some(value) => assert_true(value.contains("vec4<f32>"))
+    None => fail("expected vector resource return")
+  }
+  match exec.to_buffer() {
+    Some(buffer) =>
+      inspect(
+        buffer.to_array(),
+        content="[b'\\x00', b'\\x00', b'\\x00', b'\\x40', b'\\x00', b'\\x00', b'\\x40', b'\\x40', b'\\x00', b'\\x00', b'\\x80', b'\\x40', b'\\x00', b'\\x00', b'\\xA0', b'\\x40']",
+      )
+    None => fail("expected vector resource return buffer")
+  }
+}
+
+///|
+test "wesl: compile result exec reads struct resource buffers" {
+  let resolver = VirtualResolver::new()
+  let root_path = ModulePath::from_path("/shaders/root")
+  resolver.add_module(
+    root_path, "struct Data {\n  a: u32,\n  b: vec3<f32>,\n  c: u32,\n}\n\n@group(0) @binding(0) var<uniform> DATA: Data;\n@compute @workgroup_size(1)\nfn main() -> Data {\n  return DATA;\n}\n",
+  )
+  let compiled = compile(
+    root_path,
+    resolver,
+    EscapeMangler::default(),
+    CompileOptions::default(),
+  )
+  let input = Bytes::from_array([
+    b'\x2A', b'\x00', b'\x00', b'\x00', b'\x00', b'\x00', b'\x00', b'\x00', b'\x00',
+    b'\x00', b'\x00', b'\x00', b'\x00', b'\x00', b'\x00', b'\x00', b'\x00', b'\x00',
+    b'\x80', b'\x3F', b'\x00', b'\x00', b'\x00', b'\x40', b'\x00', b'\x00', b'\x40',
+    b'\x40', b'\x07', b'\x00', b'\x00', b'\x00',
+  ])
+  let exec = compiled.exec(
+    "main",
+    Inputs::new_zero_initialized(),
+    [ResourceBinding::{ group: 0, binding: 0, kind: "uniform", data: input }],
+    [],
+  )
+  match exec.return_value() {
+    Some(value) => {
+      assert_true(value.contains("Data{"))
+      assert_true(value.contains("vec3<f32>"))
+    }
+    None => fail("expected struct resource return")
+  }
+  match exec.to_buffer() {
+    Some(buffer) =>
+      inspect(
+        buffer.to_array(),
+        content="[b'\\x2A', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x80', b'\\x3F', b'\\x00', b'\\x00', b'\\x00', b'\\x40', b'\\x00', b'\\x00', b'\\x40', b'\\x40', b'\\x07', b'\\x00', b'\\x00', b'\\x00']",
+      )
+    None => fail("expected struct resource return buffer")
+  }
+}
+
+///|
+test "wesl: struct resource layout honors member align and size attributes" {
+  let resolver = VirtualResolver::new()
+  let root_path = ModulePath::from_path("/shaders/root")
+  resolver.add_module(
+    root_path, "struct Data {\n  a: u32,\n  @align(16) @size(16) b: u32,\n  c: u32,\n}\n\n@group(0) @binding(0) var<uniform> DATA: Data;\n@compute @workgroup_size(1)\nfn main() -> Data {\n  return DATA;\n}\n",
+  )
+  let compiled = compile(
+    root_path,
+    resolver,
+    EscapeMangler::default(),
+    CompileOptions::default(),
+  )
+  let input = Bytes::from_array([
+    b'\x01', b'\x00', b'\x00', b'\x00', b'\x00', b'\x00', b'\x00', b'\x00', b'\x00',
+    b'\x00', b'\x00', b'\x00', b'\x00', b'\x00', b'\x00', b'\x00', b'\x02', b'\x00',
+    b'\x00', b'\x00', b'\x00', b'\x00', b'\x00', b'\x00', b'\x00', b'\x00', b'\x00',
+    b'\x00', b'\x00', b'\x00', b'\x00', b'\x00', b'\x03', b'\x00', b'\x00', b'\x00',
+  ])
+  let exec = compiled.exec(
+    "main",
+    Inputs::new_zero_initialized(),
+    [ResourceBinding::{ group: 0, binding: 0, kind: "uniform", data: input }],
+    [],
+  )
+  match exec.to_buffer() {
+    Some(buffer) =>
+      inspect(
+        buffer.to_array(),
+        content="[b'\\x01', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x02', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x03', b'\\x00', b'\\x00', b'\\x00']",
+      )
+    None => fail("expected struct resource return buffer")
+  }
+}
+
+///|
+test "wesl: compile result exec reads array resource buffers with stride padding" {
+  let resolver = VirtualResolver::new()
+  let root_path = ModulePath::from_path("/shaders/root")
+  resolver.add_module(
+    root_path, "@group(0) @binding(0) var<uniform> DATA: array<vec3<f32>, 2>;\n@compute @workgroup_size(1)\nfn main() -> array<vec3<f32>, 2> {\n  return DATA;\n}\n",
+  )
+  let compiled = compile(
+    root_path,
+    resolver,
+    EscapeMangler::default(),
+    CompileOptions::default(),
+  )
+  let input = Bytes::from_array([
+    b'\x00', b'\x00', b'\x80', b'\x3F', b'\x00', b'\x00', b'\x00', b'\x40', b'\x00',
+    b'\x00', b'\x40', b'\x40', b'\x00', b'\x00', b'\x00', b'\x00', b'\x00', b'\x00',
+    b'\x80', b'\x40', b'\x00', b'\x00', b'\xA0', b'\x40', b'\x00', b'\x00', b'\xC0',
+    b'\x40', b'\x00', b'\x00', b'\x00', b'\x00',
+  ])
+  let exec = compiled.exec(
+    "main",
+    Inputs::new_zero_initialized(),
+    [ResourceBinding::{ group: 0, binding: 0, kind: "uniform", data: input }],
+    [],
+  )
+  match exec.return_value() {
+    Some(value) => assert_true(value.contains("array<vec3<f32>>"))
+    None => fail("expected array resource return")
+  }
+  match exec.to_buffer() {
+    Some(buffer) =>
+      inspect(
+        buffer.to_array(),
+        content="[b'\\x00', b'\\x00', b'\\x80', b'\\x3F', b'\\x00', b'\\x00', b'\\x00', b'\\x40', b'\\x00', b'\\x00', b'\\x40', b'\\x40', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x80', b'\\x40', b'\\x00', b'\\x00', b'\\xA0', b'\\x40', b'\\x00', b'\\x00', b'\\xC0', b'\\x40', b'\\x00', b'\\x00', b'\\x00', b'\\x00']",
+      )
+    None => fail("expected array resource return buffer")
+  }
+}
+
+///|
+test "wesl: compile result exec reads matrix resource buffers as padded columns" {
+  let resolver = VirtualResolver::new()
+  let root_path = ModulePath::from_path("/shaders/root")
+  resolver.add_module(
+    root_path, "@group(0) @binding(0) var<uniform> DATA: mat3x3<f32>;\n@compute @workgroup_size(1)\nfn main() -> mat3x3<f32> {\n  return DATA;\n}\n",
+  )
+  let compiled = compile(
+    root_path,
+    resolver,
+    EscapeMangler::default(),
+    CompileOptions::default(),
+  )
+  let input = Bytes::from_array([
+    b'\x00', b'\x00', b'\x80', b'\x3F', b'\x00', b'\x00', b'\x00', b'\x40', b'\x00',
+    b'\x00', b'\x40', b'\x40', b'\x00', b'\x00', b'\x00', b'\x00', b'\x00', b'\x00',
+    b'\x80', b'\x40', b'\x00', b'\x00', b'\xA0', b'\x40', b'\x00', b'\x00', b'\xC0',
+    b'\x40', b'\x00', b'\x00', b'\x00', b'\x00', b'\x00', b'\x00', b'\xE0', b'\x40',
+    b'\x00', b'\x00', b'\x00', b'\x41', b'\x00', b'\x00', b'\x10', b'\x41', b'\x00',
+    b'\x00', b'\x00', b'\x00',
+  ])
+  let exec = compiled.exec(
+    "main",
+    Inputs::new_zero_initialized(),
+    [ResourceBinding::{ group: 0, binding: 0, kind: "uniform", data: input }],
+    [],
+  )
+  match exec.return_value() {
+    Some(value) => assert_true(value.contains("mat3x3<f32>"))
+    None => fail("expected matrix resource return")
+  }
+  match exec.to_buffer() {
+    Some(buffer) =>
+      inspect(
+        buffer.to_array(),
+        content="[b'\\x00', b'\\x00', b'\\x80', b'\\x3F', b'\\x00', b'\\x00', b'\\x00', b'\\x40', b'\\x00', b'\\x00', b'\\x40', b'\\x40', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x80', b'\\x40', b'\\x00', b'\\x00', b'\\xA0', b'\\x40', b'\\x00', b'\\x00', b'\\xC0', b'\\x40', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\xE0', b'\\x40', b'\\x00', b'\\x00', b'\\x00', b'\\x41', b'\\x00', b'\\x00', b'\\x10', b'\\x41', b'\\x00', b'\\x00', b'\\x00', b'\\x00']",
+      )
+    None => fail("expected matrix resource return buffer")
+  }
+}
+
+///|
+test "wesl: compile result exec rejects incompatible scalar resource buffers" {
+  let resolver = VirtualResolver::new()
+  let root_path = ModulePath::from_path("/shaders/root")
+  resolver.add_module(
+    root_path, "@group(0) @binding(0) var<uniform> DATA: u32;\n@compute @workgroup_size(1)\nfn main() -> u32 {\n  return DATA;\n}\n",
+  )
+  let compiled = compile(
+    root_path,
+    resolver,
+    EscapeMangler::default(),
+    CompileOptions::default(),
+  )
+  let exec = try? compiled.exec(
+    "main",
+    Inputs::new_zero_initialized(),
+    [
+      ResourceBinding::{
+        group: 0,
+        binding: 0,
+        kind: "uniform",
+        data: Bytes::from_array([b'\x2A']),
+      },
+    ],
+    [],
+  )
+  match exec {
+    Err(WeslCompileError::Validation(message)) =>
+      assert_true(message.contains("incompatible"))
+    _ => fail("expected incompatible resource buffer to be rejected")
+  }
 }
 
 ///|
@@ -1074,6 +1969,172 @@ test "wesl: validation checks matrix assignments through AST lhs scopes" {
       )
     _ => fail("expected matrix assignment validation error")
   }
+}
+
+///|
+test "wesl: public validate_wesl rejects duplicate declarations" {
+  let root_path = ModulePath::from_path("/shaders/root")
+  let unit = parse_translation_unit(
+    root_path, "fn make() -> i32 { return 1i; }\nfn make() -> i32 { return 2i; }\n",
+    true,
+  )
+
+  try validate_wesl(unit) catch {
+    WeslCompileError::Validate(ValidateError::Duplicate(name)) =>
+      debug_inspect(name, content="\"make\"")
+    _ => fail("expected duplicate declaration validation error")
+  } noraise {
+    _ => fail("expected duplicate declaration validation error")
+  }
+}
+
+///|
+test "wesl: public validate_wesl skips conditional duplicate declarations" {
+  let root_path = ModulePath::from_path("/shaders/root")
+  let unit = parse_translation_unit(
+    root_path, "@if(FEATURE)\nfn make() -> i32 { return 1i; }\nfn make() -> i32 { return 2i; }\n",
+    true,
+  )
+
+  validate_wesl(unit)
+}
+
+///|
+test "wesl: public validate_wesl rejects cyclic declarations" {
+  let root_path = ModulePath::from_path("/shaders/root")
+  let unit = parse_translation_unit(
+    root_path, "alias A = B;\nalias B = A;\n", true,
+  )
+
+  try validate_wesl(unit) catch {
+    WeslCompileError::Validate(ValidateError::Cycle(name, _)) =>
+      debug_inspect(name.contains("A") || name.contains("B"), content="true")
+    _ => fail("expected cyclic declaration validation error")
+  } noraise {
+    _ => fail("expected cyclic declaration validation error")
+  }
+}
+
+///|
+test "wesl: public validate_wgsl checks user function arity" {
+  let root_path = ModulePath::from_path("/shaders/root")
+  let unit = parse_translation_unit(
+    root_path, "fn takes_one(value: i32) -> i32 { return value; }\nfn main() { let value = takes_one(1i, 2i); }\n",
+    false,
+  )
+
+  try validate_wgsl(unit) catch {
+    WeslCompileError::Validate(ValidateError::ParamCount(name, expected, got)) => {
+      debug_inspect(name, content="\"takes_one\"")
+      debug_inspect(expected, content="1")
+      debug_inspect(got, content="2")
+    }
+    _ => fail("expected function arity validation error")
+  } noraise {
+    _ => fail("expected function arity validation error")
+  }
+}
+
+///|
+test "wesl: public validate_wgsl rejects local non-callables" {
+  let root_path = ModulePath::from_path("/shaders/root")
+  let unit = parse_translation_unit(
+    root_path, "fn main() { let value = 1i; let out = value(); }\n", false,
+  )
+
+  try validate_wgsl(unit) catch {
+    WeslCompileError::Validate(ValidateError::NotCallable(name)) =>
+      debug_inspect(name, content="\"value\"")
+    _ => fail("expected not-callable validation error")
+  } noraise {
+    _ => fail("expected not-callable validation error")
+  }
+}
+
+///|
+test "wesl: public validate_wgsl keeps builtin calls callable" {
+  let root_path = ModulePath::from_path("/shaders/root")
+  let unit = parse_translation_unit(
+    root_path, "fn main() { let value = sin(0.0); let position = vec4<f32>(value); }\n",
+    false,
+  )
+
+  validate_wgsl(unit)
+}
+
+///|
+test "wesl: compile validate runs loaded WESL surface checks" {
+  let root_path = ModulePath::from_path("/shaders/root")
+  let resolver = VirtualResolver::new()
+  resolver.add_module(root_path, "const value: MissingType = 1i;\n")
+
+  let result = try? compile(
+    root_path,
+    resolver,
+    EscapeMangler::default(),
+    CompileOptions::default().with_strip(false),
+  )
+
+  match result {
+    Err(WeslCompileError::Validate(ValidateError::UndefinedSymbol(name))) =>
+      debug_inspect(name, content="\"MissingType\"")
+    _ => fail("expected loaded WESL validation error")
+  }
+}
+
+///|
+test "wesl: compile validate runs assembled WGSL call checks" {
+  let root_path = ModulePath::from_path("/shaders/root")
+  let resolver = VirtualResolver::new()
+  resolver.add_module(
+    root_path, "const value = 1i;\n@compute @workgroup_size(1)\nfn main() {\n  let out = value();\n}\n",
+  )
+
+  let result = try? compile(
+    root_path,
+    resolver,
+    EscapeMangler::default(),
+    CompileOptions::default().with_strip(false),
+  )
+
+  match result {
+    Err(WeslCompileError::Validate(ValidateError::NotCallable(name))) =>
+      debug_inspect(name, content="\"value\"")
+    _ => fail("expected assembled WGSL validation error")
+  }
+}
+
+///|
+test "wesl: compile validation matches upstream call-statement traversal" {
+  let root_path = ModulePath::from_path("/shaders/root")
+  let util_path = ModulePath::from_path("/shaders/util")
+  let resolver = VirtualResolver::new()
+  resolver.add_module(
+    root_path, "import super::util::foo;\n@compute @workgroup_size(1)\nfn main() {\n  foo();\n}\n",
+  )
+  resolver.add_module(
+    util_path, "struct AStruct { x: u32 }\nfn foo(a: AStruct) {\n  let b = a.x;\n}\n",
+  )
+
+  let compiled = compile(
+    root_path,
+    resolver,
+    EscapeMangler::default(),
+    CompileOptions::default().with_keep_root(true),
+  )
+
+  debug_inspect(compiled.to_string().contains("foo();"), content="true")
+}
+
+///|
+test "wesl: validation treats storage texture formats as builtin identifiers" {
+  let root_path = ModulePath::from_path("/shaders/root")
+  let unit = parse_translation_unit(
+    root_path, "@group(0) @binding(0) var input: texture_storage_2d<r32float, read>;\n",
+    false,
+  )
+
+  validate_wgsl(unit)
 }
 
 ///|

@@ -31,6 +31,7 @@ priv enum ConstEvalToken {
   Colon
   Semi
   Comma
+  Dot
   Equal
   EqualEqual
   Bang
@@ -134,6 +135,10 @@ fn const_eval_lex(
       }
       44 => {
         tokens.push(ConstEvalToken::Comma)
+        index += 1
+      }
+      46 => {
+        tokens.push(ConstEvalToken::Dot)
         index += 1
       }
       61 =>
@@ -293,6 +298,24 @@ fn[A] ConstEvalParser::error(
 }
 
 ///|
+fn ConstEvalParser::consume_token(
+  self : ConstEvalParser,
+  token : ConstEvalToken,
+) -> Bool {
+  match (token, self.view()) {
+    (Semi, [Semi, .. rest]) => {
+      self.update_view(rest)
+      true
+    }
+    (RightParen, [RightParen, .. rest]) => {
+      self.update_view(rest)
+      true
+    }
+    _ => false
+  }
+}
+
+///|
 priv enum ConstEvalType {
   AbstractInt
   AbstractFloat
@@ -300,9 +323,13 @@ priv enum ConstEvalType {
   I32
   U32
   F32
+  Vector(Int, ConstEvalType)
+  Matrix(Int, Int, ConstEvalType)
+  Array(ConstEvalType, Int?)
+  Struct(String)
   FrexpAbstractResult
   FrexpF32Result
-}
+} derive(Eq)
 
 ///|
 priv enum ConstEvalExpr {
@@ -312,6 +339,7 @@ priv enum ConstEvalExpr {
   UnaryNot(ConstEvalExpr)
   UnaryBitNot(ConstEvalExpr)
   Binary(ConstEvalBinaryOp, ConstEvalExpr, ConstEvalExpr)
+  Access(ConstEvalExpr, String)
   Call(String, Array[ConstEvalExpr])
 }
 
@@ -353,7 +381,31 @@ priv struct ConstEvalParam {
 ///|
 priv enum ConstEvalStatement {
   Binding(ConstEvalBinding)
+  Assignment(String, ConstEvalExpr)
+  CompoundAssignment(String, ConstEvalBinaryOp, ConstEvalExpr)
+  Increment(String)
+  Decrement(String)
+  If(ConstEvalExpr, Array[ConstEvalStatement], Array[ConstEvalStatement])
+  Loop(Array[ConstEvalStatement], Array[ConstEvalStatement]?)
+  While(ConstEvalExpr, Array[ConstEvalStatement])
+  For(
+    ConstEvalStatement?,
+    ConstEvalExpr?,
+    ConstEvalStatement?,
+    Array[ConstEvalStatement]
+  )
+  Break
+  BreakIf(ConstEvalExpr)
+  Continue
   Return(ConstEvalExpr)
+}
+
+///|
+priv enum ConstEvalControl {
+  ContinueExecution
+  ReturnValue(ConstEvalValue)
+  BreakLoop
+  ContinueLoop
 }
 
 ///|
@@ -385,6 +437,71 @@ fn ConstEvalParser::parse_type(
       self.update_view(rest)
       ConstEvalType::F32
     }
+    [Ident(name), Less, .. rest] => {
+      if name == "array" {
+        self.update_view(rest)
+        let element = self.parse_type()
+        let count = match self.view() {
+          [Comma, Number(text), .. after_count] => {
+            self.update_view(after_count)
+            let value = const_eval_parse_array_count(text)
+            match self.view() {
+              [Comma, Greater, .. after] => self.update_view(after)
+              [Greater, .. after] => self.update_view(after)
+              _ => self.error("expected `>` in const-eval array type")
+            }
+            Some(value)
+          }
+          [Greater, .. after] => {
+            self.update_view(after)
+            None
+          }
+          _ => self.error("expected `>` in const-eval array type")
+        }
+        return ConstEvalType::Array(element, count)
+      }
+      if name.length() == 6 &&
+        name[:3].to_owned() == "mat" &&
+        name[4:5].to_owned() == "x" {
+        self.update_view(rest)
+        let columns = const_eval_matrix_dimension(name[3:4].to_owned())
+        let rows = const_eval_matrix_dimension(name[5:6].to_owned())
+        let element = self.parse_type()
+        match element {
+          F32 => ()
+          _ => self.error("expected f32 matrix element type in const-eval type")
+        }
+        match self.view() {
+          [Greater, .. after] => self.update_view(after)
+          _ => self.error("expected `>` in const-eval matrix type")
+        }
+        return ConstEvalType::Matrix(columns, rows, element)
+      }
+      if !(name == "vec2" || name == "vec3" || name == "vec4") {
+        self.error("expected const-eval type")
+      }
+      self.update_view(rest)
+      let width = match name {
+        "vec2" => 2
+        "vec3" => 3
+        _ => 4
+      }
+      let element = self.parse_type()
+      match element {
+        Bool | I32 | U32 | F32 => ()
+        _ =>
+          self.error("expected scalar vector element type in const-eval type")
+      }
+      match self.view() {
+        [Greater, .. after] => self.update_view(after)
+        _ => self.error("expected `>` in const-eval vector type")
+      }
+      ConstEvalType::Vector(width, element)
+    }
+    [Ident(name), .. rest] => {
+      self.update_view(rest)
+      ConstEvalType::Struct(name)
+    }
     _ => self.error("expected const-eval type")
   }
 }
@@ -405,6 +522,35 @@ fn ConstEvalParser::parse_primary(
     [Ident("false"), .. rest] => {
       self.update_view(rest)
       ConstEvalExpr::Literal("false")
+    }
+    [Ident(name), Less, .. rest] => {
+      if !(name == "vec2" || name == "vec3" || name == "vec4") {
+        self.update_view(self.view()[1:])
+        return ConstEvalExpr::Binding(name)
+      }
+      self.update_view(rest)
+      let element = self.parse_type()
+      match self.view() {
+        [Greater, LeftParen, .. after] => self.update_view(after)
+        _ => self.error("expected vector constructor argument list")
+      }
+      let args : Array[ConstEvalExpr] = []
+      if self.view() is [RightParen, .. after_empty] {
+        self.update_view(after_empty)
+        return ConstEvalExpr::Call("\{name}<\{element.label()}>", args)
+      }
+      while true {
+        args.push(self.parse_expression())
+        match self.view() {
+          [Comma, .. after_comma] => self.update_view(after_comma)
+          [RightParen, .. after_paren] => {
+            self.update_view(after_paren)
+            break
+          }
+          _ => self.error("expected `,` or `)` in const-eval argument list")
+        }
+      }
+      ConstEvalExpr::Call("\{name}<\{element.label()}>", args)
     }
     [Ident(name), LeftParen, .. rest] => {
       self.update_view(rest)
@@ -446,6 +592,26 @@ fn ConstEvalParser::parse_primary(
 }
 
 ///|
+fn ConstEvalParser::parse_postfix(
+  self : ConstEvalParser,
+) -> ConstEvalExpr raise WeslCompileError {
+  let mut expr = self.parse_primary()
+  for rest = self.view() {
+    match rest {
+      [Dot, Ident(name), .. next] => {
+        self.update_view(next)
+        expr = ConstEvalExpr::Access(expr, name)
+        continue self.view()
+      }
+      [Dot, ..] =>
+        self.error("expected member name after `.` in const-eval expression")
+      _ => break
+    }
+  }
+  expr
+}
+
+///|
 fn ConstEvalParser::parse_unary(
   self : ConstEvalParser,
 ) -> ConstEvalExpr raise WeslCompileError {
@@ -462,7 +628,7 @@ fn ConstEvalParser::parse_unary(
       self.update_view(rest)
       ConstEvalExpr::UnaryBitNot(self.parse_unary())
     }
-    _ => self.parse_primary()
+    _ => self.parse_postfix()
   }
 }
 
@@ -796,8 +962,108 @@ fn ConstEvalParser::parse_expression(
 }
 
 ///|
-fn ConstEvalParser::parse_binding_statement(
+fn ConstEvalParser::parse_statement_block(
   self : ConstEvalParser,
+) -> Array[ConstEvalStatement] raise WeslCompileError {
+  match self.view() {
+    [LeftBrace, .. rest] => self.update_view(rest)
+    _ => self.error("expected `{` in const-eval statement block")
+  }
+  let statements : Array[ConstEvalStatement] = []
+  while true {
+    match self.view() {
+      [RightBrace, .. rest] => {
+        self.update_view(rest)
+        break
+      }
+      [] => self.error("expected `}` in const-eval statement block")
+      _ => statements.push(self.parse_statement())
+    }
+  }
+  statements
+}
+
+///|
+fn ConstEvalParser::parse_if_condition(
+  self : ConstEvalParser,
+) -> ConstEvalExpr raise WeslCompileError {
+  match self.view() {
+    [LeftParen, .. rest] => {
+      self.update_view(rest)
+      let expr = self.parse_expression()
+      match self.view() {
+        [RightParen, .. after] => self.update_view(after)
+        _ => self.error("expected `)` after const-eval if condition")
+      }
+      expr
+    }
+    _ => self.parse_expression()
+  }
+}
+
+///|
+fn ConstEvalParser::parse_if_statement(
+  self : ConstEvalParser,
+) -> ConstEvalStatement raise WeslCompileError {
+  let condition = self.parse_if_condition()
+  let then_branch = self.parse_statement_block()
+  let else_branch = match self.view() {
+    [Ident("else"), Ident("if"), .. rest] => {
+      self.update_view(rest)
+      [self.parse_if_statement()]
+    }
+    [Ident("else"), .. rest] => {
+      self.update_view(rest)
+      self.parse_statement_block()
+    }
+    _ => []
+  }
+  ConstEvalStatement::If(condition, then_branch, else_branch)
+}
+
+///|
+fn ConstEvalParser::parse_while_statement(
+  self : ConstEvalParser,
+) -> ConstEvalStatement raise WeslCompileError {
+  let condition = self.parse_if_condition()
+  let body = self.parse_statement_block()
+  ConstEvalStatement::While(condition, body)
+}
+
+///|
+fn ConstEvalParser::parse_loop_statement(
+  self : ConstEvalParser,
+) -> ConstEvalStatement raise WeslCompileError {
+  match self.view() {
+    [LeftBrace, .. rest] => self.update_view(rest)
+    _ => self.error("expected `{` in const-eval loop body")
+  }
+  let body : Array[ConstEvalStatement] = []
+  let mut continuing : Array[ConstEvalStatement]? = None
+  while true {
+    match self.view() {
+      [RightBrace, .. rest] => {
+        self.update_view(rest)
+        break
+      }
+      [Ident("continuing"), .. rest] => {
+        if continuing is Some(_) {
+          self.error("duplicate const-eval continuing block")
+        }
+        self.update_view(rest)
+        continuing = Some(self.parse_statement_block())
+      }
+      [] => self.error("expected `}` in const-eval loop body")
+      _ => body.push(self.parse_statement())
+    }
+  }
+  ConstEvalStatement::Loop(body, continuing)
+}
+
+///|
+fn ConstEvalParser::parse_binding_statement_with_terminator(
+  self : ConstEvalParser,
+  terminator : ConstEvalToken,
 ) -> ConstEvalStatement raise WeslCompileError {
   let name = match self.view() {
     [Ident(name), .. rest] => {
@@ -818,11 +1084,188 @@ fn ConstEvalParser::parse_binding_statement(
     _ => self.error("expected `=` in const-eval binding")
   }
   let expr = self.parse_expression()
-  match self.view() {
-    [Semi, .. rest] => self.update_view(rest)
-    _ => self.error("expected `;` after const-eval binding")
+  if !self.consume_token(terminator) {
+    self.error("expected terminator after const-eval binding")
   }
   ConstEvalStatement::Binding(ConstEvalBinding::{ name, declared_type, expr })
+}
+
+///|
+fn ConstEvalParser::parse_binding_statement(
+  self : ConstEvalParser,
+) -> ConstEvalStatement raise WeslCompileError {
+  self.parse_binding_statement_with_terminator(Semi)
+}
+
+///|
+fn ConstEvalParser::parse_assignment_statement_with_terminator(
+  self : ConstEvalParser,
+  name : String,
+  terminator : ConstEvalToken,
+) -> ConstEvalStatement raise WeslCompileError {
+  match self.view() {
+    [Equal, .. rest] => self.update_view(rest)
+    _ => self.error("expected `=` in const-eval assignment")
+  }
+  let expr = self.parse_expression()
+  if !self.consume_token(terminator) {
+    self.error("expected terminator after const-eval assignment")
+  }
+  ConstEvalStatement::Assignment(name, expr)
+}
+
+///|
+fn ConstEvalParser::parse_assignment_statement(
+  self : ConstEvalParser,
+  name : String,
+) -> ConstEvalStatement raise WeslCompileError {
+  self.parse_assignment_statement_with_terminator(name, Semi)
+}
+
+///|
+fn ConstEvalParser::parse_compound_assignment_statement_with_terminator(
+  self : ConstEvalParser,
+  name : String,
+  op : ConstEvalBinaryOp,
+  terminator : ConstEvalToken,
+) -> ConstEvalStatement raise WeslCompileError {
+  match self.view() {
+    [Equal, .. rest] => self.update_view(rest)
+    _ => self.error("expected `=` in const-eval compound assignment")
+  }
+  let expr = self.parse_expression()
+  if !self.consume_token(terminator) {
+    self.error("expected terminator after const-eval compound assignment")
+  }
+  ConstEvalStatement::CompoundAssignment(name, op, expr)
+}
+
+///|
+fn ConstEvalParser::parse_compound_assignment_statement(
+  self : ConstEvalParser,
+  name : String,
+  op : ConstEvalBinaryOp,
+) -> ConstEvalStatement raise WeslCompileError {
+  self.parse_compound_assignment_statement_with_terminator(name, op, Semi)
+}
+
+///|
+fn ConstEvalParser::parse_for_init(
+  self : ConstEvalParser,
+) -> ConstEvalStatement? raise WeslCompileError {
+  match self.view() {
+    [Semi, .. rest] => {
+      self.update_view(rest)
+      None
+    }
+    [Ident("let"), .. rest] => {
+      self.update_view(rest)
+      Some(self.parse_binding_statement_with_terminator(Semi))
+    }
+    [Ident("var"), .. rest] => {
+      self.update_view(rest)
+      Some(self.parse_binding_statement_with_terminator(Semi))
+    }
+    [Ident(name), Equal, ..] => {
+      self.update_view(self.view()[1:])
+      Some(self.parse_assignment_statement_with_terminator(name, Semi))
+    }
+    [Ident(name), Plus, Equal, ..] => {
+      self.update_view(self.view()[2:])
+      Some(
+        self.parse_compound_assignment_statement_with_terminator(
+          name,
+          Add,
+          Semi,
+        ),
+      )
+    }
+    [Ident(name), Minus, Equal, ..] => {
+      self.update_view(self.view()[2:])
+      Some(
+        self.parse_compound_assignment_statement_with_terminator(
+          name,
+          Sub,
+          Semi,
+        ),
+      )
+    }
+    _ => self.error("expected const-eval for-loop initializer")
+  }
+}
+
+///|
+fn ConstEvalParser::parse_for_update(
+  self : ConstEvalParser,
+) -> ConstEvalStatement? raise WeslCompileError {
+  match self.view() {
+    [RightParen, ..] => None
+    [Ident(name), Equal, ..] => {
+      self.update_view(self.view()[1:])
+      Some(self.parse_assignment_statement_with_terminator(name, RightParen))
+    }
+    [Ident(name), Plus, Equal, ..] => {
+      self.update_view(self.view()[2:])
+      Some(
+        self.parse_compound_assignment_statement_with_terminator(
+          name,
+          Add,
+          RightParen,
+        ),
+      )
+    }
+    [Ident(name), Minus, Equal, ..] => {
+      self.update_view(self.view()[2:])
+      Some(
+        self.parse_compound_assignment_statement_with_terminator(
+          name,
+          Sub,
+          RightParen,
+        ),
+      )
+    }
+    [Ident(name), Plus, Plus, RightParen, .. rest] => {
+      self.update_view(rest)
+      Some(ConstEvalStatement::Increment(name))
+    }
+    [Ident(name), Minus, Minus, RightParen, .. rest] => {
+      self.update_view(rest)
+      Some(ConstEvalStatement::Decrement(name))
+    }
+    _ => self.error("expected const-eval for-loop update")
+  }
+}
+
+///|
+fn ConstEvalParser::parse_for_statement(
+  self : ConstEvalParser,
+) -> ConstEvalStatement raise WeslCompileError {
+  match self.view() {
+    [LeftParen, .. rest] => self.update_view(rest)
+    _ => self.error("expected `(` after const-eval for")
+  }
+  let initializer : ConstEvalStatement? = self.parse_for_init()
+  let condition : ConstEvalExpr? = match self.view() {
+    [Semi, .. rest] => {
+      self.update_view(rest)
+      None
+    }
+    _ => {
+      let expr = self.parse_expression()
+      match self.view() {
+        [Semi, .. rest] => self.update_view(rest)
+        _ => self.error("expected `;` after const-eval for-loop condition")
+      }
+      Some(expr)
+    }
+  }
+  let update : ConstEvalStatement? = self.parse_for_update()
+  match self.view() {
+    [RightParen, .. rest] => self.update_view(rest)
+    _ => ()
+  }
+  let body = self.parse_statement_block()
+  ConstEvalStatement::For(initializer, condition, update, body)
 }
 
 ///|
@@ -887,6 +1330,87 @@ fn ConstEvalParser::parse_statement(
       self.update_view(rest)
       self.parse_binding_statement()
     }
+    [Ident("if"), .. rest] => {
+      self.update_view(rest)
+      self.parse_if_statement()
+    }
+    [Ident("while"), .. rest] => {
+      self.update_view(rest)
+      self.parse_while_statement()
+    }
+    [Ident("loop"), .. rest] => {
+      self.update_view(rest)
+      self.parse_loop_statement()
+    }
+    [Ident("for"), .. rest] => {
+      self.update_view(rest)
+      self.parse_for_statement()
+    }
+    [Ident("break"), Ident("if"), .. rest] => {
+      self.update_view(rest)
+      let expr = self.parse_expression()
+      match self.view() {
+        [Semi, .. after_semi] => self.update_view(after_semi)
+        _ => self.error("expected `;` after const-eval break-if")
+      }
+      ConstEvalStatement::BreakIf(expr)
+    }
+    [Ident("break"), Semi, .. rest] => {
+      self.update_view(rest)
+      ConstEvalStatement::Break
+    }
+    [Ident("continue"), Semi, .. rest] => {
+      self.update_view(rest)
+      ConstEvalStatement::Continue
+    }
+    [Ident(name), Plus, Plus, Semi, .. rest] => {
+      self.update_view(rest)
+      ConstEvalStatement::Increment(name)
+    }
+    [Ident(name), Minus, Minus, Semi, .. rest] => {
+      self.update_view(rest)
+      ConstEvalStatement::Decrement(name)
+    }
+    [Ident(name), Plus, Equal, ..] => {
+      self.update_view(self.view()[2:])
+      self.parse_compound_assignment_statement(name, Add)
+    }
+    [Ident(name), Minus, Equal, ..] => {
+      self.update_view(self.view()[2:])
+      self.parse_compound_assignment_statement(name, Sub)
+    }
+    [Ident(name), Star, Equal, ..] => {
+      self.update_view(self.view()[2:])
+      self.parse_compound_assignment_statement(name, Mul)
+    }
+    [Ident(name), Slash, Equal, ..] => {
+      self.update_view(self.view()[2:])
+      self.parse_compound_assignment_statement(name, Div)
+    }
+    [Ident(name), Percent, Equal, ..] => {
+      self.update_view(self.view()[2:])
+      self.parse_compound_assignment_statement(name, Mod)
+    }
+    [Ident(name), Amp, Equal, ..] => {
+      self.update_view(self.view()[2:])
+      self.parse_compound_assignment_statement(name, BitAnd)
+    }
+    [Ident(name), Pipe, Equal, ..] => {
+      self.update_view(self.view()[2:])
+      self.parse_compound_assignment_statement(name, BitOr)
+    }
+    [Ident(name), Caret, Equal, ..] => {
+      self.update_view(self.view()[2:])
+      self.parse_compound_assignment_statement(name, BitXor)
+    }
+    [Ident(name), LeftShift, Equal, ..] => {
+      self.update_view(self.view()[2:])
+      self.parse_compound_assignment_statement(name, Shl)
+    }
+    [Ident(name), RightShift, Equal, ..] => {
+      self.update_view(self.view()[2:])
+      self.parse_compound_assignment_statement(name, Shr)
+    }
     [Ident("return"), .. rest] => {
       self.update_view(rest)
       let expr = self.parse_expression()
@@ -895,6 +1419,10 @@ fn ConstEvalParser::parse_statement(
         _ => self.error("expected `;` after const-eval return")
       }
       ConstEvalStatement::Return(expr)
+    }
+    [Ident(name), Equal, ..] => {
+      self.update_view(self.view()[1:])
+      self.parse_assignment_statement(name)
     }
     _ => self.error("expected const-eval statement")
   }
@@ -965,6 +1493,10 @@ priv enum ConstEvalValue {
   I32(Int64)
   U32(Int64)
   F32(Float)
+  Vector(Int, ConstEvalType, Array[ConstEvalValue])
+  Matrix(Int, Int, ConstEvalType, Array[ConstEvalValue])
+  Array(ConstEvalType, Int?, Array[ConstEvalValue])
+  Struct(String, Array[(String, ConstEvalValue)])
   FrexpAbstract(Double, Int64)
   FrexpF32(Float, Int64)
 }
@@ -1014,6 +1546,11 @@ fn ConstEvalValue::value_type(self : ConstEvalValue) -> ConstEvalType {
     I32(_) => ConstEvalType::I32
     U32(_) => ConstEvalType::U32
     F32(_) => ConstEvalType::F32
+    Vector(width, element, _) => ConstEvalType::Vector(width, element)
+    Matrix(columns, rows, element, _) =>
+      ConstEvalType::Matrix(columns, rows, element)
+    Array(element, count, _) => ConstEvalType::Array(element, count)
+    Struct(name, _) => ConstEvalType::Struct(name)
     FrexpAbstract(_, _) => ConstEvalType::FrexpAbstractResult
     FrexpF32(_, _) => ConstEvalType::FrexpF32Result
   }
@@ -1028,6 +1565,12 @@ fn ConstEvalType::label(self : ConstEvalType) -> String {
     I32 => "i32"
     U32 => "u32"
     F32 => "f32"
+    Vector(width, element) => "vec\{width}<\{element.label()}>"
+    Matrix(columns, rows, element) =>
+      "mat\{columns}x\{rows}<\{element.label()}>"
+    Array(element, Some(count)) => "array<\{element.label()}, \{count}>"
+    Array(element, None) => "array<\{element.label()}>"
+    Struct(name) => name
     FrexpAbstractResult => "__frexp_result_abstract"
     FrexpF32Result => "__frexp_result_f32"
   }
@@ -1105,6 +1648,29 @@ fn const_eval_parse_integer_literal(
   @string.parse_int64(normalized[:], base=10) catch {
     _ => raise WeslCompileError::Validation("invalid integer literal `\{text}`")
   }
+}
+
+///|
+fn const_eval_parse_array_count(text : String) -> Int raise WeslCompileError {
+  let normalized = if text.has_suffix("u") || text.has_suffix("i") {
+    text[:text.length() - 1].to_owned()
+  } else {
+    text
+  }
+  let value = const_eval_parse_integer_literal(normalized)
+  if value <= 0L || value > 2147483647L {
+    raise WeslCompileError::Validation("invalid array count `\{text}`")
+  }
+  value.to_int()
+}
+
+///|
+fn const_eval_matrix_dimension(text : String) -> Int raise WeslCompileError {
+  let value = const_eval_parse_integer_literal(text)
+  if value < 2L || value > 4L {
+    raise WeslCompileError::Validation("invalid matrix dimension `\{text}`")
+  }
+  value.to_int()
 }
 
 ///|
@@ -1322,6 +1888,22 @@ fn const_eval_require_i32(
       raise WeslCompileError::Validation(
         "cannot convert frexp result to i32 in \{context}",
       )
+    Struct(_, _) =>
+      raise WeslCompileError::Validation(
+        "cannot convert struct to i32 in \{context}",
+      )
+    Matrix(_, _, _, _) =>
+      raise WeslCompileError::Validation(
+        "cannot convert matrix to i32 in \{context}",
+      )
+    Array(_, _, _) =>
+      raise WeslCompileError::Validation(
+        "cannot convert array to i32 in \{context}",
+      )
+    Vector(_, _, _) =>
+      raise WeslCompileError::Validation(
+        "cannot convert vector to i32 in \{context}",
+      )
   }
 }
 
@@ -1364,6 +1946,22 @@ fn const_eval_require_u32(
       raise WeslCompileError::Validation(
         "cannot convert frexp result to u32 in \{context}",
       )
+    Struct(_, _) =>
+      raise WeslCompileError::Validation(
+        "cannot convert struct to u32 in \{context}",
+      )
+    Matrix(_, _, _, _) =>
+      raise WeslCompileError::Validation(
+        "cannot convert matrix to u32 in \{context}",
+      )
+    Array(_, _, _) =>
+      raise WeslCompileError::Validation(
+        "cannot convert array to u32 in \{context}",
+      )
+    Vector(_, _, _) =>
+      raise WeslCompileError::Validation(
+        "cannot convert vector to u32 in \{context}",
+      )
   }
 }
 
@@ -1397,6 +1995,22 @@ fn const_eval_require_f32(
     FrexpAbstract(_, _) | FrexpF32(_, _) =>
       raise WeslCompileError::Validation(
         "cannot convert frexp result to f32 in \{context}",
+      )
+    Struct(_, _) =>
+      raise WeslCompileError::Validation(
+        "cannot convert struct to f32 in \{context}",
+      )
+    Matrix(_, _, _, _) =>
+      raise WeslCompileError::Validation(
+        "cannot convert matrix to f32 in \{context}",
+      )
+    Array(_, _, _) =>
+      raise WeslCompileError::Validation(
+        "cannot convert array to f32 in \{context}",
+      )
+    Vector(_, _, _) =>
+      raise WeslCompileError::Validation(
+        "cannot convert vector to f32 in \{context}",
       )
   }
 }
@@ -1442,6 +2056,90 @@ fn const_eval_convert_to_type(
     I32 => ConstEvalValue::I32(const_eval_require_i32(value, context))
     U32 => ConstEvalValue::U32(const_eval_require_u32(value, context))
     F32 => ConstEvalValue::F32(const_eval_require_f32(value, context))
+    Vector(width, element) =>
+      match value {
+        Vector(value_width, _, elements) =>
+          if value_width != width || elements.length() != width {
+            raise WeslCompileError::Validation(
+              "cannot convert vector width in \{context}",
+            )
+          } else {
+            let converted : Array[ConstEvalValue] = []
+            for element_value in elements {
+              converted.push(
+                const_eval_convert_to_type(element_value, element, context),
+              )
+            }
+            ConstEvalValue::Vector(width, element, converted)
+          }
+        _ =>
+          raise WeslCompileError::Validation(
+            "cannot convert non-vector to vec\{width}<\{element.label()}> in \{context}",
+          )
+      }
+    Matrix(columns, rows, element) =>
+      match value {
+        Matrix(value_columns, value_rows, _, columns_values) =>
+          if value_columns != columns ||
+            value_rows != rows ||
+            columns_values.length() != columns {
+            raise WeslCompileError::Validation(
+              "cannot convert matrix dimensions in \{context}",
+            )
+          } else {
+            let converted : Array[ConstEvalValue] = []
+            for column in columns_values {
+              converted.push(
+                const_eval_convert_to_type(
+                  column,
+                  ConstEvalType::Vector(rows, element),
+                  context,
+                ),
+              )
+            }
+            ConstEvalValue::Matrix(columns, rows, element, converted)
+          }
+        _ =>
+          raise WeslCompileError::Validation(
+            "cannot convert non-matrix to mat\{columns}x\{rows}<\{element.label()}> in \{context}",
+          )
+      }
+    Array(element, count) =>
+      match value {
+        Array(_, value_count, elements) =>
+          if count != None && value_count != count {
+            raise WeslCompileError::Validation(
+              "cannot convert array count in \{context}",
+            )
+          } else {
+            let converted : Array[ConstEvalValue] = []
+            for element_value in elements {
+              converted.push(
+                const_eval_convert_to_type(element_value, element, context),
+              )
+            }
+            ConstEvalValue::Array(element, count, converted)
+          }
+        _ =>
+          raise WeslCompileError::Validation(
+            "cannot convert non-array to \{target.label()} in \{context}",
+          )
+      }
+    Struct(name) =>
+      match value {
+        Struct(value_name, fields) =>
+          if value_name == name {
+            ConstEvalValue::Struct(name, fields)
+          } else {
+            raise WeslCompileError::Validation(
+              "cannot convert struct `\{value_name}` to `\{name}` in \{context}",
+            )
+          }
+        _ =>
+          raise WeslCompileError::Validation(
+            "cannot convert non-struct to `\{name}` in \{context}",
+          )
+      }
     FrexpAbstractResult | FrexpF32Result => value
   }
 }
@@ -1460,6 +2158,17 @@ fn const_eval_unary_neg(
     F32(number) => ConstEvalValue::F32(-number)
     FrexpAbstract(_, _) | FrexpF32(_, _) =>
       raise WeslCompileError::Validation("cannot negate frexp result")
+    Struct(_, _) => raise WeslCompileError::Validation("cannot negate struct")
+    Matrix(_, _, _, _) =>
+      raise WeslCompileError::Validation("cannot negate matrix")
+    Array(_, _, _) => raise WeslCompileError::Validation("cannot negate array")
+    Vector(width, _, elements) => {
+      let values : Array[ConstEvalValue] = []
+      for element in elements {
+        values.push(const_eval_unary_neg(element))
+      }
+      const_eval_vector_from_elements(width, values, "unary negation")
+    }
   }
 }
 
@@ -1467,7 +2176,16 @@ fn const_eval_unary_neg(
 fn const_eval_unary_not(
   value : ConstEvalValue,
 ) -> ConstEvalValue raise WeslCompileError {
-  ConstEvalValue::Bool(!const_eval_require_bool(value, "logical not"))
+  match value {
+    Vector(width, _, elements) => {
+      let values : Array[ConstEvalValue] = []
+      for element in elements {
+        values.push(const_eval_unary_not(element))
+      }
+      const_eval_vector_from_elements(width, values, "logical not")
+    }
+    _ => ConstEvalValue::Bool(!const_eval_require_bool(value, "logical not"))
+  }
 }
 
 ///|
@@ -1500,6 +2218,21 @@ fn const_eval_unary_bit_not(
       raise WeslCompileError::Validation(
         "cannot use unary operator `~` on type `frexp result`",
       )
+    Struct(_, _) =>
+      raise WeslCompileError::Validation(
+        "cannot use unary operator `~` on struct type",
+      )
+    Matrix(_, _, _, _) | Array(_, _, _) =>
+      raise WeslCompileError::Validation(
+        "cannot use unary operator `~` on aggregate type",
+      )
+    Vector(width, _, elements) => {
+      let values : Array[ConstEvalValue] = []
+      for element in elements {
+        values.push(const_eval_unary_bit_not(element))
+      }
+      const_eval_vector_from_elements(width, values, "bitwise complement")
+    }
   }
 }
 
@@ -1527,6 +2260,18 @@ fn const_eval_to_abstract_float(
     FrexpAbstract(_, _) | FrexpF32(_, _) =>
       raise WeslCompileError::Validation(
         "cannot use frexp result with abstract float in \{context}",
+      )
+    Struct(_, _) =>
+      raise WeslCompileError::Validation(
+        "cannot use struct with abstract float in \{context}",
+      )
+    Matrix(_, _, _, _) | Array(_, _, _) =>
+      raise WeslCompileError::Validation(
+        "cannot use aggregate with abstract float in \{context}",
+      )
+    Vector(_, _, _) =>
+      raise WeslCompileError::Validation(
+        "cannot use vector with abstract float in \{context}",
       )
   }
 }
@@ -1717,6 +2462,236 @@ fn const_eval_binary_type_error(
 }
 
 ///|
+fn const_eval_vector_width_of(value : ConstEvalValue) -> Int? {
+  match value {
+    Vector(width, _, _) => Some(width)
+    _ => None
+  }
+}
+
+///|
+fn const_eval_vector_component(
+  value : ConstEvalValue,
+  index : Int,
+) -> ConstEvalValue {
+  match value {
+    Vector(_, _, elements) => elements[index]
+    _ => value
+  }
+}
+
+///|
+fn const_eval_swizzle_component(part : String) -> (Int, String)? {
+  match part {
+    "x" => Some((0, "position"))
+    "y" => Some((1, "position"))
+    "z" => Some((2, "position"))
+    "w" => Some((3, "position"))
+    "r" => Some((0, "color"))
+    "g" => Some((1, "color"))
+    "b" => Some((2, "color"))
+    "a" => Some((3, "color"))
+    _ => None
+  }
+}
+
+///|
+fn const_eval_vector_access(
+  width : Int,
+  element : ConstEvalType,
+  elements : Array[ConstEvalValue],
+  name : String,
+) -> ConstEvalValue raise WeslCompileError {
+  if name.length() == 0 || name.length() > 4 {
+    raise WeslCompileError::Validation("invalid vector swizzle `\{name}`")
+  }
+  let values : Array[ConstEvalValue] = []
+  let mut swizzle_space : String? = None
+  for index in 0..<name.length() {
+    let part = name[index:index + 1].to_owned()
+    let (component, part_namespace) = match const_eval_swizzle_component(part) {
+      Some(value) => value
+      None =>
+        raise WeslCompileError::Validation("invalid vector swizzle `\{name}`")
+    }
+    match swizzle_space {
+      Some(current) =>
+        if current != part_namespace {
+          raise WeslCompileError::Validation(
+            "cannot mix vector swizzle namespaces in `\{name}`",
+          )
+        }
+      None => swizzle_space = Some(part_namespace)
+    }
+    if component >= width {
+      raise WeslCompileError::Validation(
+        "vector swizzle `\{name}` is out of bounds for vec\{width}",
+      )
+    }
+    values.push(elements[component])
+  }
+  if values.length() == 1 {
+    values[0]
+  } else {
+    ConstEvalValue::Vector(values.length(), element, values)
+  }
+}
+
+///|
+fn const_eval_access(
+  value : ConstEvalValue,
+  name : String,
+) -> ConstEvalValue raise WeslCompileError {
+  match value {
+    Struct(type_name, fields) =>
+      match const_eval_struct_field(fields, name) {
+        Some(value) => value
+        None =>
+          raise WeslCompileError::Validation(
+            "unknown field `\{name}` on struct `\{type_name}`",
+          )
+      }
+    Vector(width, element, elements) =>
+      const_eval_vector_access(width, element, elements, name)
+    _ =>
+      raise WeslCompileError::Validation(
+        "cannot access member `\{name}` on `\{value.value_type().label()}`",
+      )
+  }
+}
+
+///|
+fn const_eval_step_value(
+  value : ConstEvalValue,
+  delta : Int64,
+  name : String,
+) -> ConstEvalValue raise WeslCompileError {
+  let next = match value {
+    AbstractInt(number) => ConstEvalValue::AbstractInt(number + delta)
+    I32(number) =>
+      ConstEvalValue::I32(
+        const_eval_require_i32(
+          ConstEvalValue::AbstractInt(number + delta),
+          name,
+        ),
+      )
+    U32(number) =>
+      ConstEvalValue::U32(
+        const_eval_require_u32(
+          ConstEvalValue::AbstractInt(number + delta),
+          name,
+        ),
+      )
+    _ =>
+      raise WeslCompileError::Validation(
+        "cannot apply const-eval increment to `\{value.value_type().label()}`",
+      )
+  }
+  const_eval_convert_to_type(next, value.value_type(), name)
+}
+
+///|
+fn const_eval_execute_update(
+  statement : ConstEvalStatement,
+  ctx : ConstEvalContext,
+  return_type : ConstEvalType,
+  function_name : String,
+) -> ConstEvalControl raise WeslCompileError {
+  match
+    const_eval_execute_statement(statement, ctx, return_type, function_name) {
+    ContinueExecution => ContinueExecution
+    ReturnValue(value) => ReturnValue(value)
+    BreakLoop =>
+      raise WeslCompileError::Validation("const-eval break in for-loop update")
+    ContinueLoop =>
+      raise WeslCompileError::Validation(
+        "const-eval continue in for-loop update",
+      )
+  }
+}
+
+///|
+fn const_eval_vector_width_for_values(
+  values : Array[ConstEvalValue],
+  context : String,
+) -> Int? raise WeslCompileError {
+  let mut width : Int? = None
+  for value in values {
+    match const_eval_vector_width_of(value) {
+      Some(value_width) =>
+        match width {
+          Some(current) =>
+            if current != value_width {
+              raise WeslCompileError::Validation(
+                "vector widths are incompatible in \{context}",
+              )
+            }
+          None => width = Some(value_width)
+        }
+      None => ()
+    }
+  }
+  width
+}
+
+///|
+fn const_eval_vector_from_elements(
+  width : Int,
+  elements : Array[ConstEvalValue],
+  context : String,
+) -> ConstEvalValue raise WeslCompileError {
+  if elements.length() != width || width <= 0 {
+    raise WeslCompileError::Validation("invalid vector width in \{context}")
+  }
+  let element = match elements[0].value_type() {
+    Bool => ConstEvalType::Bool
+    I32 => ConstEvalType::I32
+    U32 => ConstEvalType::U32
+    F32 => ConstEvalType::F32
+    other =>
+      raise WeslCompileError::Validation(
+        "invalid vector element type `\{other.label()}` in \{context}",
+      )
+  }
+  for value in elements {
+    if value.value_type() != element {
+      raise WeslCompileError::Validation(
+        "vector element types are incompatible in \{context}",
+      )
+    }
+  }
+  ConstEvalValue::Vector(width, element, elements)
+}
+
+///|
+fn const_eval_apply_vector_binary(
+  op : ConstEvalBinaryOp,
+  lhs : ConstEvalValue,
+  rhs : ConstEvalValue,
+) -> ConstEvalValue raise WeslCompileError {
+  match op {
+    LogicalAnd | LogicalOr => return const_eval_binary_type_error(op, lhs, rhs)
+    _ => ()
+  }
+  let width = match
+    const_eval_vector_width_for_values([lhs, rhs], "binary expression") {
+    Some(width) => width
+    None => return const_eval_binary_type_error(op, lhs, rhs)
+  }
+  let values : Array[ConstEvalValue] = []
+  for index in 0..<width {
+    values.push(
+      const_eval_apply_binary(
+        op,
+        const_eval_vector_component(lhs, index),
+        const_eval_vector_component(rhs, index),
+      ),
+    )
+  }
+  const_eval_vector_from_elements(width, values, "binary expression")
+}
+
+///|
 fn const_eval_apply_bitwise(
   op : ConstEvalBinaryOp,
   lhs : ConstEvalValue,
@@ -1738,6 +2713,14 @@ fn const_eval_apply_bitwise(
     (FrexpAbstract(_, _) | FrexpF32(_, _), right) =>
       const_eval_binary_type_error(op, lhs, right)
     (left, FrexpAbstract(_, _) | FrexpF32(_, _)) =>
+      const_eval_binary_type_error(op, left, rhs)
+    (Vector(_, _, _), right) => const_eval_binary_type_error(op, lhs, right)
+    (left, Vector(_, _, _)) => const_eval_binary_type_error(op, left, rhs)
+    (Struct(_, _), right) => const_eval_binary_type_error(op, lhs, right)
+    (left, Struct(_, _)) => const_eval_binary_type_error(op, left, rhs)
+    (Matrix(_, _, _, _) | Array(_, _, _), right) =>
+      const_eval_binary_type_error(op, lhs, right)
+    (left, Matrix(_, _, _, _) | Array(_, _, _)) =>
       const_eval_binary_type_error(op, left, rhs)
     (U32(_), I32(_)) => const_eval_binary_type_error(op, lhs, rhs)
     (I32(_), U32(_)) => const_eval_binary_type_error(op, lhs, rhs)
@@ -1810,6 +2793,10 @@ fn const_eval_apply_shift(
     F32(_) => const_eval_binary_type_error(op, lhs, rhs)
     FrexpAbstract(_, _) | FrexpF32(_, _) =>
       const_eval_binary_type_error(op, lhs, rhs)
+    Vector(_, _, _) => const_eval_binary_type_error(op, lhs, rhs)
+    Struct(_, _) => const_eval_binary_type_error(op, lhs, rhs)
+    Matrix(_, _, _, _) | Array(_, _, _) =>
+      const_eval_binary_type_error(op, lhs, rhs)
     AbstractInt(left) =>
       ConstEvalValue::AbstractInt(const_eval_shift_int(op, left, rhs))
     U32(left) =>
@@ -1843,6 +2830,14 @@ fn const_eval_apply_comparison(
     (FrexpAbstract(_, _) | FrexpF32(_, _), right) =>
       const_eval_binary_type_error(op, lhs, right)
     (left, FrexpAbstract(_, _) | FrexpF32(_, _)) =>
+      const_eval_binary_type_error(op, left, rhs)
+    (Vector(_, _, _), right) => const_eval_binary_type_error(op, lhs, right)
+    (left, Vector(_, _, _)) => const_eval_binary_type_error(op, left, rhs)
+    (Struct(_, _), right) => const_eval_binary_type_error(op, lhs, right)
+    (left, Struct(_, _)) => const_eval_binary_type_error(op, left, rhs)
+    (Matrix(_, _, _, _) | Array(_, _, _), right) =>
+      const_eval_binary_type_error(op, lhs, right)
+    (left, Matrix(_, _, _, _) | Array(_, _, _)) =>
       const_eval_binary_type_error(op, left, rhs)
     (F32(left), right) =>
       ConstEvalValue::Bool(
@@ -1921,6 +2916,10 @@ fn const_eval_apply_binary(
   lhs : ConstEvalValue,
   rhs : ConstEvalValue,
 ) -> ConstEvalValue raise WeslCompileError {
+  if const_eval_vector_width_of(lhs) is Some(_) ||
+    const_eval_vector_width_of(rhs) is Some(_) {
+    return const_eval_apply_vector_binary(op, lhs, rhs)
+  }
   match op {
     Eq | Ne | Lt | Le | Gt | Ge =>
       return const_eval_apply_comparison(op, lhs, rhs)
@@ -1933,6 +2932,14 @@ fn const_eval_apply_binary(
     (FrexpAbstract(_, _) | FrexpF32(_, _), _) =>
       const_eval_binary_type_error(op, lhs, rhs)
     (_, FrexpAbstract(_, _) | FrexpF32(_, _)) =>
+      const_eval_binary_type_error(op, lhs, rhs)
+    (Vector(_, _, _), _) => const_eval_binary_type_error(op, lhs, rhs)
+    (_, Vector(_, _, _)) => const_eval_binary_type_error(op, lhs, rhs)
+    (Struct(_, _), _) => const_eval_binary_type_error(op, lhs, rhs)
+    (_, Struct(_, _)) => const_eval_binary_type_error(op, lhs, rhs)
+    (Matrix(_, _, _, _) | Array(_, _, _), _) =>
+      const_eval_binary_type_error(op, lhs, rhs)
+    (_, Matrix(_, _, _, _) | Array(_, _, _)) =>
       const_eval_binary_type_error(op, lhs, rhs)
     (Bool(_), _) =>
       raise WeslCompileError::Validation(
@@ -2080,6 +3087,8 @@ fn const_eval_eval_expr(
         const_eval_eval_expr(lhs, ctx),
         const_eval_eval_expr(rhs, ctx),
       )
+    Access(base, name) =>
+      const_eval_access(const_eval_eval_expr(base, ctx), name)
     Call(name, args) => {
       let values : Array[ConstEvalValue] = []
       for arg in args {
@@ -2143,6 +3152,39 @@ fn const_eval_render_value(value : ConstEvalValue) -> String {
     I32(number) => "\{number}i"
     U32(number) => "\{number}u"
     F32(number) => const_eval_format_f32(number)
+    Vector(width, element, elements) => {
+      let parts : Array[String] = []
+      for element_value in elements {
+        parts.push(const_eval_render_value(element_value))
+      }
+      let joined = parts.join(", ")
+      "vec\{width}<\{element.label()}>(\{joined})"
+    }
+    Matrix(columns, rows, element, column_values) => {
+      let parts : Array[String] = []
+      for column in column_values {
+        parts.push(const_eval_render_value(column))
+      }
+      let joined = parts.join(", ")
+      "mat\{columns}x\{rows}<\{element.label()}>(\{joined})"
+    }
+    Array(element, _, elements) => {
+      let parts : Array[String] = []
+      for element_value in elements {
+        parts.push(const_eval_render_value(element_value))
+      }
+      let joined = parts.join(", ")
+      "array<\{element.label()}>(\{joined})"
+    }
+    Struct(name, fields) => {
+      let parts : Array[String] = []
+      for field in fields {
+        let (field_name, field_value) = field
+        parts.push("\{field_name}: \{const_eval_render_value(field_value)}")
+      }
+      let joined = parts.join(", ")
+      "\{name}{ \{joined} }"
+    }
     FrexpAbstract(fract, exp) =>
       "__frexp_result_abstract(\{const_eval_format_abstract_float(fract)}, \{exp})"
     FrexpF32(fract, exp) =>
@@ -2168,28 +3210,250 @@ fn const_eval_execute_function_value(
       const_eval_convert_to_type(args[index], param.declared_type, param.name),
     )
   }
-  for statement in function.statements {
-    match statement {
-      Binding(binding) => {
-        let value = const_eval_eval_expr(binding.expr, ctx)
-        let stored = match binding.declared_type {
-          Some(target) =>
-            const_eval_convert_to_type(value, target, binding.name)
-          None => value
+  match
+    const_eval_execute_statements(
+      function.statements,
+      ctx,
+      function.return_type,
+      function.name,
+    ) {
+    ReturnValue(value) => value
+    BreakLoop =>
+      raise WeslCompileError::Validation("const-eval break outside loop")
+    ContinueLoop =>
+      raise WeslCompileError::Validation("const-eval continue outside loop")
+    ContinueExecution =>
+      raise WeslCompileError::Validation("const-eval function did not return")
+  }
+}
+
+///|
+fn const_eval_execute_statement(
+  statement : ConstEvalStatement,
+  ctx : ConstEvalContext,
+  return_type : ConstEvalType,
+  function_name : String,
+) -> ConstEvalControl raise WeslCompileError {
+  match statement {
+    Binding(binding) => {
+      let value = const_eval_eval_expr(binding.expr, ctx)
+      let stored = match binding.declared_type {
+        Some(target) => const_eval_convert_to_type(value, target, binding.name)
+        None => value
+      }
+      ctx.bindings.set(binding.name, stored)
+      ContinueExecution
+    }
+    Assignment(name, expr) => {
+      let current = match ctx.bindings.get(name) {
+        Some(value) => value
+        None =>
+          raise WeslCompileError::Validation(
+            "unknown const-eval assignment target `\{name}`",
+          )
+      }
+      let value = const_eval_eval_expr(expr, ctx)
+      ctx.bindings.set(
+        name,
+        const_eval_convert_to_type(value, current.value_type(), name),
+      )
+      ContinueExecution
+    }
+    CompoundAssignment(name, op, expr) => {
+      let current = match ctx.bindings.get(name) {
+        Some(value) => value
+        None =>
+          raise WeslCompileError::Validation(
+            "unknown const-eval compound assignment target `\{name}`",
+          )
+      }
+      let value = const_eval_apply_binary(
+        op,
+        current,
+        const_eval_eval_expr(expr, ctx),
+      )
+      ctx.bindings.set(
+        name,
+        const_eval_convert_to_type(value, current.value_type(), name),
+      )
+      ContinueExecution
+    }
+    Increment(name) => {
+      let current = match ctx.bindings.get(name) {
+        Some(value) => value
+        None =>
+          raise WeslCompileError::Validation(
+            "unknown const-eval increment target `\{name}`",
+          )
+      }
+      ctx.bindings.set(name, const_eval_step_value(current, 1L, name))
+      ContinueExecution
+    }
+    Decrement(name) => {
+      let current = match ctx.bindings.get(name) {
+        Some(value) => value
+        None =>
+          raise WeslCompileError::Validation(
+            "unknown const-eval decrement target `\{name}`",
+          )
+      }
+      ctx.bindings.set(name, const_eval_step_value(current, -1L, name))
+      ContinueExecution
+    }
+    If(condition, then_branch, else_branch) => {
+      let branch = if const_eval_require_bool(
+          const_eval_eval_expr(condition, ctx),
+          "if condition",
+        ) {
+        then_branch
+      } else {
+        else_branch
+      }
+      const_eval_execute_statements(branch, ctx, return_type, function_name)
+    }
+    Loop(body, continuing) => {
+      let mut iterations = 0
+      while true {
+        iterations += 1
+        if iterations > 1048576 {
+          raise WeslCompileError::Validation(
+            "const-eval loop exceeded iteration limit",
+          )
         }
-        ctx.bindings.set(binding.name, stored)
+        let run_continuing = match
+          const_eval_execute_statements(body, ctx, return_type, function_name) {
+          ContinueExecution => true
+          ContinueLoop => true
+          ReturnValue(value) => return ReturnValue(value)
+          BreakLoop => false
+        }
+        if !run_continuing {
+          break
+        }
+        match continuing {
+          Some(statements) =>
+            match
+              const_eval_execute_statements(
+                statements, ctx, return_type, function_name,
+              ) {
+              ContinueExecution => ()
+              ContinueLoop =>
+                raise WeslCompileError::Validation(
+                  "const-eval continue inside continuing block",
+                )
+              ReturnValue(value) => return ReturnValue(value)
+              BreakLoop => break
+            }
+          None => ()
+        }
       }
-      Return(expr) => {
-        let value = const_eval_eval_expr(expr, ctx)
-        return const_eval_convert_to_type(
-          value,
-          function.return_type,
-          function.name,
-        )
+      ContinueExecution
+    }
+    While(condition, body) => {
+      let mut iterations = 0
+      while const_eval_require_bool(
+              const_eval_eval_expr(condition, ctx),
+              "while condition",
+            ) {
+        iterations += 1
+        if iterations > 1048576 {
+          raise WeslCompileError::Validation(
+            "const-eval while loop exceeded iteration limit",
+          )
+        }
+        match
+          const_eval_execute_statements(body, ctx, return_type, function_name) {
+          ContinueExecution => ()
+          ReturnValue(value) => return ReturnValue(value)
+          BreakLoop => return ContinueExecution
+          ContinueLoop => ()
+        }
       }
+      ContinueExecution
+    }
+    For(initializer, condition, update, body) => {
+      match initializer {
+        Some(statement) =>
+          match
+            const_eval_execute_update(
+              statement, ctx, return_type, function_name,
+            ) {
+            ContinueExecution => ()
+            ReturnValue(value) => return ReturnValue(value)
+            BreakLoop | ContinueLoop => ()
+          }
+        None => ()
+      }
+      let mut iterations = 0
+      while (match condition {
+              Some(expr) =>
+                const_eval_require_bool(
+                  const_eval_eval_expr(expr, ctx),
+                  "for condition",
+                )
+              None => true
+            }) {
+        iterations += 1
+        if iterations > 1048576 {
+          raise WeslCompileError::Validation(
+            "const-eval for loop exceeded iteration limit",
+          )
+        }
+        let should_update = match
+          const_eval_execute_statements(body, ctx, return_type, function_name) {
+          ContinueExecution => true
+          ContinueLoop => true
+          ReturnValue(value) => return ReturnValue(value)
+          BreakLoop => false
+        }
+        if !should_update {
+          break
+        }
+        match update {
+          Some(statement) =>
+            match
+              const_eval_execute_update(
+                statement, ctx, return_type, function_name,
+              ) {
+              ContinueExecution => ()
+              ReturnValue(value) => return ReturnValue(value)
+              BreakLoop | ContinueLoop => ()
+            }
+          None => ()
+        }
+      }
+      ContinueExecution
+    }
+    Break => BreakLoop
+    BreakIf(expr) =>
+      if const_eval_require_bool(const_eval_eval_expr(expr, ctx), "break-if") {
+        BreakLoop
+      } else {
+        ContinueExecution
+      }
+    Continue => ContinueLoop
+    Return(expr) => {
+      let value = const_eval_eval_expr(expr, ctx)
+      ReturnValue(const_eval_convert_to_type(value, return_type, function_name))
     }
   }
-  raise WeslCompileError::Validation("const-eval function did not return")
+}
+
+///|
+fn const_eval_execute_statements(
+  statements : Array[ConstEvalStatement],
+  ctx : ConstEvalContext,
+  return_type : ConstEvalType,
+  function_name : String,
+) -> ConstEvalControl raise WeslCompileError {
+  for statement in statements {
+    match
+      const_eval_execute_statement(statement, ctx, return_type, function_name) {
+      ContinueExecution => ()
+      control => return control
+    }
+  }
+  ContinueExecution
 }
 
 ///|

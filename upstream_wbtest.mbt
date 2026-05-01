@@ -47,23 +47,28 @@ fn upstream_assert_expression_parse_result(
 
 ///|
 fn upstream_assert_eval_case(case : UpstreamEvalSpecCase) -> String? {
-  let result = try? eval_const_function(case.code, case.eval)
+  let result = try? eval_const(case.code, case.eval)
   match (case.expect_pass, result) {
     (true, Ok(actual)) =>
       match case.expected_result {
         Some(expected) =>
-          if actual == expected {
+          if actual.to_string() == expected {
             None
           } else {
-            Some("\{case.name}: expected `\{expected}`, got `\{actual}`")
+            Some(
+              "\{case.name}: expected `\{expected}`, got `\{actual.to_string()}`",
+            )
           }
-        None => Some("\{case.name}: expected eval failure, got `\{actual}`")
+        None =>
+          Some(
+            "\{case.name}: expected eval failure, got `\{actual.to_string()}`",
+          )
       }
     (false, Err(_)) => None
     (true, Err(err)) =>
       Some("\{case.name}: expected eval success, got \{err.message()}")
     (false, Ok(actual)) =>
-      Some("\{case.name}: expected eval failure, got `\{actual}`")
+      Some("\{case.name}: expected eval failure, got `\{actual.to_string()}`")
   }
 }
 

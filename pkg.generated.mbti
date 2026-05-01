@@ -27,6 +27,10 @@ pub fn parse_module_path(String) -> ModulePath raise ModulePathParseError
 
 pub fn parse_translation_unit(ModulePath, String, Bool) -> TranslationUnit raise WeslCompileError
 
+pub fn validate_wesl(TranslationUnit) -> Unit raise WeslCompileError
+
+pub fn validate_wgsl(TranslationUnit) -> Unit raise WeslCompileError
+
 // Errors
 pub(all) suberror ModulePathParseError {
   Empty
@@ -50,10 +54,20 @@ pub(all) suberror ScanDirectoryError {
 }
 pub fn ScanDirectoryError::message(Self) -> String
 
+pub(all) suberror ValidateError {
+  UndefinedSymbol(String)
+  ParamCount(String, Int, Int)
+  NotCallable(String)
+  Duplicate(String)
+  Cycle(String, String)
+}
+pub fn ValidateError::message(Self) -> String
+
 pub(all) suberror WeslCompileError {
   Resolve(ResolveError)
   Parse(String)
   Validation(String)
+  Validate(ValidateError)
   InvalidExpression(String)
   Artifact(String)
   DuplicateSymbol(String)
@@ -201,6 +215,7 @@ pub struct CompileResult {
 } derive(@debug.Debug)
 pub fn CompileResult::default() -> Self
 pub fn CompileResult::eval(Self, String) -> EvalResult raise WeslCompileError
+pub fn CompileResult::exec(Self, String, Inputs, Array[ResourceBinding], Array[OverrideValue]) -> ExecResult raise WeslCompileError
 pub fn CompileResult::has_sourcemap(Self) -> Bool
 pub fn CompileResult::to_string(Self) -> String
 pub fn CompileResult::unmangle_text(Self, String) -> String
@@ -297,8 +312,20 @@ pub fn EscapeMangler::unmangle(Self, String) -> (ModulePath, String)?
 
 pub(all) struct EvalResult {
   value : String
+  buffer : Bytes?
 } derive(Eq, @debug.Debug)
+pub fn EvalResult::to_buffer(Self) -> Bytes?
 pub fn EvalResult::to_string(Self) -> String
+
+pub(all) struct ExecResult {
+  value : String?
+  buffer : Bytes?
+  resources : Array[ResourceBinding]
+} derive(Eq, @debug.Debug)
+pub fn ExecResult::resource(Self, Int, Int) -> ResourceBinding?
+pub fn ExecResult::return_value(Self) -> String?
+pub fn ExecResult::to_buffer(Self) -> Bytes?
+pub fn ExecResult::to_string(Self) -> String
 
 pub(all) enum Expression {
   Literal(String)
@@ -438,6 +465,28 @@ pub(all) struct ImportedName {
   local_name : String
 } derive(Eq, @debug.Debug)
 
+pub(all) struct Inputs {
+  vertex_index : Int?
+  instance_index : Int?
+  position : Array[Double]?
+  front_facing : Bool?
+  sample_index : Int?
+  sample_mask : Int?
+  local_invocation_id : Array[Int]?
+  local_invocation_index : Int?
+  global_invocation_id : Array[Int]?
+  workgroup_id : Array[Int]?
+  num_workgroups : Array[Int]?
+  subgroup_invocation_id : Int?
+  subgroup_size : Int?
+  subgroup_id : Int?
+  num_subgroups : Int?
+  primitive_index : Int?
+  view_index : Int?
+  user_defined : Array[UserInput]
+} derive(Eq, @debug.Debug)
+pub fn Inputs::new_zero_initialized() -> Self
+
 pub(all) struct LetDeclaration {
   name : String
   type_text : String?
@@ -501,6 +550,11 @@ pub(all) struct OverrideDeclaration {
   initializer_expr : Expression?
 } derive(Eq, @debug.Debug)
 
+pub(all) struct OverrideValue {
+  name : String
+  value : String
+} derive(Eq, @debug.Debug)
+
 pub(all) enum PathOrigin {
   Absolute
   Relative(Int)
@@ -543,6 +597,13 @@ pub impl[R : Resolver, P : ModulePreprocessor] Resolver for Preprocessor[R, P]
 
 pub(all) struct RequiresDirectiveDeclaration {
   names : Array[String]
+} derive(Eq, @debug.Debug)
+
+pub(all) struct ResourceBinding {
+  group : Int
+  binding : Int
+  kind : String
+  data : Bytes
 } derive(Eq, @debug.Debug)
 
 pub struct Router {
@@ -705,6 +766,21 @@ pub(all) enum UnaryOperator {
   BitwiseComplement
   Indirection
   AddressOf
+} derive(Eq, @debug.Debug)
+
+pub(all) struct UserInput {
+  location : Int
+  value : UserInputValue
+} derive(Eq, @debug.Debug)
+
+pub(all) enum UserInputValue {
+  Bool(Bool)
+  I32(Int)
+  U32(Int)
+  F32(Double)
+  I32Vector(Array[Int])
+  U32Vector(Array[Int])
+  F32Vector(Array[Double])
 } derive(Eq, @debug.Debug)
 
 pub(all) struct VarDeclaration {

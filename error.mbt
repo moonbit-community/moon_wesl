@@ -17,6 +17,7 @@ pub(all) suberror WeslCompileError {
   Resolve(ResolveError)
   Parse(String)
   Validation(String)
+  Validate(ValidateError)
   InvalidExpression(String)
   Artifact(String)
   DuplicateSymbol(String)
@@ -31,6 +32,7 @@ pub fn WeslCompileError::message(self : WeslCompileError) -> String {
     Resolve(err) => err.message()
     Parse(reason) => reason
     Validation(reason) => reason
+    Validate(err) => err.message()
     InvalidExpression(expr) => "invalid if attribute expression: `\{expr}`"
     Artifact(reason) => reason
     DuplicateSymbol(symbol) => "duplicate declaration of `\{symbol}`"
@@ -39,6 +41,27 @@ pub fn WeslCompileError::message(self : WeslCompileError) -> String {
       "module `\{path.to_string()}` has no declaration `\{item}`"
     Private(item, path) =>
       "import of `\{item}` in module `\{path.to_string()}` is not `@publish`, but another module tried to import it"
+  }
+}
+
+///|
+pub(all) suberror ValidateError {
+  UndefinedSymbol(String)
+  ParamCount(String, Int, Int)
+  NotCallable(String)
+  Duplicate(String)
+  Cycle(String, String)
+}
+
+///|
+pub fn ValidateError::message(self : ValidateError) -> String {
+  match self {
+    UndefinedSymbol(name) => "cannot find declaration of `\{name}`"
+    ParamCount(name, expected, got) =>
+      "incorrect number of arguments to `\{name}`, expected `\{expected}`, got `\{got}`"
+    NotCallable(name) => "`\{name}` is not callable"
+    Duplicate(name) => "duplicate declaration of `\{name}`"
+    Cycle(name, via) => "declaration of `\{name}` is cyclic via `\{via}`"
   }
 }
 

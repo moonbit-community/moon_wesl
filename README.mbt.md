@@ -219,15 +219,30 @@ The repository includes a MoonBit-native `wesl` command package:
 moon run cmd/wesl -- compile --base src/shaders src/shaders/main.wesl
 moon run cmd/wesl -- check --kind wesl src/shaders/main.wesl
 moon run cmd/wesl -- eval "abs(3 - 5)"
+moon run cmd/wesl -- eval --binary "42u"
+moon run cmd/wesl -- exec src/shaders/main.wesl
 moon run cmd/wesl -- package shader-lib src/shaders/lib
 ```
 
 The `compile` command supports the upstream option shape for mangling,
 conditional compilation, stripping, lowering, validation toggles, keep lists,
 feature flags, and base-directory selection. `package` emits the same
-MoonBit-native codegen artifact produced by `PkgBuilder`. `exec` is present in
-the command matrix but returns an explicit runtime gap until the CPU execution
-layer is ported.
+MoonBit-native codegen artifact produced by `PkgBuilder`. `eval --binary`
+emits little-endian scalar and vector buffers for storable `i32`, `u32`, and
+`f32` const-eval results and rejects non-storable values such as `bool`. `exec`
+can run a minimal entrypoint whose return expression fits the current
+const-evaluator, including zero-initialized builtin entrypoint inputs,
+user-defined `@location` inputs passed through `Inputs.user_defined`, scalar
+pipeline overrides, scalar/vector/struct/array/matrix uniform/storage resource
+buffers, and matching `--out-binary` return output for storable values. The
+current evaluator applies basic vector arithmetic, comparisons, `clamp`, `min`,
+`max`, `abs`, `select`, `all`, and `any` component-wise, supports struct member
+access, WGSL `xyzw` / `rgba` vector swizzles, basic `if` / `else` branches, and
+`while`, `for`, and `loop` control flow with local assignment, `break`,
+`continue`, `continuing`, and `break if`, and uses WGSL
+memory layout for scalar/vector, struct member, array stride, and matrix column
+padding. Mutable resource output and the full arbitrary shader control-flow
+model still require the broader CPU execution layer.
 
 ## Scope and Current Behavior
 
@@ -241,12 +256,19 @@ modules:
 - reachability-based stripping
 - symbol mangling
 - simple lowering of top-level aliases and constants
+- scalar/vector `EvalResult::to_buffer()` for `i32`, `u32`, and `f32`
+- minimal CPU execution for simple entrypoints, including scalar pipeline
+  overrides, builtin and user-defined `@location` input parameters, struct
+  field reads, vector swizzles, basic `if` / `else` and `while` control flow,
+  `for` loops, `loop`/`continuing`/`break if`, scalar/vector/struct/array/matrix
+  resource buffers, and return buffers
 - filesystem package scanning and artifact generation
-- baseline CLI compile/check/eval/package workflows
+- baseline CLI compile/check/eval/exec/package workflows
 
 The parser and syntax layer are materially richer than the original
 text-oriented implementation, but this package is still not a full source-level
-port of `wgsl-parse`, `wgsl-types`, semantic lowering, or CPU execution.
+port of `wgsl-parse`, `wgsl-types`, semantic lowering, or the complete CPU
+execution model.
 
 ## Design Constraints
 

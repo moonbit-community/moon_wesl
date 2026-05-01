@@ -1,5 +1,6 @@
 import {
   "Milky2018/moon_wesl",
+  "moonbitlang/core/string",
   "moonbitlang/x/fs",
   "moonbitlang/x/sys",
 }

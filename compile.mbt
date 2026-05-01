@@ -718,6 +718,128 @@ priv enum ExportTarget {
 }
 
 ///|
+fn wesl_has_conditional_compile_attr(attributes : Array[Attribute]) -> Bool {
+  for attr in attributes {
+    if attr.name == "if" || attr.name == "elif" || attr.name == "else" {
+      return true
+    }
+  }
+  false
+}
+
+///|
+fn wesl_duplicate_error(name : String, context : String) -> WeslCompileError {
+  if context == name {
+    WeslCompileError::Validate(ValidateError::Duplicate(name))
+  } else {
+    WeslCompileError::DuplicateSymbol(context)
+  }
+}
+
+///|
+fn wesl_parse_loaded_translation_unit(
+  path : ModulePath,
+  translation_unit : TranslationUnit,
+  skip_conditional_duplicates : Bool,
+) -> ParsedModule raise WeslCompileError {
+  let imports : Array[ImportItem] = []
+  let import_conditional : Array[Bool] = []
+  let parsed_items : Array[ModuleItem] = []
+  let named_items : @hashmap.HashMap[String, Int] = @hashmap.HashMap::new()
+  let duplicate_names : @hashmap.HashMap[String, Int] = @hashmap.HashMap::new()
+  for statement in translation_unit.imports {
+    let conditional_import = wesl_has_conditional_compile_attr(
+      statement.attributes,
+    )
+    for imported_name in statement.flatten_items(path) {
+      imports.push(ImportItem::{
+        export_module_path: imported_name.export_module_path,
+        export_name: imported_name.export_name,
+        namespace_path: imported_name.namespace_path,
+        local_name: imported_name.local_name,
+        public: statement.is_public(),
+        start_line: statement.span.start_line,
+        end_line: statement.span.end_line,
+      })
+      import_conditional.push(conditional_import)
+    }
+  }
+  for decl in translation_unit.global_declarations {
+    let skip_duplicate = skip_conditional_duplicates &&
+      wesl_has_conditional_compile_attr(decl.attributes)
+    match decl.ident() {
+      Some(name) => {
+        if !skip_duplicate {
+          if duplicate_names.contains(name) {
+            let context = if skip_conditional_duplicates {
+              name
+            } else {
+              decl.span.symbol_context(path, name)
+            }
+            raise wesl_duplicate_error(name, context)
+          } else {
+            duplicate_names.set(name, parsed_items.length())
+          }
+        }
+        if !named_items.contains(name) {
+          named_items.set(name, parsed_items.length())
+        }
+      }
+      None => ()
+    }
+    parsed_items.push(ModuleItem::{
+      name: decl.ident(),
+      kind: wesl_item_kind(decl.header),
+      header: decl.header,
+      attributes: decl.attributes,
+      source: decl.source,
+      span: decl.span,
+      entrypoint: decl.is_entrypoint(),
+      is_const_assert: decl.is_const_assert(),
+      references: [],
+    })
+  }
+  let import_by_local : @hashmap.HashMap[String, Int] = @hashmap.HashMap::new()
+  for i in 0..<imports.length() {
+    let import_item = imports[i]
+    let skip_duplicate = skip_conditional_duplicates && import_conditional[i]
+    if !skip_duplicate {
+      if duplicate_names.contains(import_item.local_name) {
+        let context = SyntaxSpan::{
+          start_line: import_item.start_line,
+          end_line: import_item.end_line,
+        }.symbol_context(path, import_item.local_name)
+        let duplicate_context = if skip_conditional_duplicates {
+          import_item.local_name
+        } else {
+          context
+        }
+        raise wesl_duplicate_error(import_item.local_name, duplicate_context)
+      } else {
+        duplicate_names.set(import_item.local_name, i)
+      }
+    }
+    if !import_by_local.contains(import_item.local_name) {
+      import_by_local.set(import_item.local_name, i)
+    }
+  }
+  for i in 0..<parsed_items.length() {
+    let parsed = parsed_items[i]
+    let references = wesl_collect_module_item_references(
+      parsed, named_items, import_by_local, imports, path,
+    )
+    parsed_items[i] = ModuleItem::{ ..parsed, references, }
+  }
+  ParsedModule::{
+    path,
+    imports,
+    import_by_local,
+    items: parsed_items,
+    named_items,
+  }
+}
+
+///|
 fn wesl_is_identifier_char(code : Int) -> Bool {
   (code >= 48 && code <= 57) ||
   (code >= 65 && code <= 90) ||
@@ -3015,74 +3137,9 @@ fn[R : Resolver] wesl_load_module(
           err => raise WeslCompileError::Resolve(err)
         }
       }
-      let imports : Array[ImportItem] = []
-      let parsed_items : Array[ModuleItem] = []
-      let named_items : @hashmap.HashMap[String, Int] = @hashmap.HashMap::new()
-      for statement in translation_unit.imports {
-        for imported_name in statement.flatten_items(path) {
-          imports.push(ImportItem::{
-            export_module_path: imported_name.export_module_path,
-            export_name: imported_name.export_name,
-            namespace_path: imported_name.namespace_path,
-            local_name: imported_name.local_name,
-            public: statement.is_public(),
-            start_line: statement.span.start_line,
-            end_line: statement.span.end_line,
-          })
-        }
-      }
-      for decl in translation_unit.global_declarations {
-        match decl.ident() {
-          Some(name) =>
-            if named_items.contains(name) {
-              raise WeslCompileError::DuplicateSymbol(
-                decl.span.symbol_context(path, name),
-              )
-            } else {
-              named_items.set(name, parsed_items.length())
-            }
-          None => ()
-        }
-        parsed_items.push(ModuleItem::{
-          name: decl.ident(),
-          kind: wesl_item_kind(decl.header),
-          header: decl.header,
-          attributes: decl.attributes,
-          source: decl.source,
-          span: decl.span,
-          entrypoint: decl.is_entrypoint(),
-          is_const_assert: decl.is_const_assert(),
-          references: [],
-        })
-      }
-      let import_by_local : @hashmap.HashMap[String, Int] = @hashmap.HashMap::new()
-      for i in 0..<imports.length() {
-        let import_item = imports[i]
-        if named_items.contains(import_item.local_name) ||
-          import_by_local.contains(import_item.local_name) {
-          raise WeslCompileError::DuplicateSymbol(
-            SyntaxSpan::{
-              start_line: import_item.start_line,
-              end_line: import_item.end_line,
-            }.symbol_context(path, import_item.local_name),
-          )
-        }
-        import_by_local.set(import_item.local_name, i)
-      }
-      for i in 0..<parsed_items.length() {
-        let parsed = parsed_items[i]
-        let references = wesl_collect_module_item_references(
-          parsed, named_items, import_by_local, imports, path,
-        )
-        parsed_items[i] = ModuleItem::{ ..parsed, references, }
-      }
-      let parsed_module = ParsedModule::{
-        path,
-        imports,
-        import_by_local,
-        items: parsed_items,
-        named_items,
-      }
+      let parsed_module = wesl_parse_loaded_translation_unit(
+        path, translation_unit, false,
+      )
       wesl_record_sourcemap_decls(
         path,
         root,
@@ -4102,6 +4159,986 @@ fn wesl_validate_loaded_types(
 }
 
 ///|
+fn wesl_is_builtin_constructor_ident(name : String) -> Bool {
+  name == "bool" ||
+  name == "i32" ||
+  name == "u32" ||
+  name == "f32" ||
+  name == "f16" ||
+  name == "vec2" ||
+  name == "vec3" ||
+  name == "vec4" ||
+  name == "vec2f" ||
+  name == "vec3f" ||
+  name == "vec4f" ||
+  name == "vec2h" ||
+  name == "vec3h" ||
+  name == "vec4h" ||
+  name == "vec2i" ||
+  name == "vec3i" ||
+  name == "vec4i" ||
+  name == "vec2u" ||
+  name == "vec3u" ||
+  name == "vec4u" ||
+  name == "mat2x2" ||
+  name == "mat2x3" ||
+  name == "mat2x4" ||
+  name == "mat3x2" ||
+  name == "mat3x3" ||
+  name == "mat3x4" ||
+  name == "mat4x2" ||
+  name == "mat4x3" ||
+  name == "mat4x4" ||
+  name == "mat2x2f" ||
+  name == "mat2x3f" ||
+  name == "mat2x4f" ||
+  name == "mat3x2f" ||
+  name == "mat3x3f" ||
+  name == "mat3x4f" ||
+  name == "mat4x2f" ||
+  name == "mat4x3f" ||
+  name == "mat4x4f" ||
+  name == "mat2x2h" ||
+  name == "mat2x3h" ||
+  name == "mat2x4h" ||
+  name == "mat3x2h" ||
+  name == "mat3x3h" ||
+  name == "mat3x4h" ||
+  name == "mat4x2h" ||
+  name == "mat4x3h" ||
+  name == "mat4x4h" ||
+  name == "array"
+}
+
+///|
+fn wesl_is_builtin_function_ident(name : String) -> Bool {
+  name == "abs" ||
+  name == "acos" ||
+  name == "acosh" ||
+  name == "all" ||
+  name == "any" ||
+  name == "arrayLength" ||
+  name == "asin" ||
+  name == "asinh" ||
+  name == "atan" ||
+  name == "atan2" ||
+  name == "atanh" ||
+  name == "ceil" ||
+  name == "clamp" ||
+  name == "cos" ||
+  name == "cosh" ||
+  name == "countLeadingZeros" ||
+  name == "countOneBits" ||
+  name == "countTrailingZeros" ||
+  name == "cross" ||
+  name == "degrees" ||
+  name == "determinant" ||
+  name == "distance" ||
+  name == "dot" ||
+  name == "dot4I8Packed" ||
+  name == "dot4U8Packed" ||
+  name == "dpdx" ||
+  name == "dpdxCoarse" ||
+  name == "dpdxFine" ||
+  name == "dpdy" ||
+  name == "dpdyCoarse" ||
+  name == "dpdyFine" ||
+  name == "exp" ||
+  name == "exp2" ||
+  name == "extractBits" ||
+  name == "faceForward" ||
+  name == "firstLeadingBit" ||
+  name == "firstTrailingBit" ||
+  name == "floor" ||
+  name == "fma" ||
+  name == "fract" ||
+  name == "frexp" ||
+  name == "fwidth" ||
+  name == "fwidthCoarse" ||
+  name == "fwidthFine" ||
+  name == "insertBits" ||
+  name == "inverseSqrt" ||
+  name == "ldexp" ||
+  name == "length" ||
+  name == "log" ||
+  name == "log2" ||
+  name == "max" ||
+  name == "min" ||
+  name == "mix" ||
+  name == "modf" ||
+  name == "normalize" ||
+  name == "pack2x16float" ||
+  name == "pack2x16snorm" ||
+  name == "pack2x16unorm" ||
+  name == "pack4x8snorm" ||
+  name == "pack4x8unorm" ||
+  name == "pack4xI8" ||
+  name == "pack4xU8" ||
+  name == "pack4xI8Clamp" ||
+  name == "pack4xU8Clamp" ||
+  name == "pow" ||
+  name == "quantizeToF16" ||
+  name == "radians" ||
+  name == "reflect" ||
+  name == "refract" ||
+  name == "reverseBits" ||
+  name == "round" ||
+  name == "saturate" ||
+  name == "select" ||
+  name == "sign" ||
+  name == "sin" ||
+  name == "sinh" ||
+  name == "smoothstep" ||
+  name == "sqrt" ||
+  name == "step" ||
+  name == "tan" ||
+  name == "tanh" ||
+  name == "transpose" ||
+  name == "trunc" ||
+  name == "unpack2x16float" ||
+  name == "unpack2x16snorm" ||
+  name == "unpack2x16unorm" ||
+  name == "unpack4x8snorm" ||
+  name == "unpack4x8unorm" ||
+  name == "unpack4xI8" ||
+  name == "unpack4xU8" ||
+  name == "textureDimensions" ||
+  name == "textureGather" ||
+  name == "textureGatherCompare" ||
+  name == "textureLoad" ||
+  name == "textureNumLayers" ||
+  name == "textureNumLevels" ||
+  name == "textureNumSamples" ||
+  name == "textureSample" ||
+  name == "textureSampleBaseClampToEdge" ||
+  name == "textureSampleBias" ||
+  name == "textureSampleCompare" ||
+  name == "textureSampleCompareLevel" ||
+  name == "textureSampleGrad" ||
+  name == "textureSampleLevel" ||
+  name == "textureStore" ||
+  name == "atomicLoad" ||
+  name == "atomicStore" ||
+  name == "atomicAdd" ||
+  name == "atomicSub" ||
+  name == "atomicMax" ||
+  name == "atomicMin" ||
+  name == "atomicAnd" ||
+  name == "atomicOr" ||
+  name == "atomicXor" ||
+  name == "atomicExchange" ||
+  name == "atomicCompareExchangeWeak" ||
+  name == "storageBarrier" ||
+  name == "textureBarrier" ||
+  name == "workgroupBarrier" ||
+  name == "workgroupUniformLoad" ||
+  name == "subgroupAdd" ||
+  name == "subgroupAll" ||
+  name == "subgroupAnd" ||
+  name == "subgroupAny" ||
+  name == "subgroupBallot" ||
+  name == "subgroupBroadcast" ||
+  name == "subgroupBroadcastFirst" ||
+  name == "subgroupElect" ||
+  name == "subgroupExclusiveAdd" ||
+  name == "subgroupExclusiveMul" ||
+  name == "subgroupInclusiveAdd" ||
+  name == "subgroupInclusiveMul" ||
+  name == "subgroupMax" ||
+  name == "subgroupMin" ||
+  name == "subgroupMul" ||
+  name == "subgroupOr" ||
+  name == "subgroupShuffle" ||
+  name == "subgroupShuffleDown" ||
+  name == "subgroupShuffleUp" ||
+  name == "subgroupShuffleXor" ||
+  name == "subgroupXor" ||
+  name == "subgroupBarrier"
+}
+
+///|
+fn wesl_is_builtin_identifier(name : String) -> Bool {
+  wesl_is_builtin_constructor_ident(name) ||
+  wesl_is_builtin_function_ident(name) ||
+  wesl_is_storage_texture_format_ident(name) ||
+  name == "_" ||
+  name == "ptr" ||
+  name == "atomic" ||
+  name == "sampler" ||
+  name == "sampler_comparison" ||
+  name == "texture_1d" ||
+  name == "texture_2d" ||
+  name == "texture_2d_array" ||
+  name == "texture_3d" ||
+  name == "texture_cube" ||
+  name == "texture_cube_array" ||
+  name == "texture_multisampled_2d" ||
+  name == "texture_depth_2d" ||
+  name == "texture_depth_2d_array" ||
+  name == "texture_depth_cube" ||
+  name == "texture_depth_cube_array" ||
+  name == "texture_depth_multisampled_2d" ||
+  name == "texture_external" ||
+  name == "texture_storage_1d" ||
+  name == "texture_storage_2d" ||
+  name == "texture_storage_2d_array" ||
+  name == "texture_storage_3d" ||
+  name == "function" ||
+  name == "private" ||
+  name == "workgroup" ||
+  name == "uniform" ||
+  name == "storage" ||
+  name == "read" ||
+  name == "write" ||
+  name == "read_write" ||
+  name == "position" ||
+  name == "vertex_index" ||
+  name == "instance_index" ||
+  name == "front_facing" ||
+  name == "frag_depth" ||
+  name == "sample_index" ||
+  name == "sample_mask" ||
+  name == "local_invocation_id" ||
+  name == "local_invocation_index" ||
+  name == "global_invocation_id" ||
+  name == "workgroup_id" ||
+  name == "num_workgroups" ||
+  name == "subgroup_invocation_id" ||
+  name == "subgroup_size" ||
+  name == "subgroup_id" ||
+  name == "num_subgroups" ||
+  name == "primitive_index" ||
+  name == "view_index" ||
+  name == "perspective" ||
+  name == "linear" ||
+  name == "flat" ||
+  name == "center" ||
+  name == "centroid" ||
+  name == "sample"
+}
+
+///|
+fn wesl_is_storage_texture_format_ident(name : String) -> Bool {
+  name == "r32float" ||
+  name == "r32sint" ||
+  name == "r32uint" ||
+  name == "rg32float" ||
+  name == "rg32sint" ||
+  name == "rg32uint" ||
+  name == "rgba8unorm" ||
+  name == "rgba8snorm" ||
+  name == "rgba8uint" ||
+  name == "rgba8sint" ||
+  name == "rgba16uint" ||
+  name == "rgba16sint" ||
+  name == "rgba16float" ||
+  name == "rgba32uint" ||
+  name == "rgba32sint" ||
+  name == "rgba32float" ||
+  name == "bgra8unorm"
+}
+
+///|
+fn wesl_validate_is_declared(
+  parsed_module : ParsedModule,
+  allow_imports : Bool,
+  scopes : Array[Array[String]],
+  ty : TypeExpression,
+) -> Unit raise WeslCompileError {
+  if ty.path.length() != 0 {
+    for arg in ty.template_args {
+      match arg {
+        Type(nested) =>
+          wesl_validate_is_declared(
+            parsed_module, allow_imports, scopes, nested,
+          )
+        Literal(_) => ()
+      }
+    }
+    return
+  }
+  if wesl_ast_name_is_bound(scopes, ty.ident) ||
+    parsed_module.named_items.contains(ty.ident) ||
+    wesl_is_builtin_identifier(ty.ident) ||
+    (allow_imports && parsed_module.import_by_local.contains(ty.ident)) {
+    ()
+  } else {
+    raise WeslCompileError::Validate(ValidateError::UndefinedSymbol(ty.ident))
+  }
+  for arg in ty.template_args {
+    match arg {
+      Type(nested) =>
+        wesl_validate_is_declared(parsed_module, allow_imports, scopes, nested)
+      Literal(_) => ()
+    }
+  }
+}
+
+///|
+fn wesl_validate_alias_call_target(
+  parsed_module : ParsedModule,
+  name : String,
+  call : FunctionCallExpression,
+  visited : Array[String],
+) -> Unit raise WeslCompileError {
+  for item in visited {
+    if item == name {
+      return
+    }
+  }
+  match parsed_module.named_items.get(name) {
+    Some(index) => {
+      let target = parsed_module.items[index]
+      match target.header {
+        Function(function_) =>
+          if call.arguments.length() != function_.parameters.length() {
+            raise WeslCompileError::Validate(
+              ValidateError::ParamCount(
+                name,
+                function_.parameters.length(),
+                call.arguments.length(),
+              ),
+            )
+          }
+        Struct(struct_) =>
+          if call.arguments.length() != 0 &&
+            call.arguments.length() != struct_.members.length() {
+            raise WeslCompileError::Validate(
+              ValidateError::ParamCount(
+                name,
+                struct_.members.length(),
+                call.arguments.length(),
+              ),
+            )
+          }
+        Alias(alias_) =>
+          match alias_.target_type {
+            Some(target_ty) =>
+              if target_ty.template_args.length() == 0 &&
+                target_ty.path.length() == 0 {
+                visited.push(name)
+                wesl_validate_alias_call_target(
+                  parsed_module,
+                  target_ty.ident,
+                  call,
+                  visited,
+                )
+              }
+            None => ()
+          }
+        Const(_)
+        | Override(_)
+        | Let(_)
+        | Var(_)
+        | ConstAssert(_)
+        | EnableDirective(_)
+        | RequiresDirective(_)
+        | DiagnosticDirective(_)
+        | Other =>
+          raise WeslCompileError::Validate(ValidateError::NotCallable(name))
+      }
+    }
+    None =>
+      if wesl_is_builtin_function_ident(name) ||
+        wesl_is_builtin_constructor_ident(name) {
+        ()
+      } else {
+        raise WeslCompileError::Validate(ValidateError::NotCallable(name))
+      }
+  }
+}
+
+///|
+fn wesl_validate_function_call(
+  parsed_module : ParsedModule,
+  allow_imports : Bool,
+  scopes : Array[Array[String]],
+  call : FunctionCallExpression,
+) -> Unit raise WeslCompileError {
+  wesl_validate_is_declared(parsed_module, allow_imports, scopes, call.callee)
+  if call.callee.path.length() != 0 {
+    return
+  }
+  let name = call.callee.ident
+  if wesl_ast_name_is_bound(scopes, name) {
+    raise WeslCompileError::Validate(ValidateError::NotCallable(name))
+  }
+  if allow_imports && parsed_module.import_by_local.contains(name) {
+    return
+  }
+  let visited : Array[String] = []
+  wesl_validate_alias_call_target(parsed_module, name, call, visited)
+}
+
+///|
+fn wesl_validate_expression_surface(
+  parsed_module : ParsedModule,
+  allow_imports : Bool,
+  check_calls : Bool,
+  scopes : Array[Array[String]],
+  expr : Expression,
+) -> Unit raise WeslCompileError {
+  match expr {
+    Literal(_) | Bool(_) => ()
+    TypeOrIdentifier(ty) =>
+      wesl_validate_is_declared(parsed_module, allow_imports, scopes, ty)
+    Parenthesized(inner) =>
+      wesl_validate_expression_surface(
+        parsed_module, allow_imports, check_calls, scopes, inner,
+      )
+    NamedComponent(base, _) =>
+      wesl_validate_expression_surface(
+        parsed_module, allow_imports, check_calls, scopes, base,
+      )
+    Indexing(base, index) => {
+      wesl_validate_expression_surface(
+        parsed_module, allow_imports, check_calls, scopes, base,
+      )
+      wesl_validate_expression_surface(
+        parsed_module, allow_imports, check_calls, scopes, index,
+      )
+    }
+    Unary(_, operand) =>
+      wesl_validate_expression_surface(
+        parsed_module, allow_imports, check_calls, scopes, operand,
+      )
+    Binary(_, lhs, rhs) => {
+      wesl_validate_expression_surface(
+        parsed_module, allow_imports, check_calls, scopes, lhs,
+      )
+      wesl_validate_expression_surface(
+        parsed_module, allow_imports, check_calls, scopes, rhs,
+      )
+    }
+    FunctionCall(call) => {
+      if check_calls {
+        wesl_validate_function_call(parsed_module, allow_imports, scopes, call)
+      } else {
+        wesl_validate_is_declared(
+          parsed_module,
+          allow_imports,
+          scopes,
+          call.callee,
+        )
+      }
+      for arg in call.arguments {
+        wesl_validate_expression_surface(
+          parsed_module, allow_imports, check_calls, scopes, arg,
+        )
+      }
+    }
+  }
+}
+
+///|
+fn wesl_validate_attribute_surface(
+  parsed_module : ParsedModule,
+  allow_imports : Bool,
+  check_calls : Bool,
+  scopes : Array[Array[String]],
+  attribute : Attribute,
+) -> Unit raise WeslCompileError {
+  for expr in attribute.argument_exprs {
+    wesl_validate_expression_surface(
+      parsed_module, allow_imports, check_calls, scopes, expr,
+    )
+  }
+}
+
+///|
+fn wesl_validate_attributes_surface(
+  parsed_module : ParsedModule,
+  allow_imports : Bool,
+  check_calls : Bool,
+  scopes : Array[Array[String]],
+  attributes : Array[Attribute],
+) -> Unit raise WeslCompileError {
+  for attribute in attributes {
+    wesl_validate_attribute_surface(
+      parsed_module, allow_imports, check_calls, scopes, attribute,
+    )
+  }
+}
+
+///|
+fn wesl_validate_statement_declaration_surface(
+  parsed_module : ParsedModule,
+  allow_imports : Bool,
+  check_calls : Bool,
+  scopes : Array[Array[String]],
+  declaration : StatementDeclaration,
+) -> Unit raise WeslCompileError {
+  match declaration.type_expr {
+    Some(ty) =>
+      wesl_validate_is_declared(parsed_module, allow_imports, scopes, ty)
+    None => ()
+  }
+  match declaration.initializer_expr {
+    Some(expr) =>
+      wesl_validate_expression_surface(
+        parsed_module, allow_imports, check_calls, scopes, expr,
+      )
+    None => ()
+  }
+  match declaration.name {
+    Some(name) => wesl_ast_bind_name(scopes, name)
+    None => ()
+  }
+}
+
+///|
+fn wesl_validate_statement_surface(
+  parsed_module : ParsedModule,
+  allow_imports : Bool,
+  check_calls : Bool,
+  scopes : Array[Array[String]],
+  statement : Statement,
+) -> Unit raise WeslCompileError {
+  wesl_validate_attributes_surface(
+    parsed_module,
+    allow_imports,
+    check_calls,
+    scopes,
+    statement.attributes,
+  )
+  match statement.expression {
+    Some(expr) =>
+      if check_calls && statement.kind == StatementKind::Call {
+        ()
+      } else {
+        wesl_validate_expression_surface(
+          parsed_module, allow_imports, check_calls, scopes, expr,
+        )
+      }
+    None => ()
+  }
+  match statement.declaration {
+    Some(declaration) =>
+      wesl_validate_statement_declaration_surface(
+        parsed_module, allow_imports, check_calls, scopes, declaration,
+      )
+    None => ()
+  }
+  match statement.assignment {
+    Some(assignment) => {
+      wesl_validate_expression_surface(
+        parsed_module,
+        allow_imports,
+        check_calls,
+        scopes,
+        assignment.lhs,
+      )
+      wesl_validate_expression_surface(
+        parsed_module,
+        allow_imports,
+        check_calls,
+        scopes,
+        assignment.rhs,
+      )
+    }
+    None => ()
+  }
+  match statement.update_expression {
+    Some(expr) =>
+      wesl_validate_expression_surface(
+        parsed_module, allow_imports, check_calls, scopes, expr,
+      )
+    None => ()
+  }
+  match statement.control {
+    Some(control) =>
+      wesl_validate_control_surface(
+        parsed_module, allow_imports, check_calls, scopes, control,
+      )
+    None => ()
+  }
+}
+
+///|
+fn wesl_validate_body_surface(
+  parsed_module : ParsedModule,
+  allow_imports : Bool,
+  check_calls : Bool,
+  scopes : Array[Array[String]],
+  body : FunctionBody,
+) -> Unit raise WeslCompileError {
+  scopes.push([])
+  for statement in body.statements {
+    wesl_validate_statement_surface(
+      parsed_module, allow_imports, check_calls, scopes, statement,
+    )
+  }
+  ignore(scopes.pop())
+}
+
+///|
+fn wesl_validate_control_surface(
+  parsed_module : ParsedModule,
+  allow_imports : Bool,
+  check_calls : Bool,
+  scopes : Array[Array[String]],
+  control : ControlStatement,
+) -> Unit raise WeslCompileError {
+  match control {
+    Block(block) =>
+      wesl_validate_body_surface(
+        parsed_module,
+        allow_imports,
+        check_calls,
+        scopes,
+        block.body,
+      )
+    If(if_) => {
+      wesl_validate_expression_surface(
+        parsed_module,
+        allow_imports,
+        check_calls,
+        scopes,
+        if_.condition,
+      )
+      wesl_validate_body_surface(
+        parsed_module,
+        allow_imports,
+        check_calls,
+        scopes,
+        if_.body,
+      )
+      match if_.else_body {
+        Some(body) =>
+          wesl_validate_body_surface(
+            parsed_module, allow_imports, check_calls, scopes, body,
+          )
+        None => ()
+      }
+    }
+    Switch(switch_) => {
+      wesl_validate_expression_surface(
+        parsed_module,
+        allow_imports,
+        check_calls,
+        scopes,
+        switch_.selector,
+      )
+      for case_ in switch_.cases {
+        wesl_validate_attributes_surface(
+          parsed_module,
+          allow_imports,
+          check_calls,
+          scopes,
+          case_.attributes,
+        )
+        for selector in case_.selectors {
+          wesl_validate_expression_surface(
+            parsed_module, allow_imports, check_calls, scopes, selector,
+          )
+        }
+        wesl_validate_body_surface(
+          parsed_module,
+          allow_imports,
+          check_calls,
+          scopes,
+          case_.body,
+        )
+      }
+    }
+    Loop(loop_) =>
+      wesl_validate_body_surface(
+        parsed_module,
+        allow_imports,
+        check_calls,
+        scopes,
+        loop_.body,
+      )
+    For(for_) => {
+      scopes.push([])
+      match for_.initializer {
+        Some(Declaration(declaration)) =>
+          wesl_validate_statement_declaration_surface(
+            parsed_module, allow_imports, check_calls, scopes, declaration,
+          )
+        Some(Assignment(assignment)) => {
+          wesl_validate_expression_surface(
+            parsed_module,
+            allow_imports,
+            check_calls,
+            scopes,
+            assignment.lhs,
+          )
+          wesl_validate_expression_surface(
+            parsed_module,
+            allow_imports,
+            check_calls,
+            scopes,
+            assignment.rhs,
+          )
+        }
+        Some(Expression(expr)) =>
+          wesl_validate_expression_surface(
+            parsed_module, allow_imports, check_calls, scopes, expr,
+          )
+        None => ()
+      }
+      match for_.condition {
+        Some(expr) =>
+          wesl_validate_expression_surface(
+            parsed_module, allow_imports, check_calls, scopes, expr,
+          )
+        None => ()
+      }
+      match for_.update {
+        Some(ForUpdate::Assignment(assignment)) => {
+          wesl_validate_expression_surface(
+            parsed_module,
+            allow_imports,
+            check_calls,
+            scopes,
+            assignment.lhs,
+          )
+          wesl_validate_expression_surface(
+            parsed_module,
+            allow_imports,
+            check_calls,
+            scopes,
+            assignment.rhs,
+          )
+        }
+        Some(Increment(expr))
+        | Some(Decrement(expr))
+        | Some(ForUpdate::Expression(expr)) =>
+          wesl_validate_expression_surface(
+            parsed_module, allow_imports, check_calls, scopes, expr,
+          )
+        None => ()
+      }
+      wesl_validate_body_surface(
+        parsed_module,
+        allow_imports,
+        check_calls,
+        scopes,
+        for_.body,
+      )
+      ignore(scopes.pop())
+    }
+    While(while_) => {
+      wesl_validate_expression_surface(
+        parsed_module,
+        allow_imports,
+        check_calls,
+        scopes,
+        while_.condition,
+      )
+      wesl_validate_body_surface(
+        parsed_module,
+        allow_imports,
+        check_calls,
+        scopes,
+        while_.body,
+      )
+    }
+    Continuing(continuing) =>
+      wesl_validate_body_surface(
+        parsed_module,
+        allow_imports,
+        check_calls,
+        scopes,
+        continuing.body,
+      )
+  }
+}
+
+///|
+fn wesl_validate_item_surface(
+  parsed_module : ParsedModule,
+  allow_imports : Bool,
+  check_calls : Bool,
+  item : ModuleItem,
+) -> Unit raise WeslCompileError {
+  let scopes : Array[Array[String]] = [[]]
+  wesl_validate_attributes_surface(
+    parsed_module,
+    allow_imports,
+    check_calls,
+    scopes,
+    item.attributes,
+  )
+  match item.header {
+    Alias(alias_decl) =>
+      match alias_decl.target_type {
+        Some(ty) =>
+          wesl_validate_is_declared(parsed_module, allow_imports, scopes, ty)
+        None => ()
+      }
+    Const(const_) => {
+      match const_.type_expr {
+        Some(ty) =>
+          wesl_validate_is_declared(parsed_module, allow_imports, scopes, ty)
+        None => ()
+      }
+      match const_.initializer_expr {
+        Some(expr) =>
+          wesl_validate_expression_surface(
+            parsed_module, allow_imports, check_calls, scopes, expr,
+          )
+        None => ()
+      }
+    }
+    Override(override_) => {
+      match override_.type_expr {
+        Some(ty) =>
+          wesl_validate_is_declared(parsed_module, allow_imports, scopes, ty)
+        None => ()
+      }
+      match override_.initializer_expr {
+        Some(expr) =>
+          wesl_validate_expression_surface(
+            parsed_module, allow_imports, check_calls, scopes, expr,
+          )
+        None => ()
+      }
+    }
+    Let(let_) => {
+      match let_.type_expr {
+        Some(ty) =>
+          wesl_validate_is_declared(parsed_module, allow_imports, scopes, ty)
+        None => ()
+      }
+      match let_.initializer_expr {
+        Some(expr) =>
+          wesl_validate_expression_surface(
+            parsed_module, allow_imports, check_calls, scopes, expr,
+          )
+        None => ()
+      }
+    }
+    Var(var_) => {
+      match var_.type_expr {
+        Some(ty) =>
+          wesl_validate_is_declared(parsed_module, allow_imports, scopes, ty)
+        None => ()
+      }
+      match var_.initializer_expr {
+        Some(expr) =>
+          wesl_validate_expression_surface(
+            parsed_module, allow_imports, check_calls, scopes, expr,
+          )
+        None => ()
+      }
+    }
+    Function(function_) => {
+      for parameter in function_.parameters {
+        wesl_validate_attributes_surface(
+          parsed_module,
+          allow_imports,
+          check_calls,
+          scopes,
+          parameter.attributes,
+        )
+        wesl_validate_is_declared(
+          parsed_module,
+          allow_imports,
+          scopes,
+          parameter.type_expr,
+        )
+      }
+      match function_.return_type_expr {
+        Some(ty) =>
+          wesl_validate_is_declared(parsed_module, allow_imports, scopes, ty)
+        None => ()
+      }
+      wesl_validate_attributes_surface(
+        parsed_module,
+        allow_imports,
+        check_calls,
+        scopes,
+        function_.return_attributes,
+      )
+      for parameter in function_.parameters {
+        wesl_ast_bind_name(scopes, parameter.name)
+      }
+      wesl_validate_body_surface(
+        parsed_module,
+        allow_imports,
+        check_calls,
+        scopes,
+        function_.body,
+      )
+    }
+    Struct(struct_) =>
+      for field in struct_.members {
+        wesl_validate_attributes_surface(
+          parsed_module,
+          allow_imports,
+          check_calls,
+          scopes,
+          field.attributes,
+        )
+        wesl_validate_is_declared(
+          parsed_module,
+          allow_imports,
+          scopes,
+          field.type_expr,
+        )
+      }
+    ConstAssert(assertion) =>
+      wesl_validate_expression_surface(
+        parsed_module,
+        allow_imports,
+        check_calls,
+        scopes,
+        assertion.assertion_expr,
+      )
+    EnableDirective(_)
+    | RequiresDirective(_)
+    | DiagnosticDirective(_)
+    | Other => ()
+  }
+}
+
+///|
+fn wesl_validate_translation_unit_surface(
+  unit : TranslationUnit,
+  allow_imports : Bool,
+  check_calls : Bool,
+) -> Unit raise WeslCompileError {
+  let path = ModulePath::from_path("/__validate__")
+  let parsed_module = wesl_parse_loaded_translation_unit(path, unit, true)
+  let modules : @hashmap.HashMap[ModulePath, ParsedModule] = @hashmap.HashMap::new()
+  let order : Array[ModulePath] = [path]
+  modules.set(path, parsed_module)
+  for item in parsed_module.items {
+    wesl_validate_item_surface(parsed_module, allow_imports, check_calls, item)
+  }
+  wesl_validate_loaded_cycles(order, modules) catch {
+    WeslCompileError::CircularDecl(symbol) =>
+      raise WeslCompileError::Validate(ValidateError::Cycle(symbol, symbol))
+    err => raise err
+  }
+}
+
+///|
+fn wesl_validate_loaded_wesl_surface(
+  order : Array[ModulePath],
+  modules : @hashmap.HashMap[ModulePath, ParsedModule],
+) -> Unit raise WeslCompileError {
+  for path in order {
+    guard modules.get(path) is Some(parsed_module) else { continue }
+    for item in parsed_module.items {
+      wesl_validate_item_surface(parsed_module, true, false, item)
+    }
+  }
+}
+
+///|
+pub fn validate_wesl(unit : TranslationUnit) -> Unit raise WeslCompileError {
+  wesl_validate_translation_unit_surface(unit, true, false)
+}
+
+///|
+pub fn validate_wgsl(unit : TranslationUnit) -> Unit raise WeslCompileError {
+  wesl_validate_translation_unit_surface(unit, false, true)
+}
+
+///|
 fn wesl_emit_item_source(
   parsed_module : ParsedModule,
   item : ModuleItem,
@@ -4323,6 +5360,7 @@ fn[R : Resolver] compile_with_mangler_kind_and_sourcemap(
     use_sourcemap, root, mangler,
   )
   if options.validate {
+    wesl_validate_loaded_wesl_surface(order, modules)
     wesl_validate_loaded_cycles(order, modules)
     wesl_validate_loaded_types(order, modules)
   }
@@ -4345,6 +5383,10 @@ fn[R : Resolver] compile_with_mangler_kind_and_sourcemap(
     root, root, modules, used_modules, used_decls, emitted, parts, mangler, options,
   )
   let assembled = parts.filter(fn(part) { part != "" }).join("\n\n")
+  let assembled_syntax = parse_translation_unit(root, assembled, false)
+  if options.validate {
+    validate_wgsl(assembled_syntax)
+  }
   let source = if options.lower {
     wesl_lower_source(assembled)
   } else {
