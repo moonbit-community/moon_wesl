@@ -379,6 +379,18 @@ priv struct ConstEvalParam {
 }
 
 ///|
+priv enum ConstEvalSwitchSelector {
+  SwitchExpression(ConstEvalExpr)
+  SwitchDefault
+}
+
+///|
+priv struct ConstEvalSwitchCase {
+  selectors : Array[ConstEvalSwitchSelector]
+  body : Array[ConstEvalStatement]
+}
+
+///|
 priv enum ConstEvalStatement {
   Binding(ConstEvalBinding)
   Assignment(String, ConstEvalExpr)
@@ -386,6 +398,7 @@ priv enum ConstEvalStatement {
   Increment(String)
   Decrement(String)
   If(ConstEvalExpr, Array[ConstEvalStatement], Array[ConstEvalStatement])
+  Switch(ConstEvalExpr, Array[ConstEvalSwitchCase])
   Loop(Array[ConstEvalStatement], Array[ConstEvalStatement]?)
   While(ConstEvalExpr, Array[ConstEvalStatement])
   For(
@@ -1022,6 +1035,92 @@ fn ConstEvalParser::parse_if_statement(
 }
 
 ///|
+fn ConstEvalParser::parse_switch_selector(
+  self : ConstEvalParser,
+) -> ConstEvalSwitchSelector raise WeslCompileError {
+  match self.view() {
+    [Ident("default"), .. rest] => {
+      self.update_view(rest)
+      SwitchDefault
+    }
+    _ => SwitchExpression(self.parse_expression())
+  }
+}
+
+///|
+fn ConstEvalParser::parse_switch_case_body(
+  self : ConstEvalParser,
+) -> Array[ConstEvalStatement] raise WeslCompileError {
+  match self.view() {
+    [LeftBrace, ..] => self.parse_statement_block()
+    _ => {
+      let statements : Array[ConstEvalStatement] = []
+      while true {
+        match self.view() {
+          [Ident("case"), ..] | [Ident("default"), ..] | [RightBrace, ..] =>
+            break
+          [] => self.error("expected `}` in const-eval switch body")
+          _ => statements.push(self.parse_statement())
+        }
+      }
+      statements
+    }
+  }
+}
+
+///|
+fn ConstEvalParser::parse_switch_case(
+  self : ConstEvalParser,
+) -> ConstEvalSwitchCase raise WeslCompileError {
+  let selectors : Array[ConstEvalSwitchSelector] = []
+  match self.view() {
+    [Ident("case"), .. rest] => {
+      self.update_view(rest)
+      while true {
+        selectors.push(self.parse_switch_selector())
+        match self.view() {
+          [Comma, .. after_comma] => self.update_view(after_comma)
+          [Colon, .. after_colon] => {
+            self.update_view(after_colon)
+            break
+          }
+          _ => self.error("expected `,` or `:` in const-eval switch case")
+        }
+      }
+    }
+    [Ident("default"), Colon, .. rest] => {
+      self.update_view(rest)
+      selectors.push(SwitchDefault)
+    }
+    _ => self.error("expected const-eval switch case")
+  }
+  ConstEvalSwitchCase::{ selectors, body: self.parse_switch_case_body() }
+}
+
+///|
+fn ConstEvalParser::parse_switch_statement(
+  self : ConstEvalParser,
+) -> ConstEvalStatement raise WeslCompileError {
+  let selector = self.parse_if_condition()
+  match self.view() {
+    [LeftBrace, .. rest] => self.update_view(rest)
+    _ => self.error("expected `{` in const-eval switch body")
+  }
+  let cases : Array[ConstEvalSwitchCase] = []
+  while true {
+    match self.view() {
+      [RightBrace, .. rest] => {
+        self.update_view(rest)
+        break
+      }
+      [] => self.error("expected `}` in const-eval switch body")
+      _ => cases.push(self.parse_switch_case())
+    }
+  }
+  ConstEvalStatement::Switch(selector, cases)
+}
+
+///|
 fn ConstEvalParser::parse_while_statement(
   self : ConstEvalParser,
 ) -> ConstEvalStatement raise WeslCompileError {
@@ -1333,6 +1432,10 @@ fn ConstEvalParser::parse_statement(
     [Ident("if"), .. rest] => {
       self.update_view(rest)
       self.parse_if_statement()
+    }
+    [Ident("switch"), .. rest] => {
+      self.update_view(rest)
+      self.parse_switch_statement()
     }
     [Ident("while"), .. rest] => {
       self.update_view(rest)
@@ -2591,6 +2694,26 @@ fn const_eval_step_value(
 }
 
 ///|
+fn const_eval_switch_selector_matches(
+  switch_value : ConstEvalValue,
+  selector : ConstEvalExpr,
+  ctx : ConstEvalContext,
+) -> Bool raise WeslCompileError {
+  match
+    const_eval_apply_binary(
+      Eq,
+      switch_value,
+      const_eval_eval_expr(selector, ctx),
+    ) {
+    Bool(value) => value
+    value =>
+      raise WeslCompileError::Validation(
+        "const-eval switch selector comparison produced `\{const_eval_render_value(value)}`",
+      )
+  }
+}
+
+///|
 fn const_eval_execute_update(
   statement : ConstEvalStatement,
   ctx : ConstEvalContext,
@@ -3310,6 +3433,48 @@ fn const_eval_execute_statement(
         else_branch
       }
       const_eval_execute_statements(branch, ctx, return_type, function_name)
+    }
+    Switch(selector, cases) => {
+      let switch_value = const_eval_eval_expr(selector, ctx)
+      let mut selected_body : Array[ConstEvalStatement]? = None
+      let mut default_body : Array[ConstEvalStatement]? = None
+      for case in cases {
+        let mut case_matches = false
+        let mut case_is_default = false
+        for selector in case.selectors {
+          match selector {
+            SwitchDefault => case_is_default = true
+            SwitchExpression(expr) =>
+              if const_eval_switch_selector_matches(switch_value, expr, ctx) {
+                case_matches = true
+              }
+          }
+        }
+        if case_matches {
+          selected_body = Some(case.body)
+          break
+        }
+        if case_is_default && default_body is None {
+          default_body = Some(case.body)
+        }
+      }
+      let body = match selected_body {
+        Some(body) => Some(body)
+        None => default_body
+      }
+      match body {
+        Some(statements) =>
+          match
+            const_eval_execute_statements(
+              statements, ctx, return_type, function_name,
+            ) {
+            ContinueExecution => ContinueExecution
+            BreakLoop => ContinueExecution
+            ContinueLoop => ContinueLoop
+            ReturnValue(value) => ReturnValue(value)
+          }
+        None => ContinueExecution
+      }
     }
     Loop(body, continuing) => {
       let mut iterations = 0

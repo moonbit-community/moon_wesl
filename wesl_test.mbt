@@ -939,6 +939,67 @@ test "wesl: compile result exec evaluates loop continuing break-if" {
 }
 
 ///|
+test "wesl: compile result exec evaluates switch cases and default" {
+  let resolver = VirtualResolver::new()
+  let root_path = ModulePath::from_path("/shaders/root")
+  resolver.add_module(
+    root_path, "@compute @workgroup_size(1)\nfn main(@builtin(local_invocation_index) selector: u32) -> u32 {\n  switch selector {\n    case 0u: {\n      return 10u;\n    }\n    case 1u, 2u: {\n      return 20u;\n    }\n    default: {\n      return 30u;\n    }\n  }\n}\n",
+  )
+  let compiled = compile(
+    root_path,
+    resolver,
+    EscapeMangler::default(),
+    CompileOptions::default(),
+  )
+  let first = compiled.exec(
+    "main",
+    Inputs::{
+      ..Inputs::new_zero_initialized(),
+      local_invocation_index: Some(2),
+    },
+    [],
+    [],
+  )
+  match first.return_value() {
+    Some(value) => inspect(value, content="20u")
+    None => fail("expected switch case return")
+  }
+  let second = compiled.exec(
+    "main",
+    Inputs::{
+      ..Inputs::new_zero_initialized(),
+      local_invocation_index: Some(7),
+    },
+    [],
+    [],
+  )
+  match second.return_value() {
+    Some(value) => inspect(value, content="30u")
+    None => fail("expected switch default return")
+  }
+}
+
+///|
+test "wesl: compile result exec keeps switch break scoped" {
+  let resolver = VirtualResolver::new()
+  let root_path = ModulePath::from_path("/shaders/root")
+  resolver.add_module(
+    root_path, "@compute @workgroup_size(1)\nfn main() -> u32 {\n  var i: u32 = 0u;\n  var sum: u32 = 0u;\n  loop {\n    i++;\n    switch i {\n      case 1u: {\n        sum += 10u;\n        break;\n      }\n      case 2u, 3u: {\n        continue;\n      }\n      case 4u: {\n        break;\n      }\n      default: {\n        sum += 1u;\n      }\n    }\n    if (i == 4u) {\n      break;\n    }\n  }\n  return sum + i;\n}\n",
+  )
+  let compiled = compile(
+    root_path,
+    resolver,
+    EscapeMangler::default(),
+    CompileOptions::default(),
+  )
+  let exec = compiled.exec("main", Inputs::new_zero_initialized(), [], [])
+  match exec.return_value() {
+    Some(value) => inspect(value, content="14u")
+    None => fail("expected scoped switch break return")
+  }
+}
+
+///|
 test "wesl: compile result exec rejects non-storable return buffers" {
   let resolver = VirtualResolver::new()
   let root_path = ModulePath::from_path("/shaders/root")

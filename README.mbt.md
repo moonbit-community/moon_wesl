@@ -238,8 +238,8 @@ buffers, and matching `--out-binary` return output for storable values. The
 current evaluator applies basic vector arithmetic, comparisons, `clamp`, `min`,
 `max`, `abs`, `select`, `all`, and `any` component-wise, supports struct member
 access, WGSL `xyzw` / `rgba` vector swizzles, basic `if` / `else` branches, and
-`while`, `for`, and `loop` control flow with local assignment, `break`,
-`continue`, `continuing`, and `break if`, and uses WGSL
+`while`, `for`, `loop`, and `switch` control flow with local assignment,
+`break`, `continue`, `continuing`, and `break if`, and uses WGSL
 memory layout for scalar/vector, struct member, array stride, and matrix column
 padding. Mutable resource output and the full arbitrary shader control-flow
 model still require the broader CPU execution layer.
@@ -260,8 +260,8 @@ modules:
 - minimal CPU execution for simple entrypoints, including scalar pipeline
   overrides, builtin and user-defined `@location` input parameters, struct
   field reads, vector swizzles, basic `if` / `else` and `while` control flow,
-  `for` loops, `loop`/`continuing`/`break if`, scalar/vector/struct/array/matrix
-  resource buffers, and return buffers
+  `for` loops, `loop`/`continuing`/`break if`, `switch` selection,
+  scalar/vector/struct/array/matrix resource buffers, and return buffers
 - filesystem package scanning and artifact generation
 - baseline CLI compile/check/eval/exec/package workflows
 
