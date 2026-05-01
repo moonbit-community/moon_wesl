@@ -26,6 +26,8 @@ priv enum ConstEvalToken {
   At
   LeftParen
   RightParen
+  LeftBracket
+  RightBracket
   LeftBrace
   RightBrace
   Colon
@@ -115,6 +117,14 @@ fn const_eval_lex(
       }
       41 => {
         tokens.push(ConstEvalToken::RightParen)
+        index += 1
+      }
+      91 => {
+        tokens.push(ConstEvalToken::LeftBracket)
+        index += 1
+      }
+      93 => {
+        tokens.push(ConstEvalToken::RightBracket)
         index += 1
       }
       123 => {
@@ -340,6 +350,7 @@ priv enum ConstEvalExpr {
   UnaryBitNot(ConstEvalExpr)
   Binary(ConstEvalBinaryOp, ConstEvalExpr, ConstEvalExpr)
   Access(ConstEvalExpr, String)
+  Index(ConstEvalExpr, ConstEvalExpr)
   Call(String, Array[ConstEvalExpr])
 }
 
@@ -618,6 +629,16 @@ fn ConstEvalParser::parse_postfix(
       }
       [Dot, ..] =>
         self.error("expected member name after `.` in const-eval expression")
+      [LeftBracket, .. next] => {
+        self.update_view(next)
+        let index = self.parse_expression()
+        match self.view() {
+          [RightBracket, .. after] => self.update_view(after)
+          _ => self.error("expected `]` in const-eval index expression")
+        }
+        expr = ConstEvalExpr::Index(expr, index)
+        continue self.view()
+      }
       _ => break
     }
   }
@@ -2664,6 +2685,73 @@ fn const_eval_access(
 }
 
 ///|
+fn const_eval_index_to_int(
+  value : ConstEvalValue,
+  context : String,
+) -> Int raise WeslCompileError {
+  let index = match value {
+    AbstractInt(number) => number
+    I32(number) =>
+      if number < 0 {
+        raise WeslCompileError::Validation("negative index in \{context}")
+      } else {
+        number
+      }
+    U32(number) => number
+    _ =>
+      raise WeslCompileError::Validation(
+        "cannot use `\{value.value_type().label()}` as index in \{context}",
+      )
+  }
+  if index < 0L || index > 2147483647L {
+    raise WeslCompileError::Validation("index out of range in \{context}")
+  }
+  index.to_int()
+}
+
+///|
+fn const_eval_index(
+  value : ConstEvalValue,
+  index_value : ConstEvalValue,
+) -> ConstEvalValue raise WeslCompileError {
+  let index = const_eval_index_to_int(index_value, "index expression")
+  match value {
+    Vector(width, _, elements) => {
+      if index < 0 || index >= width {
+        raise WeslCompileError::Validation(
+          "vector index \{index} is out of bounds for vec\{width}",
+        )
+      }
+      elements[index]
+    }
+    Matrix(columns, _, _, column_values) => {
+      if index < 0 || index >= columns {
+        raise WeslCompileError::Validation(
+          "matrix column index \{index} is out of bounds for \{columns} columns",
+        )
+      }
+      column_values[index]
+    }
+    Array(_, count, elements) => {
+      let length = match count {
+        Some(value) => value
+        None => elements.length()
+      }
+      if index < 0 || index >= length || index >= elements.length() {
+        raise WeslCompileError::Validation(
+          "array index \{index} is out of bounds for length \{length}",
+        )
+      }
+      elements[index]
+    }
+    _ =>
+      raise WeslCompileError::Validation(
+        "cannot index `\{value.value_type().label()}`",
+      )
+  }
+}
+
+///|
 fn const_eval_step_value(
   value : ConstEvalValue,
   delta : Int64,
@@ -3212,6 +3300,11 @@ fn const_eval_eval_expr(
       )
     Access(base, name) =>
       const_eval_access(const_eval_eval_expr(base, ctx), name)
+    Index(base, index) =>
+      const_eval_index(
+        const_eval_eval_expr(base, ctx),
+        const_eval_eval_expr(index, ctx),
+      )
     Call(name, args) => {
       let values : Array[ConstEvalValue] = []
       for arg in args {

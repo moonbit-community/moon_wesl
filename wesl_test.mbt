@@ -766,6 +766,40 @@ test "wesl: compile result exec evaluates vector swizzles" {
 }
 
 ///|
+test "wesl: compile result exec evaluates vector dynamic indexing" {
+  let resolver = VirtualResolver::new()
+  let root_path = ModulePath::from_path("/shaders/root")
+  resolver.add_module(
+    root_path, "@compute @workgroup_size(1)\nfn main(@location(0) value: vec3<f32>, @builtin(local_invocation_index) index: u32) -> f32 {\n  return value[index];\n}\n",
+  )
+  let compiled = compile(
+    root_path,
+    resolver,
+    EscapeMangler::default(),
+    CompileOptions::default(),
+  )
+  let inputs = Inputs::{
+    ..Inputs::new_zero_initialized(),
+    local_invocation_index: Some(2),
+    user_defined: [
+      UserInput::{
+        location: 0,
+        value: UserInputValue::F32Vector([1.0, 2.0, 3.0]),
+      },
+    ],
+  }
+  let exec = compiled.exec("main", inputs, [], [])
+  match exec.to_buffer() {
+    Some(buffer) =>
+      inspect(
+        buffer.to_array(),
+        content="[b'\\x00', b'\\x00', b'\\x40', b'\\x40']",
+      )
+    None => fail("expected indexed vector return buffer")
+  }
+}
+
+///|
 test "wesl: compile result exec evaluates if else control flow" {
   let resolver = VirtualResolver::new()
   let root_path = ModulePath::from_path("/shaders/root")
@@ -1276,6 +1310,38 @@ test "wesl: compile result exec reads array resource buffers with stride padding
         content="[b'\\x00', b'\\x00', b'\\x80', b'\\x3F', b'\\x00', b'\\x00', b'\\x00', b'\\x40', b'\\x00', b'\\x00', b'\\x40', b'\\x40', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x80', b'\\x40', b'\\x00', b'\\x00', b'\\xA0', b'\\x40', b'\\x00', b'\\x00', b'\\xC0', b'\\x40', b'\\x00', b'\\x00', b'\\x00', b'\\x00']",
       )
     None => fail("expected array resource return buffer")
+  }
+}
+
+///|
+test "wesl: compile result exec indexes storage array resources" {
+  let resolver = VirtualResolver::new()
+  let root_path = ModulePath::from_path("/shaders/root")
+  resolver.add_module(
+    root_path, "@group(0) @binding(0) var<storage> DATA: array<u32, 4>;\n@compute @workgroup_size(1)\nfn main(@builtin(local_invocation_index) index: u32) -> u32 {\n  return DATA[index] + 1u;\n}\n",
+  )
+  let compiled = compile(
+    root_path,
+    resolver,
+    EscapeMangler::default(),
+    CompileOptions::default(),
+  )
+  let input = Bytes::from_array([
+    b'\x0A', b'\x00', b'\x00', b'\x00', b'\x14', b'\x00', b'\x00', b'\x00', b'\x1E',
+    b'\x00', b'\x00', b'\x00', b'\x28', b'\x00', b'\x00', b'\x00',
+  ])
+  let exec = compiled.exec(
+    "main",
+    Inputs::{
+      ..Inputs::new_zero_initialized(),
+      local_invocation_index: Some(2),
+    },
+    [ResourceBinding::{ group: 0, binding: 0, kind: "storage", data: input }],
+    [],
+  )
+  match exec.return_value() {
+    Some(value) => inspect(value, content="31u")
+    None => fail("expected indexed array resource return")
   }
 }
 
