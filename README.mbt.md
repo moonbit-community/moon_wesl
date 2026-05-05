@@ -234,7 +234,7 @@ can run a minimal entrypoint whose return expression fits the current
 const-evaluator, including zero-initialized builtin entrypoint inputs,
 user-defined `@location` inputs passed through `Inputs.user_defined`, scalar
 pipeline overrides, scalar/vector/struct/array/matrix uniform/storage resource
-buffers, scalar and array-element storage resource writeback through
+buffers, field/index/component storage resource writeback through
 `ExecResult::resource`, and matching `--out-binary` return output for storable
 values. The
 current evaluator applies basic vector arithmetic, comparisons, `clamp`, `min`,
@@ -244,7 +244,7 @@ basic `if` / `else` branches, and `while`, `for`, `loop`, and `switch` control
 flow with local assignment, `break`, `continue`, `continuing`, and `break if`,
 and uses WGSL
 memory layout for scalar/vector, struct member, array stride, and matrix column
-padding. Fully nested mutable resource writes and the full arbitrary shader
+padding. Pointer-style writes, atomics, textures, and the full arbitrary shader
 control-flow model still require the broader CPU execution layer.
 
 ## Scope and Current Behavior
@@ -265,7 +265,7 @@ modules:
   field reads, vector swizzles, vector/array/matrix indexing, basic `if` /
   `else` and `while` control flow, `for` loops, `loop`/`continuing`/`break if`,
   `switch` selection, scalar/vector/struct/array/matrix resource buffers, and
-  scalar/array-element storage resource writeback plus return buffers
+  field/index/component storage resource writeback plus return buffers
 - filesystem package scanning and artifact generation
 - baseline CLI compile/check/eval/exec/package workflows
 

@@ -414,8 +414,8 @@ priv enum ConstEvalStatement {
   Binding(ConstEvalBinding)
   Assignment(ConstEvalLValue, ConstEvalExpr)
   CompoundAssignment(ConstEvalLValue, ConstEvalBinaryOp, ConstEvalExpr)
-  Increment(String)
-  Decrement(String)
+  Increment(ConstEvalLValue)
+  Decrement(ConstEvalLValue)
   If(ConstEvalExpr, Array[ConstEvalStatement], Array[ConstEvalStatement])
   Switch(ConstEvalExpr, Array[ConstEvalSwitchCase])
   Loop(Array[ConstEvalStatement], Array[ConstEvalStatement]?)
@@ -1249,14 +1249,6 @@ fn ConstEvalParser::parse_assignment_statement_with_terminator(
 }
 
 ///|
-fn ConstEvalParser::parse_assignment_statement(
-  self : ConstEvalParser,
-  target : ConstEvalLValue,
-) -> ConstEvalStatement raise WeslCompileError {
-  self.parse_assignment_statement_with_terminator(target, Semi)
-}
-
-///|
 fn ConstEvalParser::parse_compound_assignment_statement_with_terminator(
   self : ConstEvalParser,
   target : ConstEvalLValue,
@@ -1272,15 +1264,6 @@ fn ConstEvalParser::parse_compound_assignment_statement_with_terminator(
     self.error("expected terminator after const-eval compound assignment")
   }
   ConstEvalStatement::CompoundAssignment(target, op, expr)
-}
-
-///|
-fn ConstEvalParser::parse_compound_assignment_statement(
-  self : ConstEvalParser,
-  target : ConstEvalLValue,
-  op : ConstEvalBinaryOp,
-) -> ConstEvalStatement raise WeslCompileError {
-  self.parse_compound_assignment_statement_with_terminator(target, op, Semi)
 }
 
 ///|
@@ -1328,6 +1311,113 @@ fn ConstEvalParser::parse_lvalue(
 }
 
 ///|
+fn ConstEvalParser::parse_lvalue_statement_with_terminator(
+  self : ConstEvalParser,
+  target : ConstEvalLValue,
+  terminator : ConstEvalToken,
+) -> ConstEvalStatement raise WeslCompileError {
+  match self.view() {
+    [Equal, ..] =>
+      self.parse_assignment_statement_with_terminator(target, terminator)
+    [Plus, Equal, ..] => {
+      self.update_view(self.view()[1:])
+      self.parse_compound_assignment_statement_with_terminator(
+        target,
+        Add,
+        terminator,
+      )
+    }
+    [Minus, Equal, ..] => {
+      self.update_view(self.view()[1:])
+      self.parse_compound_assignment_statement_with_terminator(
+        target,
+        Sub,
+        terminator,
+      )
+    }
+    [Star, Equal, ..] => {
+      self.update_view(self.view()[1:])
+      self.parse_compound_assignment_statement_with_terminator(
+        target,
+        Mul,
+        terminator,
+      )
+    }
+    [Slash, Equal, ..] => {
+      self.update_view(self.view()[1:])
+      self.parse_compound_assignment_statement_with_terminator(
+        target,
+        Div,
+        terminator,
+      )
+    }
+    [Percent, Equal, ..] => {
+      self.update_view(self.view()[1:])
+      self.parse_compound_assignment_statement_with_terminator(
+        target,
+        Mod,
+        terminator,
+      )
+    }
+    [Amp, Equal, ..] => {
+      self.update_view(self.view()[1:])
+      self.parse_compound_assignment_statement_with_terminator(
+        target,
+        BitAnd,
+        terminator,
+      )
+    }
+    [Pipe, Equal, ..] => {
+      self.update_view(self.view()[1:])
+      self.parse_compound_assignment_statement_with_terminator(
+        target,
+        BitOr,
+        terminator,
+      )
+    }
+    [Caret, Equal, ..] => {
+      self.update_view(self.view()[1:])
+      self.parse_compound_assignment_statement_with_terminator(
+        target,
+        BitXor,
+        terminator,
+      )
+    }
+    [LeftShift, Equal, ..] => {
+      self.update_view(self.view()[1:])
+      self.parse_compound_assignment_statement_with_terminator(
+        target,
+        Shl,
+        terminator,
+      )
+    }
+    [RightShift, Equal, ..] => {
+      self.update_view(self.view()[1:])
+      self.parse_compound_assignment_statement_with_terminator(
+        target,
+        Shr,
+        terminator,
+      )
+    }
+    [Plus, Plus, .. rest] => {
+      self.update_view(rest)
+      if !self.consume_token(terminator) {
+        self.error("expected terminator after const-eval increment")
+      }
+      ConstEvalStatement::Increment(target)
+    }
+    [Minus, Minus, .. rest] => {
+      self.update_view(rest)
+      if !self.consume_token(terminator) {
+        self.error("expected terminator after const-eval decrement")
+      }
+      ConstEvalStatement::Decrement(target)
+    }
+    _ => self.error("expected const-eval assignment statement")
+  }
+}
+
+///|
 fn ConstEvalParser::parse_for_init(
   self : ConstEvalParser,
 ) -> ConstEvalStatement? raise WeslCompileError {
@@ -1344,29 +1434,9 @@ fn ConstEvalParser::parse_for_init(
       self.update_view(rest)
       Some(self.parse_binding_statement_with_terminator(Semi))
     }
-    [Ident(name), Equal, ..] => {
-      self.update_view(self.view()[1:])
-      Some(self.parse_assignment_statement_with_terminator(Root(name), Semi))
-    }
-    [Ident(name), Plus, Equal, ..] => {
-      self.update_view(self.view()[2:])
-      Some(
-        self.parse_compound_assignment_statement_with_terminator(
-          Root(name),
-          Add,
-          Semi,
-        ),
-      )
-    }
-    [Ident(name), Minus, Equal, ..] => {
-      self.update_view(self.view()[2:])
-      Some(
-        self.parse_compound_assignment_statement_with_terminator(
-          Root(name),
-          Sub,
-          Semi,
-        ),
-      )
+    [Ident(_), ..] => {
+      let target = self.parse_lvalue()
+      Some(self.parse_lvalue_statement_with_terminator(target, Semi))
     }
     _ => self.error("expected const-eval for-loop initializer")
   }
@@ -1378,39 +1448,9 @@ fn ConstEvalParser::parse_for_update(
 ) -> ConstEvalStatement? raise WeslCompileError {
   match self.view() {
     [RightParen, ..] => None
-    [Ident(name), Equal, ..] => {
-      self.update_view(self.view()[1:])
-      Some(
-        self.parse_assignment_statement_with_terminator(Root(name), RightParen),
-      )
-    }
-    [Ident(name), Plus, Equal, ..] => {
-      self.update_view(self.view()[2:])
-      Some(
-        self.parse_compound_assignment_statement_with_terminator(
-          Root(name),
-          Add,
-          RightParen,
-        ),
-      )
-    }
-    [Ident(name), Minus, Equal, ..] => {
-      self.update_view(self.view()[2:])
-      Some(
-        self.parse_compound_assignment_statement_with_terminator(
-          Root(name),
-          Sub,
-          RightParen,
-        ),
-      )
-    }
-    [Ident(name), Plus, Plus, RightParen, .. rest] => {
-      self.update_view(rest)
-      Some(ConstEvalStatement::Increment(name))
-    }
-    [Ident(name), Minus, Minus, RightParen, .. rest] => {
-      self.update_view(rest)
-      Some(ConstEvalStatement::Decrement(name))
+    [Ident(_), ..] => {
+      let target = self.parse_lvalue()
+      Some(self.parse_lvalue_statement_with_terminator(target, RightParen))
     }
     _ => self.error("expected const-eval for-loop update")
   }
@@ -1547,14 +1587,6 @@ fn ConstEvalParser::parse_statement(
       self.update_view(rest)
       ConstEvalStatement::Continue
     }
-    [Ident(name), Plus, Plus, Semi, .. rest] => {
-      self.update_view(rest)
-      ConstEvalStatement::Increment(name)
-    }
-    [Ident(name), Minus, Minus, Semi, .. rest] => {
-      self.update_view(rest)
-      ConstEvalStatement::Decrement(name)
-    }
     [Ident("return"), .. rest] => {
       self.update_view(rest)
       if self.view() is [Semi, .. after_semi] {
@@ -1570,50 +1602,7 @@ fn ConstEvalParser::parse_statement(
     }
     [Ident(_), ..] => {
       let target = self.parse_lvalue()
-      match self.view() {
-        [Equal, ..] => self.parse_assignment_statement(target)
-        [Plus, Equal, ..] => {
-          self.update_view(self.view()[1:])
-          self.parse_compound_assignment_statement(target, Add)
-        }
-        [Minus, Equal, ..] => {
-          self.update_view(self.view()[1:])
-          self.parse_compound_assignment_statement(target, Sub)
-        }
-        [Star, Equal, ..] => {
-          self.update_view(self.view()[1:])
-          self.parse_compound_assignment_statement(target, Mul)
-        }
-        [Slash, Equal, ..] => {
-          self.update_view(self.view()[1:])
-          self.parse_compound_assignment_statement(target, Div)
-        }
-        [Percent, Equal, ..] => {
-          self.update_view(self.view()[1:])
-          self.parse_compound_assignment_statement(target, Mod)
-        }
-        [Amp, Equal, ..] => {
-          self.update_view(self.view()[1:])
-          self.parse_compound_assignment_statement(target, BitAnd)
-        }
-        [Pipe, Equal, ..] => {
-          self.update_view(self.view()[1:])
-          self.parse_compound_assignment_statement(target, BitOr)
-        }
-        [Caret, Equal, ..] => {
-          self.update_view(self.view()[1:])
-          self.parse_compound_assignment_statement(target, BitXor)
-        }
-        [LeftShift, Equal, ..] => {
-          self.update_view(self.view()[1:])
-          self.parse_compound_assignment_statement(target, Shl)
-        }
-        [RightShift, Equal, ..] => {
-          self.update_view(self.view()[1:])
-          self.parse_compound_assignment_statement(target, Shr)
-        }
-        _ => self.error("expected const-eval assignment statement")
-      }
+      self.parse_lvalue_statement_with_terminator(target, Semi)
     }
     _ => self.error("expected const-eval statement")
   }
@@ -3797,26 +3786,22 @@ fn const_eval_execute_statement(
       const_eval_set_lvalue(target, value, ctx)
       ContinueExecution
     }
-    Increment(name) => {
-      let current = match ctx.bindings.get(name) {
-        Some(value) => value
-        None =>
-          raise WeslCompileError::Validation(
-            "unknown const-eval increment target `\{name}`",
-          )
-      }
-      ctx.bindings.set(name, const_eval_step_value(current, 1L, name))
+    Increment(target) => {
+      let current = const_eval_get_lvalue(target, ctx)
+      const_eval_set_lvalue(
+        target,
+        const_eval_step_value(current, 1L, "increment target"),
+        ctx,
+      )
       ContinueExecution
     }
-    Decrement(name) => {
-      let current = match ctx.bindings.get(name) {
-        Some(value) => value
-        None =>
-          raise WeslCompileError::Validation(
-            "unknown const-eval decrement target `\{name}`",
-          )
-      }
-      ctx.bindings.set(name, const_eval_step_value(current, -1L, name))
+    Decrement(target) => {
+      let current = const_eval_get_lvalue(target, ctx)
+      const_eval_set_lvalue(
+        target,
+        const_eval_step_value(current, -1L, "decrement target"),
+        ctx,
+      )
       ContinueExecution
     }
     If(condition, then_branch, else_branch) => {
