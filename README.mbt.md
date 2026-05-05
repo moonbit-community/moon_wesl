@@ -240,6 +240,8 @@ values. The
 current evaluator applies basic vector arithmetic, comparisons, `clamp`, `min`,
 `max`, `abs`, `select`, `all`, and `any` component-wise, supports struct member
 access, WGSL `xyzw` / `rgba` vector swizzles, vector/array/matrix indexing,
+`arrayLength(&runtime_array)` for storage buffers whose runtime length is
+inferred from input bytes,
 basic `if` / `else` branches, and `while`, `for`, `loop`, and `switch` control
 flow with local assignment, `break`, `continue`, `continuing`, and `break if`,
 and uses WGSL
@@ -265,7 +267,8 @@ modules:
   field reads, vector swizzles, vector/array/matrix indexing, basic `if` /
   `else` and `while` control flow, `for` loops, `loop`/`continuing`/`break if`,
   `switch` selection, scalar/vector/struct/array/matrix resource buffers, and
-  field/index/component storage resource writeback plus return buffers
+  runtime array length queries, field/index/component storage resource
+  writeback, and return buffers
 - filesystem package scanning and artifact generation
 - baseline CLI compile/check/eval/exec/package workflows
 

@@ -1576,6 +1576,72 @@ test "wesl: compile result exec increments indexed storage in for update" {
 }
 
 ///|
+test "wesl: compile result exec evaluates runtime array length" {
+  let resolver = VirtualResolver::new()
+  let root_path = ModulePath::from_path("/shaders/root")
+  resolver.add_module(
+    root_path, "@group(0) @binding(0) var<storage> DATA: array<u32>;\n@compute @workgroup_size(1)\nfn main() -> u32 {\n  return arrayLength(&DATA);\n}\n",
+  )
+  let compiled = compile(
+    root_path,
+    resolver,
+    EscapeMangler::default(),
+    CompileOptions::default(),
+  )
+  let input = Bytes::from_array([
+    b'\x0A', b'\x00', b'\x00', b'\x00', b'\x14', b'\x00', b'\x00', b'\x00', b'\x1E',
+    b'\x00', b'\x00', b'\x00',
+  ])
+  let exec = compiled.exec(
+    "main",
+    Inputs::new_zero_initialized(),
+    [ResourceBinding::{ group: 0, binding: 0, kind: "storage", data: input }],
+    [],
+  )
+  match exec.return_value() {
+    Some(value) => inspect(value, content="3u")
+    None => fail("expected runtime array length")
+  }
+  match exec.to_buffer() {
+    Some(buffer) =>
+      inspect(
+        buffer.to_array(),
+        content="[b'\\x03', b'\\x00', b'\\x00', b'\\x00']",
+      )
+    None => fail("expected runtime array length buffer")
+  }
+}
+
+///|
+test "wesl: compile result exec evaluates struct runtime array length" {
+  let resolver = VirtualResolver::new()
+  let root_path = ModulePath::from_path("/shaders/root")
+  resolver.add_module(
+    root_path, "struct Data {\n  header: u32,\n  values: array<u32>,\n}\n\n@group(0) @binding(0) var<storage> DATA: Data;\n@compute @workgroup_size(1)\nfn main() -> u32 {\n  return DATA.header + arrayLength(&DATA.values);\n}\n",
+  )
+  let compiled = compile(
+    root_path,
+    resolver,
+    EscapeMangler::default(),
+    CompileOptions::default(),
+  )
+  let input = Bytes::from_array([
+    b'\x05', b'\x00', b'\x00', b'\x00', b'\x0A', b'\x00', b'\x00', b'\x00', b'\x14',
+    b'\x00', b'\x00', b'\x00', b'\x1E', b'\x00', b'\x00', b'\x00',
+  ])
+  let exec = compiled.exec(
+    "main",
+    Inputs::new_zero_initialized(),
+    [ResourceBinding::{ group: 0, binding: 0, kind: "storage", data: input }],
+    [],
+  )
+  match exec.return_value() {
+    Some(value) => inspect(value, content="8u")
+    None => fail("expected struct runtime array length")
+  }
+}
+
+///|
 test "wesl: compile result exec reads matrix resource buffers as padded columns" {
   let resolver = VirtualResolver::new()
   let root_path = ModulePath::from_path("/shaders/root")

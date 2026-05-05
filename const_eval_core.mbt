@@ -349,6 +349,7 @@ priv enum ConstEvalExpr {
   UnaryNeg(ConstEvalExpr)
   UnaryNot(ConstEvalExpr)
   UnaryBitNot(ConstEvalExpr)
+  AddressOf(ConstEvalLValue)
   Binary(ConstEvalBinaryOp, ConstEvalExpr, ConstEvalExpr)
   Access(ConstEvalExpr, String)
   Index(ConstEvalExpr, ConstEvalExpr)
@@ -675,6 +676,10 @@ fn ConstEvalParser::parse_unary(
     [Tilde, .. rest] => {
       self.update_view(rest)
       ConstEvalExpr::UnaryBitNot(self.parse_unary())
+    }
+    [Amp, .. rest] => {
+      self.update_view(rest)
+      ConstEvalExpr::AddressOf(self.parse_lvalue())
     }
     _ => self.parse_postfix()
   }
@@ -3034,6 +3039,41 @@ fn const_eval_set_lvalue(
 }
 
 ///|
+fn const_eval_array_length_lvalue(
+  target : ConstEvalLValue,
+  ctx : ConstEvalContext,
+) -> ConstEvalValue raise WeslCompileError {
+  match const_eval_get_lvalue(target, ctx) {
+    Array(_, None, elements) =>
+      ConstEvalValue::U32(elements.length().to_int64())
+    Array(_, Some(_), _) =>
+      raise WeslCompileError::Validation(
+        "`arrayLength` expects a pointer to a runtime-sized array",
+      )
+    value =>
+      raise WeslCompileError::Validation(
+        "`arrayLength` expects a pointer to a runtime-sized array, got `\{value.value_type().label()}`",
+      )
+  }
+}
+
+///|
+fn const_eval_array_length_call(
+  args : Array[ConstEvalExpr],
+  ctx : ConstEvalContext,
+) -> ConstEvalValue raise WeslCompileError {
+  match args {
+    [AddressOf(target)] => const_eval_array_length_lvalue(target, ctx)
+    [_] =>
+      raise WeslCompileError::Validation(
+        "`arrayLength` expects a pointer to a runtime-sized array",
+      )
+    _ =>
+      raise WeslCompileError::Validation("`arrayLength` expects one argument")
+  }
+}
+
+///|
 fn const_eval_step_value(
   value : ConstEvalValue,
   delta : Int64,
@@ -3557,6 +3597,10 @@ fn const_eval_eval_expr(
     UnaryNot(inner) => const_eval_unary_not(const_eval_eval_expr(inner, ctx))
     UnaryBitNot(inner) =>
       const_eval_unary_bit_not(const_eval_eval_expr(inner, ctx))
+    AddressOf(_) =>
+      raise WeslCompileError::Validation(
+        "cannot evaluate pointer value directly",
+      )
     Binary(LogicalAnd, lhs, rhs) => {
       let left = const_eval_eval_expr(lhs, ctx)
       if !const_eval_require_bool(left, "logical and") {
@@ -3589,6 +3633,9 @@ fn const_eval_eval_expr(
         const_eval_eval_expr(index, ctx),
       )
     Call(name, args) => {
+      if name == "arrayLength" {
+        return const_eval_array_length_call(args, ctx)
+      }
       let values : Array[ConstEvalValue] = []
       for arg in args {
         values.push(const_eval_eval_expr(arg, ctx))
