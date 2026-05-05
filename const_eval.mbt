@@ -145,6 +145,12 @@ pub fn ExecResult::to_string(self : ExecResult) -> String {
 }
 
 ///|
+priv struct ConstEvalEntryExec {
+  value : ConstEvalValue?
+  ctx : ConstEvalContext
+}
+
+///|
 fn eval_const_function_value(
   source : String,
   target_expr : String,
@@ -515,6 +521,33 @@ fn const_eval_resource_value(
     }
   }
   value
+}
+
+///|
+fn const_eval_resource_declaration(
+  unit : TranslationUnit,
+  group : Int,
+  binding : Int,
+) -> (String, String)? raise WeslCompileError {
+  for declaration in unit.global_declarations {
+    match declaration.header {
+      Var(var_) =>
+        match
+          (
+            var_.name,
+            var_.type_text,
+            const_eval_group_binding(declaration.attributes),
+          ) {
+          (Some(name), Some(type_source), Some((decl_group, decl_binding))) =>
+            if decl_group == group && decl_binding == binding {
+              return Some((name, type_source))
+            }
+          _ => ()
+        }
+      _ => ()
+    }
+  }
+  None
 }
 
 ///|
@@ -1456,18 +1489,16 @@ fn const_eval_exec_entrypoint(
   inputs : Inputs,
   resources : Array[ResourceBinding],
   overrides : Array[OverrideValue],
-) -> ConstEvalValue? raise WeslCompileError {
+) -> ConstEvalEntryExec raise WeslCompileError {
   for declaration in unit.global_declarations {
     match declaration.header {
       Function(function_) =>
         if function_.name == entrypoint {
+          let ctx = const_eval_context_from_translation_unit_with_exec_inputs(
+            unit, resources, overrides,
+          )
           match function_.return_type {
-            None => return None
-            Some("void") => return None
-            Some(_) => {
-              let ctx = const_eval_context_from_translation_unit_with_exec_inputs(
-                unit, resources, overrides,
-              )
+            None | Some("void") => {
               let source = const_eval_function_source_from_declaration(
                 function_,
               )
@@ -1475,9 +1506,25 @@ fn const_eval_exec_entrypoint(
               let args = const_eval_exec_entrypoint_args(
                 unit, function_, inputs,
               )
-              return Some(
-                const_eval_execute_function_value(function_value, args, ctx),
+              return ConstEvalEntryExec::{
+                value: const_eval_execute_function(function_value, args, ctx),
+                ctx,
+              }
+            }
+            Some(_) => {
+              let source = const_eval_function_source_from_declaration(
+                function_,
               )
+              let function_value = const_eval_function_from_source(source)
+              let args = const_eval_exec_entrypoint_args(
+                unit, function_, inputs,
+              )
+              return ConstEvalEntryExec::{
+                value: Some(
+                  const_eval_execute_function_value(function_value, args, ctx),
+                ),
+                ctx,
+              }
             }
           }
         }
@@ -1485,6 +1532,44 @@ fn const_eval_exec_entrypoint(
     }
   }
   raise WeslCompileError::Validation("unknown function `\{entrypoint}`")
+}
+
+///|
+fn const_eval_resources_from_exec_context(
+  unit : TranslationUnit,
+  resources : Array[ResourceBinding],
+  ctx : ConstEvalContext,
+) -> Array[ResourceBinding] raise WeslCompileError {
+  let updated : Array[ResourceBinding] = []
+  for resource in resources {
+    if resource.kind.contains("storage") {
+      match
+        const_eval_resource_declaration(unit, resource.group, resource.binding) {
+        Some((name, _type_source)) =>
+          match ctx.bindings.get(name) {
+            Some(value) =>
+              match const_eval_value_to_buffer_with_unit(unit, value) {
+                Some(data) =>
+                  updated.push(ResourceBinding::{
+                    group: resource.group,
+                    binding: resource.binding,
+                    kind: resource.kind,
+                    data,
+                  })
+                None =>
+                  raise WeslCompileError::Validation(
+                    "resource binding group=\{resource.group} binding=\{resource.binding} cannot be written back",
+                  )
+              }
+            None => updated.push(resource)
+          }
+        None => updated.push(resource)
+      }
+    } else {
+      updated.push(resource)
+    }
+  }
+  updated
 }
 
 ///|
@@ -1526,13 +1611,21 @@ pub fn CompileResult::exec(
     resources,
     overrides,
   )
-  let value = match inst {
+  let value = match inst.value {
     Some(value) => Some(const_eval_render_value(value))
     None => None
   }
-  let buffer = match inst {
+  let buffer = match inst.value {
     Some(value) => const_eval_value_to_buffer_with_unit(self.syntax, value)
     None => None
   }
-  ExecResult::{ value, buffer, resources }
+  ExecResult::{
+    value,
+    buffer,
+    resources: const_eval_resources_from_exec_context(
+      self.syntax,
+      resources,
+      inst.ctx,
+    ),
+  }
 }

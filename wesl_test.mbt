@@ -1161,6 +1161,86 @@ test "wesl: compile result exec reads scalar resource buffers" {
 }
 
 ///|
+test "wesl: compile result exec writes scalar storage resources" {
+  let resolver = VirtualResolver::new()
+  let root_path = ModulePath::from_path("/shaders/root")
+  resolver.add_module(
+    root_path, "@group(0) @binding(0) var<storage, read_write> DATA: u32;\n@compute @workgroup_size(1)\nfn main() -> u32 {\n  DATA += 1u;\n  return DATA;\n}\n",
+  )
+  let compiled = compile(
+    root_path,
+    resolver,
+    EscapeMangler::default(),
+    CompileOptions::default(),
+  )
+  let exec = compiled.exec(
+    "main",
+    Inputs::new_zero_initialized(),
+    [
+      ResourceBinding::{
+        group: 0,
+        binding: 0,
+        kind: "storage",
+        data: Bytes::from_array([b'\x29', b'\x00', b'\x00', b'\x00']),
+      },
+    ],
+    [],
+  )
+  match exec.return_value() {
+    Some(value) => inspect(value, content="42u")
+    None => fail("expected storage write return")
+  }
+  match exec.resource(0, 0) {
+    Some(resource) =>
+      inspect(
+        resource.data.to_array(),
+        content="[b'\\x2A', b'\\x00', b'\\x00', b'\\x00']",
+      )
+    None => fail("expected storage resource")
+  }
+}
+
+///|
+test "wesl: compile result exec writes void entrypoint storage resources" {
+  let resolver = VirtualResolver::new()
+  let root_path = ModulePath::from_path("/shaders/root")
+  resolver.add_module(
+    root_path, "@group(0) @binding(0) var<storage, read_write> DATA: u32;\n@compute @workgroup_size(1)\nfn main() {\n  DATA += 1u;\n  return;\n  DATA += 10u;\n}\n",
+  )
+  let compiled = compile(
+    root_path,
+    resolver,
+    EscapeMangler::default(),
+    CompileOptions::default(),
+  )
+  let exec = compiled.exec(
+    "main",
+    Inputs::new_zero_initialized(),
+    [
+      ResourceBinding::{
+        group: 0,
+        binding: 0,
+        kind: "storage",
+        data: Bytes::from_array([b'\x29', b'\x00', b'\x00', b'\x00']),
+      },
+    ],
+    [],
+  )
+  match exec.return_value() {
+    Some(value) => fail("unexpected void return \{value}")
+    None => ()
+  }
+  match exec.resource(0, 0) {
+    Some(resource) =>
+      inspect(
+        resource.data.to_array(),
+        content="[b'\\x2A', b'\\x00', b'\\x00', b'\\x00']",
+      )
+    None => fail("expected storage resource")
+  }
+}
+
+///|
 test "wesl: compile result exec reads vector resource buffers" {
   let resolver = VirtualResolver::new()
   let root_path = ModulePath::from_path("/shaders/root")
@@ -1342,6 +1422,46 @@ test "wesl: compile result exec indexes storage array resources" {
   match exec.return_value() {
     Some(value) => inspect(value, content="31u")
     None => fail("expected indexed array resource return")
+  }
+}
+
+///|
+test "wesl: compile result exec writes storage array elements" {
+  let resolver = VirtualResolver::new()
+  let root_path = ModulePath::from_path("/shaders/root")
+  resolver.add_module(
+    root_path, "@group(0) @binding(0) var<storage, read_write> DATA: array<u32, 4>;\n@compute @workgroup_size(1)\nfn main(@builtin(local_invocation_index) index: u32) -> u32 {\n  DATA[index] += 5u;\n  return DATA[index];\n}\n",
+  )
+  let compiled = compile(
+    root_path,
+    resolver,
+    EscapeMangler::default(),
+    CompileOptions::default(),
+  )
+  let input = Bytes::from_array([
+    b'\x0A', b'\x00', b'\x00', b'\x00', b'\x14', b'\x00', b'\x00', b'\x00', b'\x1E',
+    b'\x00', b'\x00', b'\x00', b'\x28', b'\x00', b'\x00', b'\x00',
+  ])
+  let exec = compiled.exec(
+    "main",
+    Inputs::{
+      ..Inputs::new_zero_initialized(),
+      local_invocation_index: Some(2),
+    },
+    [ResourceBinding::{ group: 0, binding: 0, kind: "storage", data: input }],
+    [],
+  )
+  match exec.return_value() {
+    Some(value) => inspect(value, content="35u")
+    None => fail("expected storage array write return")
+  }
+  match exec.resource(0, 0) {
+    Some(resource) =>
+      inspect(
+        resource.data.to_array(),
+        content="[b'\\x0A', b'\\x00', b'\\x00', b'\\x00', b'\\x14', b'\\x00', b'\\x00', b'\\x00', b'\\x23', b'\\x00', b'\\x00', b'\\x00', b'\\x28', b'\\x00', b'\\x00', b'\\x00']",
+      )
+    None => fail("expected storage array resource")
   }
 }
 

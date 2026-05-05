@@ -22,6 +22,10 @@ fn const_eval_clamp_type(
   let mut has_u32 = false
   for value in values {
     match value.value_type() {
+      Void =>
+        raise WeslCompileError::Validation(
+          "cannot use void with clamp arguments",
+        )
       Bool =>
         raise WeslCompileError::Validation(
           "cannot use bool with clamp arguments",
@@ -75,6 +79,10 @@ fn const_eval_numeric_join_type(
   let mut has_u32 = false
   for value in values {
     match value.value_type() {
+      Void =>
+        raise WeslCompileError::Validation(
+          "cannot use void with \{context} arguments",
+        )
       Bool =>
         raise WeslCompileError::Validation(
           "cannot use bool with \{context} arguments",
@@ -275,6 +283,10 @@ fn const_eval_apply_min_or_max(
   }
   let target = const_eval_numeric_join_type(args, "`\{name}`")
   match target {
+    Void =>
+      raise WeslCompileError::Validation(
+        "cannot use void with `\{name}` arguments",
+      )
     AbstractFloat => {
       let left = const_eval_to_abstract_float(args[0], name)
       let right = const_eval_to_abstract_float(args[1], name)
