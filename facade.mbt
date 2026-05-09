@@ -132,7 +132,7 @@ pub fn[R] Wesl::set_features(
   self : Wesl[R],
   features : Array[(String, Feature)],
 ) -> Wesl[R] {
-  let flags : @hashmap.HashMap[String, Feature] = @hashmap.HashMap::new()
+  let flags : @hashmap.HashMap[String, Feature] = @hashmap.HashMap([])
   for entry in self.options.features.flags.iter() {
     let (name, value) = entry
     flags.set(name, value)
@@ -152,7 +152,7 @@ pub fn[R] Wesl::set_features(
 
 ///|
 pub fn[R] Wesl::unset_feature(self : Wesl[R], feature : String) -> Wesl[R] {
-  let flags : @hashmap.HashMap[String, Feature] = @hashmap.HashMap::new()
+  let flags : @hashmap.HashMap[String, Feature] = @hashmap.HashMap([])
   for entry in self.options.features.flags.iter() {
     let (name, value) = entry
     if name != feature {

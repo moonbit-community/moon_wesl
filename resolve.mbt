@@ -82,7 +82,7 @@ pub struct VirtualResolver {
 
 ///|
 pub fn VirtualResolver::new() -> VirtualResolver {
-  VirtualResolver::{ files: @hashmap.HashMap::new() }
+  VirtualResolver::{ files: @hashmap.HashMap([]) }
 }
 
 ///|
@@ -463,7 +463,7 @@ pub fn StandardResolver::new(base : String) -> StandardResolver {
   StandardResolver::{
     pkg: PkgResolver::new(),
     files: FileResolver::new(base),
-    constants: @hashmap.HashMap::new(),
+    constants: @hashmap.HashMap([]),
   }
 }
 
