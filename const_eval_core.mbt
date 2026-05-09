@@ -974,8 +974,8 @@ priv struct ConstEvalContext {
 ///|
 fn ConstEvalContext::new() -> ConstEvalContext {
   ConstEvalContext::{
-    bindings: @hashmap.HashMap::new(),
-    functions: @hashmap.HashMap::new(),
+    bindings: @hashmap.HashMap([]),
+    functions: @hashmap.HashMap([]),
   }
 }
 
@@ -983,7 +983,7 @@ fn ConstEvalContext::new() -> ConstEvalContext {
 fn const_eval_clone_bindings(
   bindings : @hashmap.HashMap[String, ConstEvalValue],
 ) -> @hashmap.HashMap[String, ConstEvalValue] {
-  let copy : @hashmap.HashMap[String, ConstEvalValue] = @hashmap.HashMap::new()
+  let copy : @hashmap.HashMap[String, ConstEvalValue] = @hashmap.HashMap([])
   for entry in bindings.iter() {
     let (name, value) = entry
     copy.set(name, value)

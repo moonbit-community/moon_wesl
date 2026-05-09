@@ -78,7 +78,7 @@ pub struct Features {
 
 ///|
 pub fn Features::default() -> Features {
-  Features::{ default: Feature::default(), flags: @hashmap.HashMap::new() }
+  Features::{ default: Feature::default(), flags: @hashmap.HashMap([]) }
 }
 
 ///|
@@ -273,8 +273,8 @@ impl SourceMap with get_default_source(_self) {
 pub fn BasicSourceMap::default() -> BasicSourceMap {
   BasicSourceMap::{
     root: ModulePath::new_root(),
-    mappings: @hashmap.HashMap::new(),
-    sources: @hashmap.HashMap::new(),
+    mappings: @hashmap.HashMap([]),
+    sources: @hashmap.HashMap([]),
     default_source: None,
   }
 }
@@ -2693,7 +2693,7 @@ fn[R : Resolver] wesl_load_module(
       }
       let imports : Array[ImportItem] = []
       let parsed_items : Array[ModuleItem] = []
-      let named_items : @hashmap.HashMap[String, Int] = @hashmap.HashMap::new()
+      let named_items : @hashmap.HashMap[String, Int] = @hashmap.HashMap([])
       for statement in translation_unit.imports {
         for imported_name in statement.flatten_items(path) {
           imports.push(ImportItem::{
@@ -2731,7 +2731,7 @@ fn[R : Resolver] wesl_load_module(
           references: [],
         })
       }
-      let import_by_local : @hashmap.HashMap[String, Int] = @hashmap.HashMap::new()
+      let import_by_local : @hashmap.HashMap[String, Int] = @hashmap.HashMap([])
       for i in 0..<imports.length() {
         let import_item = imports[i]
         if named_items.contains(import_item.local_name) ||
@@ -3082,7 +3082,7 @@ fn wesl_validate_loaded_cycles(
   order : Array[ModulePath],
   modules : @hashmap.HashMap[ModulePath, ParsedModule],
 ) -> Unit raise WeslCompileError {
-  let states : @hashmap.HashMap[String, Int] = @hashmap.HashMap::new()
+  let states : @hashmap.HashMap[String, Int] = @hashmap.HashMap([])
   for path in order {
     guard modules.get(path) is Some(parsed_module) else { continue }
     for item in parsed_module.items {
@@ -3949,10 +3949,10 @@ fn[R : Resolver] compile_with_mangler_kind(
 ) -> CompileResult raise WeslCompileError {
   let _ = options.lower
   let _ = options.generics
-  let modules : @hashmap.HashMap[ModulePath, ParsedModule] = @hashmap.HashMap::new()
+  let modules : @hashmap.HashMap[ModulePath, ParsedModule] = @hashmap.HashMap([])
   let order : Array[ModulePath] = []
-  let used_modules : @hashmap.HashMap[ModulePath, Bool] = @hashmap.HashMap::new()
-  let used_decls : @hashmap.HashMap[String, Bool] = @hashmap.HashMap::new()
+  let used_modules : @hashmap.HashMap[ModulePath, Bool] = @hashmap.HashMap([])
+  let used_decls : @hashmap.HashMap[String, Bool] = @hashmap.HashMap([])
   let root_module = wesl_mark_module_used(
     root, resolver, options, modules, order, used_modules, used_decls,
   )
@@ -3972,7 +3972,7 @@ fn[R : Resolver] compile_with_mangler_kind(
       used_modules.set(module_path, true)
     }
   }
-  let emitted : @hashmap.HashMap[ModulePath, Bool] = @hashmap.HashMap::new()
+  let emitted : @hashmap.HashMap[ModulePath, Bool] = @hashmap.HashMap([])
   let parts : Array[String] = []
   wesl_emit_module(
     root, root, modules, used_modules, used_decls, emitted, parts, mangler, options,
