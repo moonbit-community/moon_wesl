@@ -100,7 +100,11 @@ test "parser: generated expression parser handles WGSL operator and template for
     "value--7", "atomicMax(&storage_atomic_scalar, 1lu)",
   ]
   for expr in valid_cases {
-    let result = try? parse_expression(expr)
+    let result = try parse_expression(expr) catch {
+      err => Err(err)
+    } noraise {
+      value => Ok(value)
+    }
     match result {
       Ok(_) => ()
       Err(err) => fail("\{expr}: \{err.message()}")
@@ -110,7 +114,11 @@ test "parser: generated expression parser handles WGSL operator and template for
     "07", "foo(", "vec2<f32>(", "a +", "textureSample(t,, uv)",
   ]
   for expr in invalid_cases {
-    let result = try? parse_expression(expr)
+    let result = try parse_expression(expr) catch {
+      err => Err(err)
+    } noraise {
+      value => Ok(value)
+    }
     match result {
       Ok(_) => fail("\{expr}: expected parse failure")
       Err(_) => ()
@@ -175,7 +183,11 @@ test "parser: generated type parser handles nested WGSL type specifiers" {
     "array<u32, 1,>", "ptr<storage,>", "array<i32, 1 << 1>",
   ]
   for ty in valid_cases {
-    let result = try? parse_type_specifier(ty)
+    let result = try parse_type_specifier(ty) catch {
+      err => Err(err)
+    } noraise {
+      value => Ok(value)
+    }
     match result {
       Ok(_) => ()
       Err(err) => fail("\{ty}: \{err.message()}")
@@ -183,7 +195,11 @@ test "parser: generated type parser handles nested WGSL type specifiers" {
   }
   let invalid_cases = ["", "array<", "vec2<f32", "array<f32,, 2>", "foo::"]
   for ty in invalid_cases {
-    let result = try? parse_type_specifier(ty)
+    let result = try parse_type_specifier(ty) catch {
+      err => Err(err)
+    } noraise {
+      value => Ok(value)
+    }
     match result {
       Ok(_) => fail("\{ty}: expected parse failure")
       Err(_) => ()
@@ -275,11 +291,17 @@ test "parser: generated attribute parser preserves leading attributes" {
 
   debug_inspect(declaration.attributes, content=expected_attributes)
   debug_inspect(declaration.ident(), content="Some(\"color_texture\")")
-  let result = try? parse_translation_unit(
-    try! parse_module_path("demo"),
-    "@group(0\nvar value: i32;",
-    true,
-  )
+  let result = try
+    parse_translation_unit(
+      try! parse_module_path("demo"),
+      "@group(0\nvar value: i32;",
+      true,
+    )
+  catch {
+    err => Err(err)
+  } noraise {
+    value => Ok(value)
+  }
   match result {
     Ok(_) => fail("expected unclosed attribute failure")
     Err(_) => ()

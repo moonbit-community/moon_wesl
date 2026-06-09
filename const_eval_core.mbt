@@ -1695,8 +1695,8 @@ priv struct ConstEvalContext {
 ///|
 fn ConstEvalContext::new() -> ConstEvalContext {
   ConstEvalContext::{
-    bindings: @hashmap.HashMap::new(),
-    functions: @hashmap.HashMap::new(),
+    bindings: @hashmap.HashMap([]),
+    functions: @hashmap.HashMap([]),
   }
 }
 
@@ -1704,7 +1704,7 @@ fn ConstEvalContext::new() -> ConstEvalContext {
 fn const_eval_clone_bindings(
   bindings : @hashmap.HashMap[String, ConstEvalValue],
 ) -> @hashmap.HashMap[String, ConstEvalValue] {
-  let copy : @hashmap.HashMap[String, ConstEvalValue] = @hashmap.HashMap::new()
+  let copy : @hashmap.HashMap[String, ConstEvalValue] = @hashmap.HashMap([])
   for entry in bindings.iter() {
     let (name, value) = entry
     copy.set(name, value)
@@ -1925,7 +1925,11 @@ fn const_eval_parse_double_literal(
   text : String,
 ) -> Double raise WeslCompileError {
   let normalized = const_eval_remove_underscores(text)
-  let parsed = try? @string.parse_double(normalized[:])
+  let parsed = try @string.parse_double(normalized[:]) catch {
+    err => Err(err)
+  } noraise {
+    value => Ok(value)
+  }
   match parsed {
     Ok(value) => value
     Err(_) =>

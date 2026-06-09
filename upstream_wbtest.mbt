@@ -19,7 +19,11 @@ fn upstream_assert_parse_result(
   expect_pass : Bool,
 ) -> String? {
   let root_path = ModulePath::from_path("/main.wgsl")
-  let result = try? parse_translation_unit(root_path, source, true)
+  let result = try parse_translation_unit(root_path, source, true) catch {
+    err => Err(err)
+  } noraise {
+    value => Ok(value)
+  }
   match (expect_pass, result) {
     (true, Ok(_)) => None
     (false, Err(_)) => None
@@ -35,7 +39,11 @@ fn upstream_assert_expression_parse_result(
   source : String,
   expect_pass : Bool,
 ) -> String? {
-  let result = try? parse_expression(source)
+  let result = try parse_expression(source) catch {
+    err => Err(err)
+  } noraise {
+    value => Ok(value)
+  }
   match (expect_pass, result) {
     (true, Ok(_)) => None
     (false, Err(_)) => None
@@ -47,7 +55,11 @@ fn upstream_assert_expression_parse_result(
 
 ///|
 fn upstream_assert_eval_case(case : UpstreamEvalSpecCase) -> String? {
-  let result = try? eval_const(case.code, case.eval)
+  let result = try eval_const(case.code, case.eval) catch {
+    err => Err(err)
+  } noraise {
+    value => Ok(value)
+  }
   match (case.expect_pass, result) {
     (true, Ok(actual)) =>
       match case.expected_result {
@@ -81,12 +93,18 @@ fn upstream_assert_standalone_compile_result(
   let resolver = VirtualResolver::new()
   let root_path = upstream_fixture_module_path(path)
   resolver.add_module(root_path, source)
-  let result = try? compile(
-    root_path,
-    resolver,
-    EscapeMangler::default(),
-    CompileOptions::default().with_keep_root(true),
-  )
+  let result = try
+    compile(
+      root_path,
+      resolver,
+      EscapeMangler::default(),
+      CompileOptions::default().with_keep_root(true),
+    )
+  catch {
+    err => Err(err)
+  } noraise {
+    value => Ok(value)
+  }
   match result {
     Ok(compiled) =>
       if compiled.to_string().trim().to_owned() == "" {
@@ -106,12 +124,18 @@ fn upstream_assert_file_compile_result(
 ) -> String? {
   let resolver = FileResolver::new("testdata/upstream")
   let root_path = upstream_fixture_module_path(path)
-  let result = try? compile(
-    root_path,
-    resolver,
-    EscapeMangler::default(),
-    CompileOptions::default().with_keep_root(true),
-  )
+  let result = try
+    compile(
+      root_path,
+      resolver,
+      EscapeMangler::default(),
+      CompileOptions::default().with_keep_root(true),
+    )
+  catch {
+    err => Err(err)
+  } noraise {
+    value => Ok(value)
+  }
   match result {
     Ok(compiled) =>
       if compiled.to_string().trim().to_owned() == "" {
@@ -180,12 +204,18 @@ fn upstream_assert_context_case(case : UpstreamContextCase) -> String? {
   let resolver = VirtualResolver::new()
   let root_path = ModulePath::from_path("/main.wgsl")
   resolver.add_module(root_path, case.source)
-  let result = try? compile(
-    root_path,
-    resolver,
-    EscapeMangler::default(),
-    CompileOptions::default().with_lower(case.lower),
-  )
+  let result = try
+    compile(
+      root_path,
+      resolver,
+      EscapeMangler::default(),
+      CompileOptions::default().with_lower(case.lower),
+    )
+  catch {
+    err => Err(err)
+  } noraise {
+    value => Ok(value)
+  }
   match (case.expect_pass, result) {
     (true, Ok(_)) => None
     (false, Err(_)) => None
@@ -198,7 +228,11 @@ fn upstream_assert_context_case(case : UpstreamContextCase) -> String? {
 
 ///|
 fn upstream_assert_module_case(case : UpstreamModuleCase) -> String? {
-  let actual_result = try? upstream_compile_module_case(case)
+  let actual_result = try upstream_compile_module_case(case) catch {
+    err => Err(err)
+  } noraise {
+    value => Ok(value)
+  }
   let actual = match actual_result {
     Ok(actual) => actual
     Err(err) =>

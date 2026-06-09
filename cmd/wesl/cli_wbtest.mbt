@@ -45,9 +45,11 @@ test "wesl cli: eval binary output for scalar values" {
   inspect(result.stdout, content="")
   match result.stdout_bytes {
     Some(bytes) =>
-      inspect(
+      debug_inspect(
         bytes.to_array(),
-        content="[b'\\x2A', b'\\x00', b'\\x00', b'\\x00']",
+        content=(
+          #|[0x2a, 0x00, 0x00, 0x00]
+        ),
       )
     None => fail("expected binary stdout")
   }
@@ -217,9 +219,11 @@ test "wesl cli: exec binary output for scalar return values" {
   inspect(result.stdout, content="")
   match result.stdout_bytes {
     Some(bytes) =>
-      inspect(
+      debug_inspect(
         bytes.to_array(),
-        content="[b'\\x07', b'\\x00', b'\\x00', b'\\x00']",
+        content=(
+          #|[0x07, 0x00, 0x00, 0x00]
+        ),
       )
     None => fail("expected binary stdout")
   }
@@ -265,9 +269,24 @@ test "wesl cli: exec passes zero-initialized vector builtin inputs" {
   inspect(result.stdout, content="")
   match result.stdout_bytes {
     Some(bytes) =>
-      inspect(
+      debug_inspect(
         bytes.to_array(),
-        content="[b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00']",
+        content=(
+          #|[
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|]
+        ),
       )
     None => fail("expected builtin input binary stdout")
   }
@@ -335,9 +354,11 @@ test "wesl cli: exec binary output includes scalar resource values" {
   inspect(result.stdout, content="")
   match result.stdout_bytes {
     Some(bytes) =>
-      inspect(
+      debug_inspect(
         bytes.to_array(),
-        content="[b'\\x2A', b'\\x00', b'\\x00', b'\\x00']",
+        content=(
+          #|[0x2a, 0x00, 0x00, 0x00]
+        ),
       )
     None => fail("expected resource binary stdout")
   }
@@ -366,9 +387,11 @@ test "wesl cli: exec binary output includes vector resource values" {
   inspect(result.stdout, content="")
   match result.stdout_bytes {
     Some(bytes) =>
-      inspect(
+      debug_inspect(
         bytes.to_array(),
-        content="[b'\\x02', b'\\x00', b'\\x00', b'\\x00', b'\\x03', b'\\x00', b'\\x00', b'\\x00']",
+        content=(
+          #|[0x02, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00]
+        ),
       )
     None => fail("expected vector resource binary stdout")
   }
@@ -400,9 +423,44 @@ test "wesl cli: exec binary output includes struct resource values" {
   inspect(result.stdout, content="")
   match result.stdout_bytes {
     Some(bytes) =>
-      inspect(
+      debug_inspect(
         bytes.to_array(),
-        content="[b'\\x2A', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x80', b'\\x3F', b'\\x00', b'\\x00', b'\\x00', b'\\x40', b'\\x00', b'\\x00', b'\\x40', b'\\x40', b'\\x07', b'\\x00', b'\\x00', b'\\x00']",
+        content=(
+          #|[
+          #|  0x2a,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x80,
+          #|  0x3f,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x40,
+          #|  0x00,
+          #|  0x00,
+          #|  0x40,
+          #|  0x40,
+          #|  0x07,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|]
+        ),
       )
     None => fail("expected struct resource binary stdout")
   }
@@ -434,9 +492,44 @@ test "wesl cli: exec binary output includes array resource stride padding" {
   inspect(result.stdout, content="")
   match result.stdout_bytes {
     Some(bytes) =>
-      inspect(
+      debug_inspect(
         bytes.to_array(),
-        content="[b'\\x00', b'\\x00', b'\\x80', b'\\x3F', b'\\x00', b'\\x00', b'\\x00', b'\\x40', b'\\x00', b'\\x00', b'\\x40', b'\\x40', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x80', b'\\x40', b'\\x00', b'\\x00', b'\\xA0', b'\\x40', b'\\x00', b'\\x00', b'\\xC0', b'\\x40', b'\\x00', b'\\x00', b'\\x00', b'\\x00']",
+        content=(
+          #|[
+          #|  0x00,
+          #|  0x00,
+          #|  0x80,
+          #|  0x3f,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x40,
+          #|  0x00,
+          #|  0x00,
+          #|  0x40,
+          #|  0x40,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x80,
+          #|  0x40,
+          #|  0x00,
+          #|  0x00,
+          #|  0xa0,
+          #|  0x40,
+          #|  0x00,
+          #|  0x00,
+          #|  0xc0,
+          #|  0x40,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|]
+        ),
       )
     None => fail("expected array resource binary stdout")
   }

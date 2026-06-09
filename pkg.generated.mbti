@@ -847,21 +847,21 @@ pub(all) struct WhileStatement {
 
 // Traits
 pub(open) trait ModulePreprocessor {
-  preprocess_module(Self, ModulePath, TranslationUnit) -> TranslationUnit raise ResolveError
+  fn preprocess_module(Self, ModulePath, TranslationUnit) -> TranslationUnit raise ResolveError
 }
 
 pub(open) trait Resolver {
-  resolve_source(Self, ModulePath) -> String raise ResolveError
-  resolve_module(Self, ModulePath) -> TranslationUnit raise ResolveError = _
-  display_name(Self, ModulePath) -> String? = _
-  fs_path(Self, ModulePath) -> String? = _
+  fn resolve_source(Self, ModulePath) -> String raise ResolveError
+  fn resolve_module(Self, ModulePath) -> TranslationUnit raise ResolveError = _
+  fn display_name(Self, ModulePath) -> String? = _
+  fn fs_path(Self, ModulePath) -> String? = _
 }
 
 pub(open) trait SourceMap {
-  get_decl(Self, String) -> (ModulePath, String)?
-  get_source(Self, ModulePath) -> String?
-  get_display_name(Self, ModulePath) -> String?
-  get_default_source(Self) -> String? = _
-  unmangle_text(Self, String) -> String = _
+  fn get_decl(Self, String) -> (ModulePath, String)?
+  fn get_source(Self, ModulePath) -> String?
+  fn get_display_name(Self, ModulePath) -> String?
+  fn get_default_source(Self) -> String? = _
+  fn unmangle_text(Self, String) -> String = _
 }
 

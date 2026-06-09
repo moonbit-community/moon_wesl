@@ -196,7 +196,11 @@ fn upstream_sort_strings(values : Array[String]) -> Array[String] {
 fn upstream_canonicalize_decl_order(text : String) -> String {
   let path = ModulePath::from_path("/main.wgsl")
   let stripped = upstream_strip_trailing_commas(text)
-  let parsed = try? parse_translation_unit(path, stripped, true)
+  let parsed = try parse_translation_unit(path, stripped, true) catch {
+    err => Err(err)
+  } noraise {
+    value => Ok(value)
+  }
   match parsed {
     Ok(unit) => {
       let parts : Array[String] = []

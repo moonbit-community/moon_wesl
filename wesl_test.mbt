@@ -359,27 +359,33 @@ test "wesl: eval result exposes scalar memory buffers" {
   let i32_buffer = eval_str("42i").to_buffer()
   match i32_buffer {
     Some(buffer) =>
-      inspect(
+      debug_inspect(
         buffer.to_array(),
-        content="[b'\\x2A', b'\\x00', b'\\x00', b'\\x00']",
+        content=(
+          #|[0x2a, 0x00, 0x00, 0x00]
+        ),
       )
     None => fail("expected i32 buffer")
   }
   let u32_buffer = eval_str("42u").to_buffer()
   match u32_buffer {
     Some(buffer) =>
-      inspect(
+      debug_inspect(
         buffer.to_array(),
-        content="[b'\\x2A', b'\\x00', b'\\x00', b'\\x00']",
+        content=(
+          #|[0x2a, 0x00, 0x00, 0x00]
+        ),
       )
     None => fail("expected u32 buffer")
   }
   let f32_buffer = eval_str("1.0f").to_buffer()
   match f32_buffer {
     Some(buffer) =>
-      inspect(
+      debug_inspect(
         buffer.to_array(),
-        content="[b'\\x00', b'\\x00', b'\\x80', b'\\x3F']",
+        content=(
+          #|[0x00, 0x00, 0x80, 0x3f]
+        ),
       )
     None => fail("expected f32 buffer")
   }
@@ -403,9 +409,24 @@ test "wesl: eval result exposes vector memory buffers" {
   inspect(result.to_string(), content="vec3<u32>(1u, 2u, 3u)")
   match result.to_buffer() {
     Some(buffer) =>
-      inspect(
+      debug_inspect(
         buffer.to_array(),
-        content="[b'\\x01', b'\\x00', b'\\x00', b'\\x00', b'\\x02', b'\\x00', b'\\x00', b'\\x00', b'\\x03', b'\\x00', b'\\x00', b'\\x00']",
+        content=(
+          #|[
+          #|  0x01,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x02,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x03,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|]
+        ),
       )
     None => fail("expected vector buffer")
   }
@@ -447,7 +468,11 @@ test "wesl: const eval applies vector operators and builtins component-wise" {
 
 ///|
 test "wesl: eval_str reports known unimplemented builtins like upstream" {
-  let result = try? eval_str("fma(2.0, 0.5, 0.5)")
+  let result = try eval_str("fma(2.0, 0.5, 0.5)") catch {
+    err => Err(err)
+  } noraise {
+    value => Ok(value)
+  }
   match result {
     Ok(_) => fail("expected fma to be a known unimplemented builtin")
     Err(err) =>
@@ -456,7 +481,11 @@ test "wesl: eval_str reports known unimplemented builtins like upstream" {
         content="true",
       )
   }
-  let arity_result = try? eval_str("fma(1.0, 2.0)")
+  let arity_result = try eval_str("fma(1.0, 2.0)") catch {
+    err => Err(err)
+  } noraise {
+    value => Ok(value)
+  }
   match arity_result {
     Ok(_) => fail("expected fma arity mismatch to remain a signature error")
     Err(err) =>
@@ -509,9 +538,11 @@ test "wesl: compile result exec runs simple entrypoint" {
   }
   match exec.to_buffer() {
     Some(buffer) =>
-      inspect(
+      debug_inspect(
         buffer.to_array(),
-        content="[b'\\x2A', b'\\x00', b'\\x00', b'\\x00']",
+        content=(
+          #|[0x2a, 0x00, 0x00, 0x00]
+        ),
       )
     None => fail("expected exec return buffer")
   }
@@ -542,9 +573,11 @@ test "wesl: compile result exec passes scalar builtin inputs" {
   }
   match exec.to_buffer() {
     Some(buffer) =>
-      inspect(
+      debug_inspect(
         buffer.to_array(),
-        content="[b'\\x2A', b'\\x00', b'\\x00', b'\\x00']",
+        content=(
+          #|[0x2a, 0x00, 0x00, 0x00]
+        ),
       )
     None => fail("expected builtin input return buffer")
   }
@@ -574,9 +607,24 @@ test "wesl: compile result exec passes vector builtin inputs" {
   }
   match exec.to_buffer() {
     Some(buffer) =>
-      inspect(
+      debug_inspect(
         buffer.to_array(),
-        content="[b'\\x03', b'\\x00', b'\\x00', b'\\x00', b'\\x04', b'\\x00', b'\\x00', b'\\x00', b'\\x05', b'\\x00', b'\\x00', b'\\x00']",
+        content=(
+          #|[
+          #|  0x03,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x04,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x05,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|]
+        ),
       )
     None => fail("expected vector builtin input return buffer")
   }
@@ -659,9 +707,11 @@ test "wesl: compile result exec passes user-defined vector location inputs" {
   }
   match exec.to_buffer() {
     Some(buffer) =>
-      inspect(
+      debug_inspect(
         buffer.to_array(),
-        content="[b'\\x00', b'\\x00', b'\\x80', b'\\x3F', b'\\x00', b'\\x00', b'\\x00', b'\\x40']",
+        content=(
+          #|[0x00, 0x00, 0x80, 0x3f, 0x00, 0x00, 0x00, 0x40]
+        ),
       )
     None => fail("expected user-defined vector input return buffer")
   }
@@ -695,9 +745,11 @@ test "wesl: compile result exec builds struct entrypoint inputs" {
   }
   match exec.to_buffer() {
     Some(buffer) =>
-      inspect(
+      debug_inspect(
         buffer.to_array(),
-        content="[b'\\x07', b'\\x00', b'\\x00', b'\\x00', b'\\x23', b'\\x00', b'\\x00', b'\\x00']",
+        content=(
+          #|[0x07, 0x00, 0x00, 0x00, 0x23, 0x00, 0x00, 0x00]
+        ),
       )
     None => fail("expected struct input return buffer")
   }
@@ -757,9 +809,11 @@ test "wesl: compile result exec evaluates vector swizzles" {
   }
   match exec.to_buffer() {
     Some(buffer) =>
-      inspect(
+      debug_inspect(
         buffer.to_array(),
-        content="[b'\\x00', b'\\x00', b'\\x00', b'\\x40', b'\\x00', b'\\x00', b'\\x80', b'\\x3F']",
+        content=(
+          #|[0x00, 0x00, 0x00, 0x40, 0x00, 0x00, 0x80, 0x3f]
+        ),
       )
     None => fail("expected swizzle return buffer")
   }
@@ -791,9 +845,11 @@ test "wesl: compile result exec evaluates vector dynamic indexing" {
   let exec = compiled.exec("main", inputs, [], [])
   match exec.to_buffer() {
     Some(buffer) =>
-      inspect(
+      debug_inspect(
         buffer.to_array(),
-        content="[b'\\x00', b'\\x00', b'\\x40', b'\\x40']",
+        content=(
+          #|[0x00, 0x00, 0x40, 0x40]
+        ),
       )
     None => fail("expected indexed vector return buffer")
   }
@@ -868,9 +924,11 @@ test "wesl: compile result exec evaluates while break continue control flow" {
   }
   match exec.to_buffer() {
     Some(buffer) =>
-      inspect(
+      debug_inspect(
         buffer.to_array(),
-        content="[b'\\x08', b'\\x00', b'\\x00', b'\\x00']",
+        content=(
+          #|[0x08, 0x00, 0x00, 0x00]
+        ),
       )
     None => fail("expected while loop return buffer")
   }
@@ -904,9 +962,11 @@ test "wesl: compile result exec evaluates for loop control flow" {
   }
   match exec.to_buffer() {
     Some(buffer) =>
-      inspect(
+      debug_inspect(
         buffer.to_array(),
-        content="[b'\\x08', b'\\x00', b'\\x00', b'\\x00']",
+        content=(
+          #|[0x08, 0x00, 0x00, 0x00]
+        ),
       )
     None => fail("expected for loop return buffer")
   }
@@ -1081,9 +1141,11 @@ test "wesl: compile result exec applies override values" {
   }
   match overridden.to_buffer() {
     Some(buffer) =>
-      inspect(
+      debug_inspect(
         buffer.to_array(),
-        content="[b'\\x2A', b'\\x00', b'\\x00', b'\\x00']",
+        content=(
+          #|[0x2a, 0x00, 0x00, 0x00]
+        ),
       )
     None => fail("expected override return buffer")
   }
@@ -1102,7 +1164,13 @@ test "wesl: compile result exec rejects uninitialized overrides" {
     EscapeMangler::default(),
     CompileOptions::default(),
   )
-  let exec = try? compiled.exec("main", Inputs::new_zero_initialized(), [], [])
+  let exec = try
+    compiled.exec("main", Inputs::new_zero_initialized(), [], [])
+  catch {
+    err => Err(err)
+  } noraise {
+    value => Ok(value)
+  }
   match exec {
     Err(WeslCompileError::Validation(message)) =>
       assert_true(message.contains("uninitialized override"))
@@ -1142,18 +1210,22 @@ test "wesl: compile result exec reads scalar resource buffers" {
   }
   match exec.to_buffer() {
     Some(buffer) =>
-      inspect(
+      debug_inspect(
         buffer.to_array(),
-        content="[b'\\x2A', b'\\x00', b'\\x00', b'\\x00']",
+        content=(
+          #|[0x2a, 0x00, 0x00, 0x00]
+        ),
       )
     None => fail("expected resource return buffer")
   }
   match exec.resource(0, 0) {
     Some(resource) => {
       inspect(resource.kind, content="uniform")
-      inspect(
+      debug_inspect(
         resource.data.to_array(),
-        content="[b'\\x29', b'\\x00', b'\\x00', b'\\x00']",
+        content=(
+          #|[0x29, 0x00, 0x00, 0x00]
+        ),
       )
     }
     None => fail("expected resource")
@@ -1192,9 +1264,11 @@ test "wesl: compile result exec writes scalar storage resources" {
   }
   match exec.resource(0, 0) {
     Some(resource) =>
-      inspect(
+      debug_inspect(
         resource.data.to_array(),
-        content="[b'\\x2A', b'\\x00', b'\\x00', b'\\x00']",
+        content=(
+          #|[0x2a, 0x00, 0x00, 0x00]
+        ),
       )
     None => fail("expected storage resource")
   }
@@ -1232,9 +1306,11 @@ test "wesl: compile result exec writes void entrypoint storage resources" {
   }
   match exec.resource(0, 0) {
     Some(resource) =>
-      inspect(
+      debug_inspect(
         resource.data.to_array(),
-        content="[b'\\x2A', b'\\x00', b'\\x00', b'\\x00']",
+        content=(
+          #|[0x2a, 0x00, 0x00, 0x00]
+        ),
       )
     None => fail("expected storage resource")
   }
@@ -1270,9 +1346,11 @@ test "wesl: compile result exec increments struct storage fields" {
   )
   match exec.resource(0, 0) {
     Some(resource) =>
-      inspect(
+      debug_inspect(
         resource.data.to_array(),
-        content="[b'\\x02', b'\\x00', b'\\x00', b'\\x00', b'\\x06', b'\\x00', b'\\x00', b'\\x00']",
+        content=(
+          #|[0x02, 0x00, 0x00, 0x00, 0x06, 0x00, 0x00, 0x00]
+        ),
       )
     None => fail("expected storage resource")
   }
@@ -1309,9 +1387,28 @@ test "wesl: compile result exec increments vector storage components" {
   )
   match exec.resource(0, 0) {
     Some(resource) =>
-      inspect(
+      debug_inspect(
         resource.data.to_array(),
-        content="[b'\\x02', b'\\x00', b'\\x00', b'\\x00', b'\\x02', b'\\x00', b'\\x00', b'\\x00', b'\\x03', b'\\x00', b'\\x00', b'\\x00', b'\\x03', b'\\x00', b'\\x00', b'\\x00']",
+        content=(
+          #|[
+          #|  0x02,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x02,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x03,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x03,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|]
+        ),
       )
     None => fail("expected storage resource")
   }
@@ -1346,9 +1443,28 @@ test "wesl: compile result exec reads vector resource buffers" {
   }
   match exec.to_buffer() {
     Some(buffer) =>
-      inspect(
+      debug_inspect(
         buffer.to_array(),
-        content="[b'\\x00', b'\\x00', b'\\x00', b'\\x40', b'\\x00', b'\\x00', b'\\x40', b'\\x40', b'\\x00', b'\\x00', b'\\x80', b'\\x40', b'\\x00', b'\\x00', b'\\xA0', b'\\x40']",
+        content=(
+          #|[
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x40,
+          #|  0x00,
+          #|  0x00,
+          #|  0x40,
+          #|  0x40,
+          #|  0x00,
+          #|  0x00,
+          #|  0x80,
+          #|  0x40,
+          #|  0x00,
+          #|  0x00,
+          #|  0xa0,
+          #|  0x40,
+          #|]
+        ),
       )
     None => fail("expected vector resource return buffer")
   }
@@ -1388,9 +1504,44 @@ test "wesl: compile result exec reads struct resource buffers" {
   }
   match exec.to_buffer() {
     Some(buffer) =>
-      inspect(
+      debug_inspect(
         buffer.to_array(),
-        content="[b'\\x2A', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x80', b'\\x3F', b'\\x00', b'\\x00', b'\\x00', b'\\x40', b'\\x00', b'\\x00', b'\\x40', b'\\x40', b'\\x07', b'\\x00', b'\\x00', b'\\x00']",
+        content=(
+          #|[
+          #|  0x2a,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x80,
+          #|  0x3f,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x40,
+          #|  0x00,
+          #|  0x00,
+          #|  0x40,
+          #|  0x40,
+          #|  0x07,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|]
+        ),
       )
     None => fail("expected struct resource return buffer")
   }
@@ -1423,9 +1574,48 @@ test "wesl: struct resource layout honors member align and size attributes" {
   )
   match exec.to_buffer() {
     Some(buffer) =>
-      inspect(
+      debug_inspect(
         buffer.to_array(),
-        content="[b'\\x01', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x02', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x03', b'\\x00', b'\\x00', b'\\x00']",
+        content=(
+          #|[
+          #|  0x01,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x02,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x03,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|]
+        ),
       )
     None => fail("expected struct resource return buffer")
   }
@@ -1462,9 +1652,44 @@ test "wesl: compile result exec reads array resource buffers with stride padding
   }
   match exec.to_buffer() {
     Some(buffer) =>
-      inspect(
+      debug_inspect(
         buffer.to_array(),
-        content="[b'\\x00', b'\\x00', b'\\x80', b'\\x3F', b'\\x00', b'\\x00', b'\\x00', b'\\x40', b'\\x00', b'\\x00', b'\\x40', b'\\x40', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x80', b'\\x40', b'\\x00', b'\\x00', b'\\xA0', b'\\x40', b'\\x00', b'\\x00', b'\\xC0', b'\\x40', b'\\x00', b'\\x00', b'\\x00', b'\\x00']",
+        content=(
+          #|[
+          #|  0x00,
+          #|  0x00,
+          #|  0x80,
+          #|  0x3f,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x40,
+          #|  0x00,
+          #|  0x00,
+          #|  0x40,
+          #|  0x40,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x80,
+          #|  0x40,
+          #|  0x00,
+          #|  0x00,
+          #|  0xa0,
+          #|  0x40,
+          #|  0x00,
+          #|  0x00,
+          #|  0xc0,
+          #|  0x40,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|]
+        ),
       )
     None => fail("expected array resource return buffer")
   }
@@ -1534,9 +1759,28 @@ test "wesl: compile result exec writes storage array elements" {
   }
   match exec.resource(0, 0) {
     Some(resource) =>
-      inspect(
+      debug_inspect(
         resource.data.to_array(),
-        content="[b'\\x0A', b'\\x00', b'\\x00', b'\\x00', b'\\x14', b'\\x00', b'\\x00', b'\\x00', b'\\x23', b'\\x00', b'\\x00', b'\\x00', b'\\x28', b'\\x00', b'\\x00', b'\\x00']",
+        content=(
+          #|[
+          #|  0x0a,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x14,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x23,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x28,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|]
+        ),
       )
     None => fail("expected storage array resource")
   }
@@ -1567,9 +1811,28 @@ test "wesl: compile result exec increments indexed storage in for update" {
   )
   match exec.resource(0, 0) {
     Some(resource) =>
-      inspect(
+      debug_inspect(
         resource.data.to_array(),
-        content="[b'\\x0A', b'\\x00', b'\\x00', b'\\x00', b'\\x15', b'\\x00', b'\\x00', b'\\x00', b'\\x1F', b'\\x00', b'\\x00', b'\\x00', b'\\x29', b'\\x00', b'\\x00', b'\\x00']",
+        content=(
+          #|[
+          #|  0x0a,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x15,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x1f,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x29,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|]
+        ),
       )
     None => fail("expected storage array resource")
   }
@@ -1604,9 +1867,11 @@ test "wesl: compile result exec evaluates runtime array length" {
   }
   match exec.to_buffer() {
     Some(buffer) =>
-      inspect(
+      debug_inspect(
         buffer.to_array(),
-        content="[b'\\x03', b'\\x00', b'\\x00', b'\\x00']",
+        content=(
+          #|[0x03, 0x00, 0x00, 0x00]
+        ),
       )
     None => fail("expected runtime array length buffer")
   }
@@ -1674,9 +1939,60 @@ test "wesl: compile result exec reads matrix resource buffers as padded columns"
   }
   match exec.to_buffer() {
     Some(buffer) =>
-      inspect(
+      debug_inspect(
         buffer.to_array(),
-        content="[b'\\x00', b'\\x00', b'\\x80', b'\\x3F', b'\\x00', b'\\x00', b'\\x00', b'\\x40', b'\\x00', b'\\x00', b'\\x40', b'\\x40', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x80', b'\\x40', b'\\x00', b'\\x00', b'\\xA0', b'\\x40', b'\\x00', b'\\x00', b'\\xC0', b'\\x40', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\x00', b'\\xE0', b'\\x40', b'\\x00', b'\\x00', b'\\x00', b'\\x41', b'\\x00', b'\\x00', b'\\x10', b'\\x41', b'\\x00', b'\\x00', b'\\x00', b'\\x00']",
+        content=(
+          #|[
+          #|  0x00,
+          #|  0x00,
+          #|  0x80,
+          #|  0x3f,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x40,
+          #|  0x00,
+          #|  0x00,
+          #|  0x40,
+          #|  0x40,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x80,
+          #|  0x40,
+          #|  0x00,
+          #|  0x00,
+          #|  0xa0,
+          #|  0x40,
+          #|  0x00,
+          #|  0x00,
+          #|  0xc0,
+          #|  0x40,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0xe0,
+          #|  0x40,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x41,
+          #|  0x00,
+          #|  0x00,
+          #|  0x10,
+          #|  0x41,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|  0x00,
+          #|]
+        ),
       )
     None => fail("expected matrix resource return buffer")
   }
@@ -1695,19 +2011,25 @@ test "wesl: compile result exec rejects incompatible scalar resource buffers" {
     EscapeMangler::default(),
     CompileOptions::default(),
   )
-  let exec = try? compiled.exec(
-    "main",
-    Inputs::new_zero_initialized(),
-    [
-      ResourceBinding::{
-        group: 0,
-        binding: 0,
-        kind: "uniform",
-        data: Bytes::from_array([b'\x2A']),
-      },
-    ],
-    [],
-  )
+  let exec = try
+    compiled.exec(
+      "main",
+      Inputs::new_zero_initialized(),
+      [
+        ResourceBinding::{
+          group: 0,
+          binding: 0,
+          kind: "uniform",
+          data: Bytes::from_array([b'\x2A']),
+        },
+      ],
+      [],
+    )
+  catch {
+    err => Err(err)
+  } noraise {
+    value => Ok(value)
+  }
   match exec {
     Err(WeslCompileError::Validation(message)) =>
       assert_true(message.contains("incompatible"))
@@ -1730,10 +2052,13 @@ test "wesl: compile result writes build artifacts" {
   result.write_artifact("artifact_shader", out_dir=Some(out_dir))
   let artifact = try! @fs.read_file_to_string(out_dir + "/artifact_shader.wgsl")
   inspect(artifact.contains("fn artifact() {}"), content="true")
-  let invalid = try? result.write_artifact(
-    "nested/artifact",
-    out_dir=Some(out_dir),
-  )
+  let invalid = try
+    result.write_artifact("nested/artifact", out_dir=Some(out_dir))
+  catch {
+    err => Err(err)
+  } noraise {
+    value => Ok(value)
+  }
   match invalid {
     Err(WeslCompileError::Artifact(_)) => ()
     _ => fail("expected invalid artifact names to be rejected")
@@ -1852,12 +2177,18 @@ test "wesl: missing imported module stays resolver-backed" {
   resolver.add_module(
     root_path, "import super::missing::make_it;\n@fragment\nfn fragment() -> f32 {\n  return make_it();\n}\n",
   )
-  let result = try? compile(
-    root_path,
-    resolver,
-    EscapeMangler::default(),
-    CompileOptions::default(),
-  )
+  let result = try
+    compile(
+      root_path,
+      resolver,
+      EscapeMangler::default(),
+      CompileOptions::default(),
+    )
+  catch {
+    err => Err(err)
+  } noraise {
+    value => Ok(value)
+  }
 
   match result {
     Err(WeslCompileError::Resolve(ResolveError::ModuleNotFound(path, context))) => {
@@ -1988,12 +2319,18 @@ test "wesl: parse errors include module and line context" {
     root_path, "import super::util::make_value\n@fragment\nfn fragment() -> f32 {\n  return 1.0;\n}\n",
   )
 
-  let result = try? compile(
-    root_path,
-    resolver,
-    EscapeMangler::default(),
-    CompileOptions::default().with_lower(true),
-  )
+  let result = try
+    compile(
+      root_path,
+      resolver,
+      EscapeMangler::default(),
+      CompileOptions::default().with_lower(true),
+    )
+  catch {
+    err => Err(err)
+  } noraise {
+    value => Ok(value)
+  }
 
   match result {
     Err(WeslCompileError::Parse(reason)) => {
@@ -2015,12 +2352,18 @@ test "wesl: duplicate declarations include module and line context" {
     root_path, "fn helper() -> f32 {\n  return 1.0;\n}\n\nfn helper() -> f32 {\n  return 2.0;\n}\n",
   )
 
-  let result = try? compile(
-    root_path,
-    resolver,
-    EscapeMangler::default(),
-    CompileOptions::default(),
-  )
+  let result = try
+    compile(
+      root_path,
+      resolver,
+      EscapeMangler::default(),
+      CompileOptions::default(),
+    )
+  catch {
+    err => Err(err)
+  } noraise {
+    value => Ok(value)
+  }
 
   match result {
     Err(WeslCompileError::DuplicateSymbol(symbol)) => {
@@ -2171,12 +2514,18 @@ test "wesl: private imports cannot be re-exported" {
     root_path, "import super::bridge::make_value;\n@fragment\nfn fragment() -> f32 {\n  return make_value();\n}\n",
   )
 
-  let result = try? compile(
-    root_path,
-    resolver,
-    EscapeMangler::default(),
-    CompileOptions::default().with_lower(true),
-  )
+  let result = try
+    compile(
+      root_path,
+      resolver,
+      EscapeMangler::default(),
+      CompileOptions::default().with_lower(true),
+    )
+  catch {
+    err => Err(err)
+  } noraise {
+    value => Ok(value)
+  }
 
   match result {
     Err(WeslCompileError::Private(item, path)) => {
@@ -2195,12 +2544,18 @@ test "wesl: missing conditional feature can be configured as an error" {
     root_path, "@if(EXPERIMENTAL_SHADER)\nfn enabled() -> f32 {\n  return 1.0;\n}\n@else\nfn disabled() -> f32 {\n  return 0.0;\n}\n",
   )
 
-  let result = try? compile(
-    root_path,
-    resolver,
-    EscapeMangler::default(),
-    CompileOptions::default().set_missing_feature_behavior(Feature::Error),
-  )
+  let result = try
+    compile(
+      root_path,
+      resolver,
+      EscapeMangler::default(),
+      CompileOptions::default().set_missing_feature_behavior(Feature::Error),
+    )
+  catch {
+    err => Err(err)
+  } noraise {
+    value => Ok(value)
+  }
 
   match result {
     Err(WeslCompileError::InvalidExpression(message)) => {
@@ -2244,12 +2599,18 @@ test "wesl: conditional expression parser rejects malformed expressions" {
   let resolver = VirtualResolver::new()
   let root_path = ModulePath::from_path("/shaders/root")
   resolver.add_module(root_path, "@if(true &&)\nfn bad() {}\n")
-  let result = try? compile(
-    root_path,
-    resolver,
-    EscapeMangler::default(),
-    CompileOptions::default(),
-  )
+  let result = try
+    compile(
+      root_path,
+      resolver,
+      EscapeMangler::default(),
+      CompileOptions::default(),
+    )
+  catch {
+    err => Err(err)
+  } noraise {
+    value => Ok(value)
+  }
   match result {
     Err(WeslCompileError::InvalidExpression(expr)) =>
       debug_inspect(
@@ -2289,12 +2650,18 @@ test "wesl: validate option controls semantic validation pass" {
 
   let failing_resolver = VirtualResolver::new()
   failing_resolver.add_module(root_path, source)
-  let failing = try? compile(
-    root_path,
-    failing_resolver,
-    EscapeMangler::default(),
-    CompileOptions::default().with_strip(false),
-  )
+  let failing = try
+    compile(
+      root_path,
+      failing_resolver,
+      EscapeMangler::default(),
+      CompileOptions::default().with_strip(false),
+    )
+  catch {
+    err => Err(err)
+  } noraise {
+    value => Ok(value)
+  }
 
   match failing {
     Err(WeslCompileError::Validation(message)) =>
@@ -2325,12 +2692,18 @@ test "wesl: validation checks matrix templates through AST type expressions" {
     root_path, "fn main() {\n  var m: array<mat2x2<i32>, 1>;\n}\n",
   )
 
-  let result = try? compile(
-    root_path,
-    resolver,
-    EscapeMangler::default(),
-    CompileOptions::default().with_strip(false),
-  )
+  let result = try
+    compile(
+      root_path,
+      resolver,
+      EscapeMangler::default(),
+      CompileOptions::default().with_strip(false),
+    )
+  catch {
+    err => Err(err)
+  } noraise {
+    value => Ok(value)
+  }
 
   match result {
     Err(WeslCompileError::Validation(message)) =>
@@ -2348,12 +2721,18 @@ test "wesl: validation checks matrix constructors through AST calls" {
   let resolver = VirtualResolver::new()
   resolver.add_module(root_path, "const m = mat2x2(1i, 0.0, 0.0, 0.0);\n")
 
-  let result = try? compile(
-    root_path,
-    resolver,
-    EscapeMangler::default(),
-    CompileOptions::default().with_strip(false),
-  )
+  let result = try
+    compile(
+      root_path,
+      resolver,
+      EscapeMangler::default(),
+      CompileOptions::default().with_strip(false),
+    )
+  catch {
+    err => Err(err)
+  } noraise {
+    value => Ok(value)
+  }
 
   match result {
     Err(WeslCompileError::Validation(message)) =>
@@ -2375,12 +2754,18 @@ test "wesl: validation checks matrix assignments through AST lhs scopes" {
     root_path, "fn main() {\n  var m = mat2x2(0.0, 0.0, 0.0, 0.0);\n  m[0] = vec2(1i, 0.0);\n}\n",
   )
 
-  let result = try? compile(
-    root_path,
-    resolver,
-    EscapeMangler::default(),
-    CompileOptions::default().with_strip(false),
-  )
+  let result = try
+    compile(
+      root_path,
+      resolver,
+      EscapeMangler::default(),
+      CompileOptions::default().with_strip(false),
+    )
+  catch {
+    err => Err(err)
+  } noraise {
+    value => Ok(value)
+  }
 
   match result {
     Err(WeslCompileError::Validation(message)) =>
@@ -2491,12 +2876,18 @@ test "wesl: compile validate runs loaded WESL surface checks" {
   let resolver = VirtualResolver::new()
   resolver.add_module(root_path, "const value: MissingType = 1i;\n")
 
-  let result = try? compile(
-    root_path,
-    resolver,
-    EscapeMangler::default(),
-    CompileOptions::default().with_strip(false),
-  )
+  let result = try
+    compile(
+      root_path,
+      resolver,
+      EscapeMangler::default(),
+      CompileOptions::default().with_strip(false),
+    )
+  catch {
+    err => Err(err)
+  } noraise {
+    value => Ok(value)
+  }
 
   match result {
     Err(WeslCompileError::Validate(ValidateError::UndefinedSymbol(name))) =>
@@ -2513,12 +2904,18 @@ test "wesl: compile validate runs assembled WGSL call checks" {
     root_path, "const value = 1i;\n@compute @workgroup_size(1)\nfn main() {\n  let out = value();\n}\n",
   )
 
-  let result = try? compile(
-    root_path,
-    resolver,
-    EscapeMangler::default(),
-    CompileOptions::default().with_strip(false),
-  )
+  let result = try
+    compile(
+      root_path,
+      resolver,
+      EscapeMangler::default(),
+      CompileOptions::default().with_strip(false),
+    )
+  catch {
+    err => Err(err)
+  } noraise {
+    value => Ok(value)
+  }
 
   match result {
     Err(WeslCompileError::Validate(ValidateError::NotCallable(name))) =>
@@ -2670,12 +3067,18 @@ test "wesl: diagnostic compile path attaches resolver source context" {
   let root_path = ModulePath::from_path("/shaders/root")
   resolver.add_module(root_path, "fn bad() {\n  var m: mat2x2<i32>;\n}\n")
 
-  let result = try? compile_sourcemap_diagnostic(
-    root_path,
-    resolver,
-    EscapeMangler::default(),
-    CompileOptions::default().with_strip(false),
-  )
+  let result = try
+    compile_sourcemap_diagnostic(
+      root_path,
+      resolver,
+      EscapeMangler::default(),
+      CompileOptions::default().with_strip(false),
+    )
+  catch {
+    err => Err(err)
+  } noraise {
+    value => Ok(value)
+  }
 
   match result {
     Err(WeslDiagnosticError::Diagnostic(diagnostic)) => {
@@ -2851,7 +3254,13 @@ test "wesl: resolver exposes display name and registered modules" {
 
 ///|
 test "wesl: no resolver error matches upstream context" {
-  let result = try? NoResolver::new().resolve_source(ModulePath::new_root())
+  let result = try
+    NoResolver::new().resolve_source(ModulePath::new_root())
+  catch {
+    err => Err(err)
+  } noraise {
+    value => Ok(value)
+  }
 
   match result {
     Err(ResolveError::ModuleNotFound(_, context)) =>
@@ -2866,11 +3275,25 @@ test "wesl: no resolver error matches upstream context" {
 ///|
 test "wesl: resolver defaults match upstream constructors" {
   let root_path = ModulePath::new_root()
-  let no_resolver_result = try? NoResolver::default().resolve_source(root_path)
-  let pkg_result = try? PkgResolver::default().resolve_source(
-    try! parse_module_path("demo"),
-  )
-  let router_result = try? Router::default().resolve_source(root_path)
+  let no_resolver_result = try
+    NoResolver::default().resolve_source(root_path)
+  catch {
+    err => Err(err)
+  } noraise {
+    value => Ok(value)
+  }
+  let pkg_result = try
+    PkgResolver::default().resolve_source(try! parse_module_path("demo"))
+  catch {
+    err => Err(err)
+  } noraise {
+    value => Ok(value)
+  }
+  let router_result = try Router::default().resolve_source(root_path) catch {
+    err => Err(err)
+  } noraise {
+    value => Ok(value)
+  }
 
   debug_inspect(VirtualResolver::default().modules().length(), content="0")
   debug_inspect(
@@ -2920,7 +3343,7 @@ test "wesl: virtual resolver accepts translation units" {
 struct AppendDeclPreprocessor {}
 
 ///|
-impl ModulePreprocessor for AppendDeclPreprocessor with preprocess_module(
+impl ModulePreprocessor for AppendDeclPreprocessor with fn preprocess_module(
   _self,
   _path,
   unit,
@@ -2951,7 +3374,7 @@ impl ModulePreprocessor for AppendDeclPreprocessor with preprocess_module(
 struct ConditionalAppendPreprocessor {}
 
 ///|
-impl ModulePreprocessor for ConditionalAppendPreprocessor with preprocess_module(
+impl ModulePreprocessor for ConditionalAppendPreprocessor with fn preprocess_module(
   _self,
   _path,
   unit,
@@ -3167,9 +3590,13 @@ test "wesl: package builder scans filesystem artifacts" {
     resolver.resolve_source(try! parse_module_path("demo_crate::nested::math")),
     content="\"fn triple(value: f32) -> f32 {\\n  return value * 3.0;\\n}\\n\"",
   )
-  let skipped = try? resolver.resolve_source(
-    try! parse_module_path("demo_crate::bad-name"),
-  )
+  let skipped = try
+    resolver.resolve_source(try! parse_module_path("demo_crate::bad-name"))
+  catch {
+    err => Err(err)
+  } noraise {
+    value => Ok(value)
+  }
   match skipped {
     Err(ResolveError::ModuleNotFound(_, _)) => ()
     _ => fail("expected invalid module filename to be skipped")

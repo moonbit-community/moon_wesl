@@ -78,7 +78,7 @@ pub struct Features {
 
 ///|
 pub fn Features::default() -> Features {
-  Features::{ default: Feature::default(), flags: @hashmap.HashMap::new() }
+  Features::{ default: Feature::default(), flags: @hashmap.HashMap([]) }
 }
 
 ///|
@@ -258,20 +258,20 @@ pub struct BasicSourceMap {
 
 ///|
 pub(open) trait SourceMap {
-  get_decl(Self, String) -> (ModulePath, String)?
-  get_source(Self, ModulePath) -> String?
-  get_display_name(Self, ModulePath) -> String?
-  get_default_source(Self) -> String? = _
-  unmangle_text(Self, String) -> String = _
+  fn get_decl(Self, String) -> (ModulePath, String)?
+  fn get_source(Self, ModulePath) -> String?
+  fn get_display_name(Self, ModulePath) -> String?
+  fn get_default_source(Self) -> String? = _
+  fn unmangle_text(Self, String) -> String = _
 }
 
 ///|
-impl SourceMap with get_default_source(_self) {
+impl SourceMap with fn get_default_source(_self) {
   None
 }
 
 ///|
-impl SourceMap with unmangle_text(_self, text) {
+impl SourceMap with fn unmangle_text(_self, text) {
   text
 }
 
@@ -279,8 +279,8 @@ impl SourceMap with unmangle_text(_self, text) {
 pub fn BasicSourceMap::default() -> BasicSourceMap {
   BasicSourceMap::{
     root: ModulePath::new_root(),
-    mappings: @hashmap.HashMap::new(),
-    sources: @hashmap.HashMap::new(),
+    mappings: @hashmap.HashMap([]),
+    sources: @hashmap.HashMap([]),
     default_source: None,
   }
 }
@@ -401,12 +401,12 @@ pub fn BasicSourceMap::unmangle_text(
 }
 
 ///|
-pub impl SourceMap for BasicSourceMap with get_decl(self, decl) {
+pub impl SourceMap for BasicSourceMap with fn get_decl(self, decl) {
   self.mappings.get(decl)
 }
 
 ///|
-pub impl SourceMap for BasicSourceMap with get_source(self, path) {
+pub impl SourceMap for BasicSourceMap with fn get_source(self, path) {
   match self.sources.get(path) {
     Some((_, source)) => Some(source)
     None => None
@@ -414,7 +414,7 @@ pub impl SourceMap for BasicSourceMap with get_source(self, path) {
 }
 
 ///|
-pub impl SourceMap for BasicSourceMap with get_display_name(self, path) {
+pub impl SourceMap for BasicSourceMap with fn get_display_name(self, path) {
   match self.sources.get(path) {
     Some((name, _)) => name
     None => None
@@ -422,12 +422,12 @@ pub impl SourceMap for BasicSourceMap with get_display_name(self, path) {
 }
 
 ///|
-pub impl SourceMap for BasicSourceMap with get_default_source(self) {
+pub impl SourceMap for BasicSourceMap with fn get_default_source(self) {
   self.default_source
 }
 
 ///|
-pub impl SourceMap for BasicSourceMap with unmangle_text(self, text) {
+pub impl SourceMap for BasicSourceMap with fn unmangle_text(self, text) {
   self.unmangle_text(text)
 }
 
@@ -445,22 +445,22 @@ pub fn NoSourceMap::default() -> NoSourceMap {
 }
 
 ///|
-pub impl SourceMap for NoSourceMap with get_decl(_self, _decl) {
+pub impl SourceMap for NoSourceMap with fn get_decl(_self, _decl) {
   None
 }
 
 ///|
-pub impl SourceMap for NoSourceMap with get_source(_self, _path) {
+pub impl SourceMap for NoSourceMap with fn get_source(_self, _path) {
   None
 }
 
 ///|
-pub impl SourceMap for NoSourceMap with get_display_name(_self, _path) {
+pub impl SourceMap for NoSourceMap with fn get_display_name(_self, _path) {
   None
 }
 
 ///|
-pub impl SourceMap for NoSourceMap with get_default_source(_self) {
+pub impl SourceMap for NoSourceMap with fn get_default_source(_self) {
   None
 }
 
@@ -528,7 +528,7 @@ pub fn[R] SourceMapper::finish(self : SourceMapper[R]) -> BasicSourceMap {
 }
 
 ///|
-pub impl[R : Resolver] Resolver for SourceMapper[R] with resolve_source(
+pub impl[R : Resolver] Resolver for SourceMapper[R] with fn resolve_source(
   self,
   path,
 ) {
@@ -538,11 +538,15 @@ pub impl[R : Resolver] Resolver for SourceMapper[R] with resolve_source(
 }
 
 ///|
-pub impl[R : Resolver] Resolver for SourceMapper[R] with resolve_module(
+pub impl[R : Resolver] Resolver for SourceMapper[R] with fn resolve_module(
   self,
   path,
 ) {
-  let source_result = try? R::resolve_source(self.resolver, path)
+  let source_result = try R::resolve_source(self.resolver, path) catch {
+    err => Err(err)
+  } noraise {
+    source => Ok(source)
+  }
   match source_result {
     Ok(source) =>
       self.sourcemap.add_source(
@@ -556,7 +560,7 @@ pub impl[R : Resolver] Resolver for SourceMapper[R] with resolve_module(
 }
 
 ///|
-pub impl[R : Resolver] Resolver for SourceMapper[R] with display_name(
+pub impl[R : Resolver] Resolver for SourceMapper[R] with fn display_name(
   self,
   path,
 ) {
@@ -564,7 +568,7 @@ pub impl[R : Resolver] Resolver for SourceMapper[R] with display_name(
 }
 
 ///|
-pub impl[R : Resolver] Resolver for SourceMapper[R] with fs_path(self, path) {
+pub impl[R : Resolver] Resolver for SourceMapper[R] with fn fs_path(self, path) {
   R::fs_path(self.resolver, path)
 }
 
@@ -745,8 +749,8 @@ fn wesl_parse_loaded_translation_unit(
   let imports : Array[ImportItem] = []
   let import_conditional : Array[Bool] = []
   let parsed_items : Array[ModuleItem] = []
-  let named_items : @hashmap.HashMap[String, Int] = @hashmap.HashMap::new()
-  let duplicate_names : @hashmap.HashMap[String, Int] = @hashmap.HashMap::new()
+  let named_items : @hashmap.HashMap[String, Int] = @hashmap.HashMap([])
+  let duplicate_names : @hashmap.HashMap[String, Int] = @hashmap.HashMap([])
   for statement in translation_unit.imports {
     let conditional_import = wesl_has_conditional_compile_attr(
       statement.attributes,
@@ -799,7 +803,7 @@ fn wesl_parse_loaded_translation_unit(
       references: [],
     })
   }
-  let import_by_local : @hashmap.HashMap[String, Int] = @hashmap.HashMap::new()
+  let import_by_local : @hashmap.HashMap[String, Int] = @hashmap.HashMap([])
   for i in 0..<imports.length() {
     let import_item = imports[i]
     let skip_duplicate = skip_conditional_duplicates && import_conditional[i]
@@ -1586,7 +1590,7 @@ pub fn CondCompPreprocessor::new(features : Features) -> CondCompPreprocessor {
 }
 
 ///|
-pub impl ModulePreprocessor for CondCompPreprocessor with preprocess_module(
+pub impl ModulePreprocessor for CondCompPreprocessor with fn preprocess_module(
   self,
   _path,
   unit,
@@ -3046,7 +3050,11 @@ fn[R : Resolver] wesl_record_sourcemap_source(
   if !record_sourcemap || sourcemap.get_source(path) is Some(_) {
     return
   }
-  let source_result = try? R::resolve_source(resolver, path)
+  let source_result = try R::resolve_source(resolver, path) catch {
+    err => Err(err)
+  } noraise {
+    source => Ok(source)
+  }
   match source_result {
     Ok(source) =>
       sourcemap.add_source(path, R::display_name(resolver, path), source)
@@ -3489,7 +3497,7 @@ fn wesl_validate_loaded_cycles(
   order : Array[ModulePath],
   modules : @hashmap.HashMap[ModulePath, ParsedModule],
 ) -> Unit raise WeslCompileError {
-  let states : @hashmap.HashMap[String, Int] = @hashmap.HashMap::new()
+  let states : @hashmap.HashMap[String, Int] = @hashmap.HashMap([])
   for path in order {
     guard modules.get(path) is Some(parsed_module) else { continue }
     for item in parsed_module.items {
@@ -5102,7 +5110,7 @@ fn wesl_validate_translation_unit_surface(
 ) -> Unit raise WeslCompileError {
   let path = ModulePath::from_path("/__validate__")
   let parsed_module = wesl_parse_loaded_translation_unit(path, unit, true)
-  let modules : @hashmap.HashMap[ModulePath, ParsedModule] = @hashmap.HashMap::new()
+  let modules : @hashmap.HashMap[ModulePath, ParsedModule] = @hashmap.HashMap([])
   let order : Array[ModulePath] = [path]
   modules.set(path, parsed_module)
   for item in parsed_module.items {
@@ -5351,10 +5359,10 @@ fn[R : Resolver] compile_with_mangler_kind_and_sourcemap(
 ) -> CompileResult raise WeslCompileError {
   let _ = options.lower
   let _ = options.generics
-  let modules : @hashmap.HashMap[ModulePath, ParsedModule] = @hashmap.HashMap::new()
+  let modules : @hashmap.HashMap[ModulePath, ParsedModule] = @hashmap.HashMap([])
   let order : Array[ModulePath] = []
-  let used_modules : @hashmap.HashMap[ModulePath, Bool] = @hashmap.HashMap::new()
-  let used_decls : @hashmap.HashMap[String, Bool] = @hashmap.HashMap::new()
+  let used_modules : @hashmap.HashMap[ModulePath, Bool] = @hashmap.HashMap([])
+  let used_decls : @hashmap.HashMap[String, Bool] = @hashmap.HashMap([])
   let root_module = wesl_mark_module_used(
     root, resolver, options, modules, order, used_modules, used_decls, sourcemap,
     use_sourcemap, root, mangler,
@@ -5377,7 +5385,7 @@ fn[R : Resolver] compile_with_mangler_kind_and_sourcemap(
       used_modules.set(module_path, true)
     }
   }
-  let emitted : @hashmap.HashMap[ModulePath, Bool] = @hashmap.HashMap::new()
+  let emitted : @hashmap.HashMap[ModulePath, Bool] = @hashmap.HashMap([])
   let parts : Array[String] = []
   wesl_emit_module(
     root, root, modules, used_modules, used_decls, emitted, parts, mangler, options,
@@ -5442,7 +5450,11 @@ fn[R : Resolver] wesl_diagnostic_from_compile_error(
     match sourcemap.get_source(root) {
       Some(root_source) => sourcemap.set_default_source(root_source)
       None => {
-        let source_result = try? R::resolve_source(resolver, root)
+        let source_result = try R::resolve_source(resolver, root) catch {
+          err => Err(err)
+        } noraise {
+          source => Ok(source)
+        }
         match source_result {
           Ok(source) => {
             sourcemap.add_source(root, R::display_name(resolver, root), source)

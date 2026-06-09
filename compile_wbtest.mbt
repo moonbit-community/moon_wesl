@@ -23,7 +23,7 @@ fn compile_test_module(
 fn compile_test_named_items(
   names : Array[String],
 ) -> @hashmap.HashMap[String, Int] {
-  let items : @hashmap.HashMap[String, Int] = @hashmap.HashMap::new()
+  let items : @hashmap.HashMap[String, Int] = @hashmap.HashMap([])
   for i in 0..<names.length() {
     items.set(names[i], i)
   }
@@ -38,7 +38,7 @@ fn compile_test_ast_refs(
   wesl_collect_ast_item_references(
     header,
     compile_test_named_items(names),
-    @hashmap.HashMap::new(),
+    @hashmap.HashMap([]),
     [],
     try! parse_module_path("root"),
   )
@@ -62,7 +62,7 @@ fn compile_test_module_item_refs(
       references: [],
     },
     compile_test_named_items(names),
-    @hashmap.HashMap::new(),
+    @hashmap.HashMap([]),
     [],
     try! parse_module_path("root"),
   )
@@ -85,11 +85,11 @@ fn compile_test_ast_refs_with_import(
       end_line: 1,
     },
   ]
-  let import_by_local : @hashmap.HashMap[String, Int] = @hashmap.HashMap::new()
+  let import_by_local : @hashmap.HashMap[String, Int] = @hashmap.HashMap([])
   import_by_local.set(local_name, 0)
   wesl_collect_ast_item_references(
     header,
-    @hashmap.HashMap::new(),
+    @hashmap.HashMap([]),
     import_by_local,
     imports,
     try! parse_module_path("root"),
@@ -243,14 +243,20 @@ test "compile: sourcemap records loaded imports before failure" {
     root: root_path,
   }
 
-  let result = try? compile_with_mangler_kind_and_sourcemap(
-    root_path,
-    resolver,
-    ManglerKind::Escape,
-    CompileOptions::default(),
-    true,
-    source_map,
-  )
+  let result = try
+    compile_with_mangler_kind_and_sourcemap(
+      root_path,
+      resolver,
+      ManglerKind::Escape,
+      CompileOptions::default(),
+      true,
+      source_map,
+    )
+  catch {
+    err => Err(err)
+  } noraise {
+    value => Ok(value)
+  }
 
   match result {
     Err(WeslCompileError::MissingDecl(path, item)) => {

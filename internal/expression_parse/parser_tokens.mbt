@@ -112,7 +112,7 @@ pub(all) enum TokenKind {
 }
 
 ///|
-pub impl Show for TokenKind with output(self, logger) {
+pub impl Show for TokenKind with fn output(self, logger) {
   logger.write_string(
     match self {
       TK_IDENT => "IDENT"
@@ -153,7 +153,7 @@ pub impl Show for TokenKind with output(self, logger) {
 }
 
 ///|
-pub impl Debug for TokenKind with to_repr(self) {
+pub impl Debug for TokenKind with fn to_repr(self) {
   match self {
     TK_IDENT => to_repr("IDENT")
     TK_NUMBER => to_repr("NUMBER")

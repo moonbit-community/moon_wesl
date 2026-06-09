@@ -31,14 +31,14 @@ pub fn ResolveError::message(self : ResolveError) -> String {
 
 ///|
 pub(open) trait Resolver {
-  resolve_source(Self, ModulePath) -> String raise ResolveError
-  resolve_module(Self, ModulePath) -> TranslationUnit raise ResolveError = _
-  display_name(Self, ModulePath) -> String? = _
-  fs_path(Self, ModulePath) -> String? = _
+  fn resolve_source(Self, ModulePath) -> String raise ResolveError
+  fn resolve_module(Self, ModulePath) -> TranslationUnit raise ResolveError = _
+  fn display_name(Self, ModulePath) -> String? = _
+  fn fs_path(Self, ModulePath) -> String? = _
 }
 
 ///|
-impl Resolver with resolve_module(self, path) {
+impl Resolver with fn resolve_module(self, path) {
   let source = Self::resolve_source(self, path)
   parse_translation_unit(path, source, true) catch {
     err => raise ResolveError::Error(err.message())
@@ -46,12 +46,12 @@ impl Resolver with resolve_module(self, path) {
 }
 
 ///|
-impl Resolver with display_name(_self, _path) {
+impl Resolver with fn display_name(_self, _path) {
   None
 }
 
 ///|
-impl Resolver with fs_path(_self, _path) {
+impl Resolver with fn fs_path(_self, _path) {
   None
 }
 
@@ -82,7 +82,7 @@ pub fn NoResolver::default() -> NoResolver {
 }
 
 ///|
-pub impl Resolver for NoResolver with resolve_source(_self, path) {
+pub impl Resolver for NoResolver with fn resolve_source(_self, path) {
   raise ResolveError::ModuleNotFound(
     path, "no module resolver, imports are effectively disabled here",
   )
@@ -95,7 +95,7 @@ pub struct VirtualResolver {
 
 ///|
 pub fn VirtualResolver::new() -> VirtualResolver {
-  VirtualResolver::{ files: @hashmap.HashMap::new() }
+  VirtualResolver::{ files: @hashmap.HashMap([]) }
 }
 
 ///|
@@ -144,18 +144,18 @@ pub fn VirtualResolver::modules(
 }
 
 ///|
-pub impl Resolver for VirtualResolver with resolve_source(self, path) {
+pub impl Resolver for VirtualResolver with fn resolve_source(self, path) {
   self.get_module(path)
 }
 
 ///|
-pub impl Resolver for VirtualResolver with display_name(_self, path) {
+pub impl Resolver for VirtualResolver with fn display_name(_self, path) {
   Some(path.to_string())
 }
 
 ///|
 pub(open) trait ModulePreprocessor {
-  preprocess_module(Self, ModulePath, TranslationUnit) -> TranslationUnit raise ResolveError
+  fn preprocess_module(Self, ModulePath, TranslationUnit) -> TranslationUnit raise ResolveError
 }
 
 ///|
@@ -167,7 +167,7 @@ pub fn IdentityPreprocessor::new() -> IdentityPreprocessor {
 }
 
 ///|
-pub impl ModulePreprocessor for IdentityPreprocessor with preprocess_module(
+pub impl ModulePreprocessor for IdentityPreprocessor with fn preprocess_module(
   _self,
   _path,
   unit,
@@ -190,7 +190,7 @@ pub fn[R, P] Preprocessor::new(
 }
 
 ///|
-pub impl[R : Resolver, P : ModulePreprocessor] Resolver for Preprocessor[R, P] with resolve_source(
+pub impl[R : Resolver, P : ModulePreprocessor] Resolver for Preprocessor[R, P] with fn resolve_source(
   self,
   path,
 ) {
@@ -198,7 +198,7 @@ pub impl[R : Resolver, P : ModulePreprocessor] Resolver for Preprocessor[R, P] w
 }
 
 ///|
-pub impl[R : Resolver, P : ModulePreprocessor] Resolver for Preprocessor[R, P] with resolve_module(
+pub impl[R : Resolver, P : ModulePreprocessor] Resolver for Preprocessor[R, P] with fn resolve_module(
   self,
   path,
 ) {
@@ -207,7 +207,7 @@ pub impl[R : Resolver, P : ModulePreprocessor] Resolver for Preprocessor[R, P] w
 }
 
 ///|
-pub impl[R : Resolver, P : ModulePreprocessor] Resolver for Preprocessor[R, P] with display_name(
+pub impl[R : Resolver, P : ModulePreprocessor] Resolver for Preprocessor[R, P] with fn display_name(
   self,
   path,
 ) {
@@ -215,7 +215,7 @@ pub impl[R : Resolver, P : ModulePreprocessor] Resolver for Preprocessor[R, P] w
 }
 
 ///|
-pub impl[R : Resolver, P : ModulePreprocessor] Resolver for Preprocessor[R, P] with fs_path(
+pub impl[R : Resolver, P : ModulePreprocessor] Resolver for Preprocessor[R, P] with fn fs_path(
   self,
   path,
 ) {
@@ -690,7 +690,7 @@ fn pkg_resolver_resolve_package_path(
 }
 
 ///|
-pub impl Resolver for PkgResolver with resolve_source(self, path) {
+pub impl Resolver for PkgResolver with fn resolve_source(self, path) {
   let package_path = match path.origin {
     Package(name) => name
     _ =>
@@ -726,7 +726,7 @@ pub impl Resolver for PkgResolver with resolve_source(self, path) {
 }
 
 ///|
-pub impl Resolver for PkgResolver with display_name(_self, path) {
+pub impl Resolver for PkgResolver with fn display_name(_self, path) {
   Some(path.to_string())
 }
 
@@ -786,7 +786,7 @@ pub fn FileResolver::file_path(
 }
 
 ///|
-pub impl Resolver for FileResolver with resolve_source(self, path) {
+pub impl Resolver for FileResolver with fn resolve_source(self, path) {
   let fs_path = self.file_path(path)
   @fs.read_file_to_string(fs_path) catch {
     _ =>
@@ -802,14 +802,14 @@ pub impl Resolver for FileResolver with resolve_source(self, path) {
 }
 
 ///|
-pub impl Resolver for FileResolver with display_name(self, path) {
+pub impl Resolver for FileResolver with fn display_name(self, path) {
   Some(self.file_path(path)) catch {
     _ => None
   }
 }
 
 ///|
-pub impl Resolver for FileResolver with fs_path(self, path) {
+pub impl Resolver for FileResolver with fn fs_path(self, path) {
   Some(self.file_path(path)) catch {
     _ => None
   }
@@ -827,7 +827,7 @@ pub fn StandardResolver::new(base : String) -> StandardResolver {
   StandardResolver::{
     pkg: PkgResolver::new(),
     files: FileResolver::new(base),
-    constants: @hashmap.HashMap::new(),
+    constants: @hashmap.HashMap([]),
   }
 }
 
@@ -877,7 +877,7 @@ fn standard_resolver_is_constants_path(path : ModulePath) -> Bool {
 }
 
 ///|
-pub impl Resolver for StandardResolver with resolve_source(self, path) {
+pub impl Resolver for StandardResolver with fn resolve_source(self, path) {
   if standard_resolver_is_constants_path(path) {
     self.generate_constant_module()
   } else if path.is_package() {
@@ -888,7 +888,7 @@ pub impl Resolver for StandardResolver with resolve_source(self, path) {
 }
 
 ///|
-pub impl Resolver for StandardResolver with display_name(self, path) {
+pub impl Resolver for StandardResolver with fn display_name(self, path) {
   if standard_resolver_is_constants_path(path) {
     Some(path.to_string())
   } else if path.is_package() {
@@ -899,7 +899,7 @@ pub impl Resolver for StandardResolver with display_name(self, path) {
 }
 
 ///|
-pub impl Resolver for StandardResolver with fs_path(self, path) {
+pub impl Resolver for StandardResolver with fn fs_path(self, path) {
   if standard_resolver_is_constants_path(path) {
     None
   } else if path.is_package() {
@@ -1087,19 +1087,19 @@ fn Router::route(
 }
 
 ///|
-pub impl Resolver for Router with resolve_source(self, path) {
+pub impl Resolver for Router with fn resolve_source(self, path) {
   let (resolver, suffix) = self.route(path)
   resolver.resolve_source(resolver.route_path(path, suffix))
 }
 
 ///|
-pub impl Resolver for Router with resolve_module(self, path) {
+pub impl Resolver for Router with fn resolve_module(self, path) {
   let (resolver, suffix) = self.route(path)
   resolver.resolve_module(resolver.route_path(path, suffix))
 }
 
 ///|
-pub impl Resolver for Router with display_name(self, path) {
+pub impl Resolver for Router with fn display_name(self, path) {
   try {
     let (resolver, suffix) = self.route(path)
     resolver.display_name(resolver.route_path(path, suffix))
@@ -1109,7 +1109,7 @@ pub impl Resolver for Router with display_name(self, path) {
 }
 
 ///|
-pub impl Resolver for Router with fs_path(self, path) {
+pub impl Resolver for Router with fn fs_path(self, path) {
   try {
     let (resolver, suffix) = self.route(path)
     resolver.fs_path(resolver.route_path(path, suffix))
