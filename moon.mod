@@ -14,7 +14,7 @@ license = "Apache-2.0"
 
 keywords = [ "wesl", "shader" ]
 
-description = "A MoonBit WESL compiler extracted from mgstudio."
+description = "Deprecated standalone WESL compiler; moved to moon_wgsl/modules/moon_wesl."
 
 options(
   "bin-deps": { "moonbitlang/yacc": "0.7.13" },
